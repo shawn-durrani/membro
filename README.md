@@ -34,9 +34,10 @@ cd membro
 ./start.sh
 ```
 
-The server runs at **http://127.0.0.1:8901**. First run prints a
-recovery secret; use it once to enrol a password, then log in with the
-password. Set `MEMORY_AUTH_TOKEN` in `.env` to keep the secret stable.
+The server runs at **http://127.0.0.1:8901**; set `MEMORY_PORT` if that
+port is taken. First run prints a recovery secret; use it once to enrol a
+password, then log in with the password. Set `MEMORY_AUTH_TOKEN` in
+`.env` to keep the secret stable.
 
 To import your claude.ai export:
 
