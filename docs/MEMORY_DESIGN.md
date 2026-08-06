@@ -73,11 +73,13 @@ status filter beside it (**valid** by default), and it returns the same
 superseded cards too.
 
 ### Recall (what a model gets when it looks something up): capped on purpose
-When a participant calls `recall_memory`, it receives the **top ~10 cards by
-relevance** (semantic + keyword + a bounded recency weight), de-duplicated, never
-the whole ledger. This is deliberate: the model wants the few cards that bear on
-the question rather than 1,000 facts dumped into a tool result, so ranking plus
-a small limit is the right behaviour here.
+A lookup returns the **top cards by relevance** (semantic + keyword + a bounded
+recency weight), de-duplicated, never the whole ledger. The limit differs by
+door: the MCP `recall_memory` tool asks for **up to 20** cards, while the HTTP
+`POST /v1/recall` defaults to **10** and refuses more than 50. This is
+deliberate: the model wants the few cards that bear on the question rather than
+1,000 facts dumped into a tool result, so ranking plus a small limit is the
+right behaviour here.
 
 ### The summary (the always-on cheat-sheet): folds ~500 cards (a real limit)
 The profile is rebuilt by *folding*: one pass in which the selected cards

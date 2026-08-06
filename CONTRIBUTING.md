@@ -38,9 +38,12 @@ git config core.hooksPath .githooks
 ```
 
   Optionally copy `secret-scan-local.example` to `.secret-scan-local`
-  (gitignored) with patterns for your own names and places. A green
-  scan covers key shapes and identifiers only; content must be
-  synthetic by construction.
+  (gitignored) with patterns for your own names and places. The scanner
+  has three classes: key shapes, infrastructure identifiers, and
+  personal content matched against that local deny-list. The third
+  class only runs if you made the file, and it is never a completeness
+  proof either way, so content must still be synthetic by
+  construction. A green scan is not publication clearance.
 - The scope boundaries in [ARCHITECTURE.md](ARCHITECTURE.md) are
   deliberate.
 

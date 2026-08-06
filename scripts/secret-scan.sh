@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Leak scan — ONE implementation for the pre-commit hook AND CI, so the two
-# can never drift. It rejects two DISTINCT classes of leak (see docs/COLLABORATOR_SAFETY.md):
+# can never drift. It rejects three DISTINCT classes of leak:
 #
 #   1. Secrets  — API-key SHAPES (prefix + a long body). A secret is a key you
 #      rotate: catch it, revoke it, move on.
@@ -10,6 +10,10 @@
 #      un-publish once it lands on a public remote; the only real fix is to keep
 #      it out. These aren't credentials, so a secrets-only scan had nothing to
 #      match — that gap is exactly why this class was added.
+#   3. Personal CONTENT: free-text patterns from the gitignored
+#      `.secret-scan-local` deny-list (your own names, places, employers). The
+#      list is itself personal data, so it never ships: CI has no file, skips
+#      this class, and says so in its output. See class 3 below.
 #
 # Documented placeholders pass (my-mac.my-tailnet.ts.net, <mac>.<tailnet>.ts.net,
 # tailXXXX examples, /Users/you, /home/you, you@example.com, GitHub noreply,

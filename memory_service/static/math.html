@@ -213,7 +213,10 @@
         the ranked answers, tick brightness showing how much each resonated.
         <b>Why it matters:</b> the model weighs your whole history every time, not one
         lookup (<b>white</b> won, <span style="color: var(--warn)">amber</span> lost as a
-        near-duplicate); press <b>▶ evolve</b> to watch the answer change through history.</p>
+        near-duplicate); press <b>▶ evolve</b> to watch the answer change through history.
+        <b>On screen:</b> the rest of this page draws shapes, never the words in your
+        memories, but "follow live recalls" replays each question as it was typed, so
+        untick it before you share your screen.</p>
 
       <h3 class="viz-h">The forgetting curve</h3>
       <div class="viz-controls">
@@ -237,7 +240,11 @@
 const $ = (id) => document.getElementById(id);
 // ---- Mathematics page ----------------------------------------------------
 // A ~90-line 3D engine (rotate/drag/project/paint) shared by both visuals.
-// Privacy: the endpoints send geometry only — ids, ages, importances, coords.
+// Privacy: the /v1/viz/* feeds send geometry (ids, ages, importances, coords)
+// and never fact content, with ONE exception this page relies on:
+// /v1/viz/recalls returns each past query verbatim, and live-follow below puts
+// that text straight into the trace box. Readable words, so the page is not
+// safe to screenshot without checking what is in that feed first.
 
 const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
 

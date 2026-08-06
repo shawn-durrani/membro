@@ -39,10 +39,17 @@ port is taken. First run prints a recovery secret; use it once to enrol a
 password, then log in with the password. Set `MEMORY_AUTH_TOKEN` in
 `.env` to keep the secret stable.
 
-To import your claude.ai export:
+To import your claude.ai export, unzip it first: the importer reads the
+unzipped directory, not the zip. Stop the service before running it, or
+point `--data-dir` at a throwaway copy. The only guard is a coarse one:
+with no `--data-dir`, the importer quits if anything answers on
+127.0.0.1:8901, and that port is hardcoded, so a service on another
+`MEMORY_PORT` goes undetected. Pass `--data-dir` and there is no check at
+all; it writes wherever you point it, running service or not.
 
 ```sh
-.venv/bin/python scripts/import_claude_export.py /path/to/export.zip
+unzip ~/Downloads/data-2026-08-01.zip -d ~/claude-export
+.venv/bin/python scripts/import_claude_export.py --export-dir ~/claude-export
 ```
 
 Imports are idempotent; re-running never duplicates messages.

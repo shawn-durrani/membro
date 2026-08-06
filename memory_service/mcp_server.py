@@ -5,8 +5,10 @@ deliberately absent: that asymmetry is the write gate. Every save through this
 adapter carries an mcp:* origin and is therefore quarantined at creation —
 nothing external becomes canon without human review.
 
-Register with:
-    claude mcp add -s user multi-model-memory -- \
+Register with (the variables must be passed with -e so they reach the SERVER
+when it runs; a shell prefix before `claude mcp add` would only set them for
+the registration command itself):
+    claude mcp add -s user membro -e PYTHONPATH=<repo> -- \
         <repo>/.venv/bin/python -m memory_service.mcp_server
 """
 
