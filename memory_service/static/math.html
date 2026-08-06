@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mathematics — Membro</title>
+<style>
+  /* Theme tokens — keep in sync with index.html (same five palettes). */
+  :root {
+    /* color — dark-first, semantic */
+    --bg: #14161a; --panel: #1c1f26; --panel2: #23272f; --border: #2c313c;
+    --text: #d8dde6; --dim: #8b93a2; --faint: #6b7280;
+    --accent: #6ea8fe; --ok: #4cc38a; --warn: #e5c07b; --err: #e06c75;
+    --info: #6ea8fe; --synth: #c678dd; --focus: #6ea8fe;
+    /* spacing (4px base) */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-8: 32px;
+    /* radius */
+    --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-full: 999px;
+    /* elevation — borders do the work, shadows whisper */
+    --shadow-pop: 0 4px 16px rgb(0 0 0 / .35), 0 0 0 1px var(--border);
+    /* motion */
+    --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 300ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --ease-in: cubic-bezier(0.3, 0, 0.8, 0.15);
+    /* type */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  /* Themes — same five palettes as multi-model-chat, mapped to admin tokens.
+     Default (:root above) = Zinc. */
+  [data-theme="midnight"] {
+    --bg: #0b1120; --panel: #121a2b; --panel2: #1c2740; --border: #2a3a55;
+    --text: #e8ecf6; --dim: #9aa7c2; --faint: #6e7c9c;
+  }
+  [data-theme="espresso"] {
+    --bg: #141110; --panel: #1b1815; --panel2: #282218; --border: #3a3226;
+    --text: #f1ece4; --dim: #b3a895; --faint: #837868;
+    --accent: #d19a66; --focus: #d19a66; --info: #d19a66;
+  }
+  [data-theme="oled"] {
+    --bg: #000000; --panel: #0d0d0f; --panel2: #1a1a1d; --border: #26262b;
+    --text: #f5f5f7; --dim: #a0a0a8; --faint: #707078;
+  }
+  [data-theme="light"] {
+    --bg: #ffffff; --panel: #f6f6f8; --panel2: #ececf0; --border: #d5d5dc;
+    --text: #101012; --dim: #4a4a52; --faint: #7c7c87;
+    --accent: #2563eb; --ok: #15803d; --warn: #a16207; --err: #b91c1c;
+    --info: #2563eb; --synth: #7e22ce; --focus: #2563eb;
+    --shadow-pop: 0 4px 16px rgb(0 0 0 / .12), 0 0 0 1px var(--border);
+  }
+
+  * { box-sizing: border-box; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: var(--space-1) var(--space-3);
+    font: 500 12px/20px var(--font-ui); cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #294672; border-color: #3a5f96; }
+  input {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: var(--space-2) var(--space-2);
+    font: inherit; font-size: 13px;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .status-line { color: var(--dim); font-size: 12px; margin-left: var(--space-2); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/22px var(--font-ui);
+    padding: var(--space-6) clamp(16px, 4vw, 48px) var(--space-8);
+  }
+  header { display: flex; align-items: baseline; gap: var(--space-4);
+            flex-wrap: wrap; margin-bottom: var(--space-4); }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  header a:hover { text-decoration: underline; }
+  h1 { font-size: 20px; line-height: 28px; margin: 0; }
+  .sub { color: var(--dim); font-size: 13px; max-width: none; margin: 0 0 var(--space-6); }
+  .viz-h { font-size: 16px; }
+  /* ---- Mathematics page: the machinery of memory, drawn from real data ---- */
+  .viz-wrap { position: relative; }
+  .viz-canvas {
+    width: 100%; height: 400px; display: block; border-radius: var(--r-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    cursor: grab; touch-action: none;
+  }
+  .viz-canvas:active { cursor: grabbing; }
+  .viz-note { color: var(--dim); font-size: 13px; line-height: 19px;
+              margin-top: var(--space-3); max-width: none; }
+  .viz-tip {
+    position: absolute; pointer-events: none; display: none; z-index: 3;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 2px 8px; font-size: 12px; color: var(--text);
+  }
+  .viz-controls[hidden] { display: none; }
+  .viz-controls { display: flex; align-items: center; gap: var(--space-3);
+                  margin: var(--space-3) 0 var(--space-2); color: var(--dim);
+                  font-size: 12px; flex-wrap: wrap; }
+  .viz-controls input[type=range] { width: 220px; }
+  .viz-h { font-size: 14px; font-weight: 600; margin: var(--space-5) 0 var(--space-2); }
+  .viz-status { color: var(--dim); font-size: 12px; margin: var(--space-3) 0; }
+  .layer-strip { display: flex; align-items: center; gap: var(--space-2);
+                 flex-wrap: wrap; margin: var(--space-2) 0; color: var(--dim);
+                 font-size: 12px; }
+  .layer { border: 1px solid var(--border); border-radius: var(--r-full);
+           padding: 2px 10px; white-space: nowrap; }
+  .layer-arrow { color: var(--faint); }
+  .layer.hit { animation: layerHit 1.1s var(--ease-out); }
+  @keyframes layerHit {
+    0% { border-color: var(--accent); color: var(--text);
+         box-shadow: 0 0 12px 1px var(--accent); }
+    100% { border-color: var(--border); color: var(--dim); box-shadow: none; }
+  }
+  /* the dedicated page gives the visuals room */
+  .viz-canvas { height: 56vh; min-height: 380px; }
+  #viz-cloud { height: 64vh; min-height: 430px; }
+  /* ---- Memory scene (#40): biome volumes + privacy veil + sediment ---- */
+  .switch { display: inline-flex; align-items: center; gap: var(--space-2);
+            cursor: pointer; color: var(--dim); }
+  .switch input { accent-color: var(--accent); width: auto; padding: 0; }
+  .switch[hidden] { display: none; }
+  .sediment { margin-top: var(--space-3); border: 1px solid var(--border);
+              border-radius: var(--r-sm); padding: var(--space-3);
+              background: var(--panel); font-size: 12px; color: var(--dim); }
+  .sediment[hidden] { display: none; }
+  .sediment h4 { margin: 0 0 var(--space-2); font-size: 13px; color: var(--text); }
+  .strata { display: flex; flex-direction: column; gap: 3px; margin: var(--space-2) 0; }
+  .stratum { display: flex; align-items: center; gap: var(--space-2);
+             padding: 2px 8px; border-radius: var(--r-sm);
+             background: var(--panel2); border: 1px solid var(--border); }
+  .stratum .lyr { color: var(--faint); font-family: var(--font-mono); font-size: 11px; }
+  .stratum.head { border-color: var(--accent); color: var(--text); }
+  .sediment .handoff { color: var(--accent); text-decoration: none; }
+  .sediment .handoff:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<script>
+  (function () {
+    var t = localStorage.getItem("mm-theme");
+    if (t && t !== "zinc") document.documentElement.dataset.theme = t;
+  })();
+</script>
+<header>
+  <a href="/">&#8592; memory admin</a>
+  <h1>Mathematics</h1>
+</header>
+<p class="sub"><b>The machinery of your memory, drawn live from your real data.</b>
+  Two words to know: each remembered fact is one <b>card</b>; the <b>ledger</b> is the
+  append-only book holding every card ever written — superseded and quarantined ones
+  included, nothing erased. Nothing on this page shows what any card <i>says</i> —
+  every dot and filament is pure geometry: an id, an age, an importance, a score.
+  This is what the math is doing underneath, made visible.</p>
+
+      <h3 class="viz-h">The life of your memory</h3>
+      <div class="viz-status" id="cloud-status" hidden></div>
+      <div class="viz-controls">
+        <label for="cloud-zoom">Zoom</label>
+        <input type="range" id="cloud-zoom" min="100" max="420" step="1" value="100"
+               style="flex:1; min-width:180px;" aria-label="Zoom in to reveal memories and co-recall trails">
+        <span id="cloud-zoom-label" style="min-width:220px;">orbit — biomes &amp; memories</span>
+        <label class="switch">
+          <input type="checkbox" id="cloud-veil" aria-label="Privacy veil: keep the shape, hide the readable detail">
+          <span title="Turns the biomes into anonymous equal glowing orbs and hides the memories, labels and trails — the shape of your memory without any readable detail.">Privacy veil</span>
+        </label>
+      </div>
+      <div class="viz-wrap">
+        <canvas id="viz-cloud" class="viz-canvas"
+                aria-label="Your memory right now in 3D: every memory a dot, with translucent coloured biome volumes as ambient context; drag to orbit, zoom to reveal trails"></canvas>
+        <div class="viz-tip" id="cloud-tip"></div>
+      </div>
+      <div id="cloud-sediment" class="sediment" hidden></div>
+      <p class="viz-note"><b>Your memory as it is right now.</b> Each dot is one memory, sized
+        by importance and coloured by its weight (the same ramp as the ledger); the translucent
+        coloured volumes are its <b>biomes</b> — the neighbourhood of related memories around it.
+        Drag to orbit; zoom in to reveal the trails between memories that get recalled together,
+        and click a dot or a biome to see what it buried (its sediment).</p>
+
+      <h3 class="viz-h" id="trace">Watch a recall think</h3>
+      <div class="layer-strip" aria-label="Live memory architecture: which layer each question reaches">
+        <span class="layer" id="layer-q">question</span>
+        <span class="layer-arrow">&#8594;</span>
+        <span class="layer" id="layer-summary">summary &#183; the profile in every prompt &#183; instant</span>
+        <span class="layer-arrow">&#8594;</span>
+        <span class="layer" id="layer-ledger">ledger &#183; every card &#183; deep</span>
+        <span class="status-line" id="layer-status"></span>
+      </div>
+      <div class="viz-controls">
+        <input type="text" id="trace-q" placeholder="ask your memory something… e.g. woodworking"
+               style="flex:1; min-width: 200px;" aria-label="Recall query to trace">
+        <button class="primary" id="trace-run">Trace it</button>
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="trace-follow" checked style="accent-color: var(--accent); width:auto; padding:0;">
+          follow live recalls
+        </label>
+        <span class="status-line" id="trace-status"></span>
+      </div>
+      <div class="viz-controls" id="trace-evo" hidden>
+        <button id="trace-play" aria-label="Replay how the answer evolved over time">▶ evolve</button>
+        <input type="range" id="trace-time" min="0" max="1000" step="1" value="1000"
+               style="flex:1; min-width: 200px;" aria-label="Scrub the answer through time">
+        <span id="trace-date" style="min-width: 230px;">answer as of now</span>
+      </div>
+      <div class="viz-wrap">
+        <canvas id="viz-trace" class="viz-canvas"
+                aria-label="Flow diagram: the query fanning across every memory, converging into ranked results"></canvas>
+        <div class="viz-tip" id="trace-tip"></div>
+      </div>
+      <p class="viz-note"><b>What you're seeing:</b> one real recall — your question fans
+        across every card in the ledger (the tall column) and the strongest few flow into
+        the ranked answers, tick brightness showing how much each resonated.
+        <b>Why it matters:</b> the model weighs your whole history every time, not one
+        lookup (<b>white</b> won, <span style="color: var(--warn)">amber</span> lost as a
+        near-duplicate); press <b>▶ evolve</b> to watch the answer change through history.</p>
+
+      <h3 class="viz-h">The forgetting curve</h3>
+      <div class="viz-controls">
+        <label for="decay-ahead">Peek ahead</label>
+        <input type="range" id="decay-ahead" min="0" max="180" step="1" value="0"
+               aria-label="Preview how memories fade over the coming days">
+        <span id="decay-ahead-label">today</span>
+      </div>
+      <div class="viz-wrap">
+        <canvas id="viz-decay" class="viz-canvas"
+                aria-label="3D surface of the selection score over age and importance, with each memory as a dot on it"></canvas>
+        <div class="viz-tip" id="decay-tip"></div>
+      </div>
+      <p class="viz-note"><b>What you're seeing:</b> the forgetting curve — each memory's
+        height is how strongly it still competes to stay in your profile, and it sinks as it
+        ages. <b>Why it matters:</b> important memories fade about 4× slower than trivia, so
+        the surface shows what's quietly slipping away; drag the slider to fast-forward.</p>
+    
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+// ---- Mathematics page ----------------------------------------------------
+// A ~90-line 3D engine (rotate/drag/project/paint) shared by both visuals.
+// Privacy: the endpoints send geometry only — ids, ages, importances, coords.
+
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function vizTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const hex = (name) => {
+    const v = cs.getPropertyValue(name).trim();
+    const m = /^#([0-9a-f]{6})$/i.exec(v);
+    if (!m) return [128, 128, 128];
+    return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16));
+  };
+  return { bg: hex("--bg"), text: hex("--text"), dim: hex("--dim"),
+           accent: hex("--accent"), warn: hex("--warn"), info: hex("--info") };
+}
+let TOK = vizTokens();
+document.getElementById("theme")?.addEventListener("change",
+  () => setTimeout(() => { TOK = vizTokens(); }, 0));
+
+const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+// Sequential ramp (one hue, faint→deep) for importance 1..10 — magnitude, per
+// the color-by-job rule. Identity is never color-alone: quarantine = hollow.
+function rampColor(imp) {
+  const t = (imp - 1) / 9;
+  const base = mix(mix(TOK.bg, TOK.accent, 0.35 + 0.65 * t), TOK.text, Math.max(0, t - 0.72));
+  return base;
+}
+
+function makeScene(canvas, tipEl, drawFn) {
+  const ctx = canvas.getContext("2d");
+  const S = { yaw: 0.7, pitch: 0.33, auto: !REDUCED_MOTION, mouse: null, hits: [] };
+  let drag = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    drag = [e.clientX, e.clientY]; S.auto = false; canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const r = canvas.getBoundingClientRect();
+    S.mouse = [e.clientX - r.left, e.clientY - r.top];
+    if (!drag) return;
+    S.yaw += (e.clientX - drag[0]) * 0.008;
+    S.pitch = Math.max(-1.25, Math.min(1.25, S.pitch + (e.clientY - drag[1]) * 0.006));
+    drag = [e.clientX, e.clientY];
+  });
+  canvas.addEventListener("pointerup", () => { drag = null; });
+  canvas.addEventListener("pointerleave", () => { S.mouse = null; tipEl.style.display = "none"; });
+
+  let visible = false;
+  new IntersectionObserver((en) => { visible = en[0].isIntersecting; }).observe(canvas);
+
+  S.project = (x, y, z, W, H, scale) => {
+    const cy = Math.cos(S.yaw), sy = Math.sin(S.yaw);
+    const cp = Math.cos(S.pitch), sp = Math.sin(S.pitch);
+    let X = cy * x + sy * z, Z = -sy * x + cy * z;
+    const Y = cp * y - sp * Z; Z = sp * y + cp * Z;
+    const s = 2.4 / (2.4 + Z);
+    return [W / 2 + X * scale * s, H / 2 - Y * scale * s, Z, s];
+  };
+
+  (function frame() {
+    requestAnimationFrame(frame);
+    if (!visible) return;
+    if (S.auto && !drag) S.yaw += 0.0028;
+    const dpr = devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    if (canvas.width !== Math.round(W * dpr)) { canvas.width = W * dpr; canvas.height = H * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    S.hits = [];
+    drawFn(ctx, W, H, S);
+    // hover: nearest registered hit within 12px (target > mark, per interaction rules)
+    if (S.mouse) {
+      let best = null, bd = 144;
+      for (const h of S.hits) {
+        const d = (h.x - S.mouse[0]) ** 2 + (h.y - S.mouse[1]) ** 2;
+        if (d < bd) { bd = d; best = h; }
+      }
+      if (best) {
+        ctx.strokeStyle = rgba(TOK.text, 0.9); ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(best.x, best.y, best.r + 3, 0, 7); ctx.stroke();
+        tipEl.textContent = best.label;
+        tipEl.style.display = "block";
+        tipEl.style.left = Math.min(best.x + 12, W - 150) + "px";
+        tipEl.style.top = (best.y - 26) + "px";
+      } else tipEl.style.display = "none";
+    }
+  })();
+  return S;
+}
+
+// -- The shape of your memory: PCA point cloud of every embedded fact --------
+async function initCloud() {
+  // ONE always-current 3D scene (#44 follow-up — replay/mode toggle retired):
+  // dots = every memory AS IT IS NOW (original importance size + rampColor),
+  // translucent biome volumes as ambient context behind them, co-recall trails
+  // on zoom, sediment on click. No timeline, no mode swap — one honest picture.
+  // All from /v1/viz/landscape (which serves alive, non-quarantined facts only).
+  const status = $("cloud-status");
+  const canvas = $("viz-cloud"), sediment = $("cloud-sediment");
+  const zoomEl = $("cloud-zoom"), zoomLabel = $("cloud-zoom-label"), veilBox = $("cloud-veil");
+  const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+  let L = null, biomeHits = [];
+  for (;;) {
+    let r;
+    try { r = await fetch("/v1/viz/landscape"); }
+    catch { status.hidden = false; status.textContent = "Service briefly away…"; await wait(2000); continue; }
+    if (!r.ok) { status.hidden = false; status.textContent = "Scene unavailable: " + r.status; return; }
+    const d = await r.json();
+    if (d.status === "computing") {
+      status.hidden = false;
+      status.textContent = "Projecting your memories from 1,536 dimensions down to 3 — " +
+                           "first time takes ~15 seconds…";
+      await wait(2500); continue;
+    }
+    L = d; break;
+  }
+  status.hidden = true;
+  const nodes = L.nodes;                 // alive memories (server already filtered)
+  // Normalise x,y,z into a [-1,1] cube; biomes reuse the SAME transform so the
+  // volumes sit exactly around their dots. Covariance scales by sᵢ·sⱼ.
+  const lo = {}, sc = {};
+  for (const a of ["x", "y", "z"]) {
+    const v = nodes.map((n) => n[a]);
+    const l = Math.min(...v), h = Math.max(...v);
+    lo[a] = l; sc[a] = 2 / ((h - l) || 1);
+  }
+  const nrm = (a, val) => (val - lo[a]) * sc[a] - 1;
+  for (const n of nodes) { n._x = nrm("x", n.x); n._y = nrm("y", n.y); n._z = nrm("z", n.z); }
+  const covIdx = [[0, 0], [1, 1], [2, 2], [0, 1], [0, 2], [1, 2]], s3 = [sc.x, sc.y, sc.z];
+  for (const c of L.clouds) {
+    c._cx = nrm("x", c.cx); c._cy = nrm("y", c.cy); c._cz = nrm("z", c.cz);
+    c._cov = c.cov.map((v, k) => v * s3[covIdx[k][0]] * s3[covIdx[k][1]]);
+  }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const summarySet = new Set(L.summary_ids || []);
+  const maxFresh = Math.max(1e-4, ...nodes.map((n) => n.fresh));
+  const maxW = Math.max(1, ...L.edges.map((e) => e.w));
+  if (L.notes && L.notes.edges) { status.hidden = false; status.textContent = L.notes.edges; }
+
+  // Reference frame: a faint cube + floor grid give the rotation depth cues.
+  // The axes are honestly unnamable (PCA picks the three biggest directions
+  // of difference in meaning) — so they're labeled as exactly what they are.
+  function drawFrame(ctx, W, H, S, scale) {
+    const P = (x, y, z) => S.project(x, y, z, W, H, scale);
+    const c = [-1, 1];
+    ctx.strokeStyle = rgba(TOK.dim, 0.16); ctx.lineWidth = 1;
+    for (const a of c) for (const b of c) {
+      for (const [p1, p2] of [
+        [[a, b, -1], [a, b, 1]], [[a, -1, b], [a, 1, b]], [[-1, a, b], [1, a, b]],
+      ]) {
+        const [x1, y1] = P(...p1), [x2, y2] = P(...p2);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    }
+    // floor grid (y = -1): the strongest depth cue while rotating
+    ctx.strokeStyle = rgba(TOK.dim, 0.10);
+    for (let i = -0.6; i <= 0.61; i += 0.4) {
+      let [x1, y1] = P(-1, -1, i), [x2, y2] = P(1, -1, i);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      ;[x1, y1] = P(i, -1, -1); [x2, y2] = P(i, -1, 1);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.fillStyle = rgba(TOK.dim, 0.75); ctx.font = "10px system-ui";
+    const lab = (x, y, z, s) => { const [lx, ly] = P(x, y, z); ctx.fillText(s, lx - 26, ly); };
+    lab(1.22, -1, -1, "meaning axis 1");
+    lab(-1, -1, 1.30, "meaning axis 2");
+    lab(-1, 1.18, -1, "meaning axis 3");
+  }
+
+  // ---- Sediment (click-driven): a memory's or a biome's buried older facts ---
+  function renderStrata(heads, isBiome) {
+    let html = isBiome ? "<h4>Biome sediment — how the truth here got buried</h4>"
+                       : "<h4>Sediment — the older facts this memory buried</h4>";
+    for (const s of heads) {
+      html += "<div class='strata'><div class='stratum head'><span class='lyr'>now</span>"
+        + `<b>#${s.head}</b> · current</div>`;
+      for (const l of s.layers) {
+        const when = l.at ? new Date(l.at * 1000).toLocaleDateString() : "—";
+        html += `<div class='stratum'><span class='lyr'>−${l.d}</span>`
+          + `#${l.id} · importance ${l.imp} · retired ${when}</div>`;
+      }
+      html += "</div>";
+    }
+    html += "<p>Geometry only — nothing is deleted. Open a fact in the "
+      + "<a class='handoff' href='/'>ledger</a> to read the buried text, or "
+      + "<a class='handoff' href='#trace'>trace why one was used ↓</a>.</p>";
+    sediment.hidden = false; sediment.innerHTML = html;
+  }
+
+  function sedimentForNode(id) {
+    const s = L.sediment.find((s) => s.head === id);
+    if (!s) {
+      sediment.hidden = false;
+      sediment.innerHTML = `<h4>#${id} — nothing buried</h4><p>This memory hasn't superseded `
+        + "an older one — it's the current truth. "
+        + "<a class='handoff' href='#trace'>Ask “Watch a recall think” why it was used ↓</a></p>";
+      return;
+    }
+    renderStrata([s], false);
+  }
+
+  function sedimentForBiome(cloudId) {
+    const heads = L.sediment.filter((s) => (byId.get(s.head) || {}).cl === cloudId);
+    if (!heads.length) {
+      sediment.hidden = false;
+      sediment.innerHTML = "<h4>No sediment in this biome</h4><p>Nothing grouped here has "
+        + "been superseded — its memories are still current. "
+        + "<a class='handoff' href='#trace'>Ask “Watch a recall think” why one was used ↓</a></p>";
+      return;
+    }
+    renderStrata(heads, true);
+  }
+
+  // Project a cluster's 3D covariance to a screen-space ellipse (Σ₂ = JΣJᵀ):
+  // J is the world→screen linear map from the current orbit, evaluated at the
+  // centroid's perspective. 2×2 eigen (closed form) → semi-axes + angle. This
+  // is the Gaussian-splat trick — the ellipse reshapes as you rotate, so the
+  // biome reads as a real volume rather than a flat disc.
+  function ellipseFromCov(cov, s, sc, S, KSIG) {
+    const cy = Math.cos(S.yaw), sy = Math.sin(S.yaw);
+    const cp = Math.cos(S.pitch), sp = Math.sin(S.pitch);
+    const g = sc * s;                                   // global × perspective
+    const j00 = g * cy,       j01 = 0,      j02 = g * sy;         // ∂px/∂(x,y,z)
+    const j10 = -g * sp * sy, j11 = -g * cp, j12 = g * sp * cy;   // ∂py/∂(x,y,z)
+    const [xx, yy, zz, xy, xz, yz] = cov;              // Σ (symmetric 3×3)
+    // M = J·Σ  (2×3)
+    const m00 = j00 * xx + j01 * xy + j02 * xz, m01 = j00 * xy + j01 * yy + j02 * yz, m02 = j00 * xz + j01 * yz + j02 * zz;
+    const m10 = j10 * xx + j11 * xy + j12 * xz, m11 = j10 * xy + j11 * yy + j12 * yz, m12 = j10 * xz + j11 * yz + j12 * zz;
+    // Σ₂ = M·Jᵀ (2×2), scaled to the KSIG confidence ellipse
+    const a = (m00 * j00 + m01 * j01 + m02 * j02) * KSIG;
+    const b = (m00 * j10 + m01 * j11 + m02 * j12) * KSIG;
+    const d = (m10 * j10 + m11 * j11 + m12 * j12) * KSIG;
+    const tr = a + d, det = a * d - b * b;
+    const disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+    const l1 = tr / 2 + disc, l2 = tr / 2 - disc;
+    return { major: Math.sqrt(Math.max(l1, 0)), minor: Math.sqrt(Math.max(l2, 0)),
+             angle: 0.5 * Math.atan2(2 * b, a - d) };
+  }
+
+  // The one render path: biomes (ambient, behind) → trails (zoom-gated) → dots
+  // (every memory as it is now, original size/colour). Painter's order gives the
+  // depth cue; drag orbits, zoom dollies + reveals trails.
+  function render(ctx, W, H, S) {
+    if (!L) {
+      ctx.fillStyle = rgba(TOK.dim, 0.85); ctx.font = "12px system-ui";
+      ctx.fillText("Loading your memory…", 16, 26); return;
+    }
+    const veil = veilBox.checked, z = Number(zoomEl.value) / 100;
+    const scaleG = Math.min(W, H) * 0.42 * z;
+    const PN = L.palette_n || 8, hue = (i) => Math.round((i / PN) * 360);
+    const edgeA = veil ? 0 : Math.max(0, Math.min(1, (z - 1.8) / 0.6)) * 0.55;  // trails on zoom
+    const P = (x, y, zc) => S.project(x, y, zc, W, H, scaleG);
+    drawFrame(ctx, W, H, S, scaleG);
+    biomeHits = [];
+
+    // 1) BIOMES — translucent volumetric ellipsoids, always-on ambient backdrop,
+    //    depth-sorted (painter's), drawn BEHIND the dots. Cluster-identity hue,
+    //    interior luminance = biome freshness. Under the veil: anonymous orbs.
+    const bproj = L.clouds.map((cl) => {
+      const [x, y, Z, s] = P(cl._cx, cl._cy, cl._cz);
+      return { cl, x, y, Z, s };
+    }).sort((p, q) => q.Z - p.Z);       // far (large Z) first
+    const Zs = bproj.map((p) => p.Z), Zlo = Math.min(...Zs), Zhi = Math.max(...Zs);
+    for (const q of bproj) {
+      const cl = q.cl, h = hue(cl.colour);
+      const near = (Zhi - Zlo) < 1e-6 ? 0.5 : 1 - (q.Z - Zlo) / (Zhi - Zlo);
+      biomeHits.push({ x: q.x, y: q.y, c: cl.c });
+      if (veil) {
+        const r = scaleG * 0.16 * q.s;
+        const gr = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
+        gr.addColorStop(0, `hsla(210,12%,60%,${0.06 + 0.12 * near})`);
+        gr.addColorStop(1, "hsla(210,12%,60%,0)");
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.fill();
+        continue;
+      }
+      const e = ellipseFromCov(cl._cov, q.s, scaleG, S, 5.5);
+      const major = Math.min(scaleG * 0.6, Math.max(e.major, 12 * q.s));
+      const minor = Math.min(major, Math.max(e.minor, 8 * q.s));
+      const fresh = cl.freshness / maxFresh;           // biome interior luminance
+      const light = 44 + 16 * fresh, sat = 55, fillA = 0.08 + 0.10 * near;
+      ctx.save();
+      ctx.translate(q.x, q.y); ctx.rotate(e.angle);
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(major, 1));
+      gr.addColorStop(0, `hsla(${h},${sat}%,${light}%,${fillA})`);
+      gr.addColorStop(0.7, `hsla(${h},${sat}%,${light}%,${fillA * 0.5})`);
+      gr.addColorStop(1, `hsla(${h},${sat}%,${light}%,0)`);
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.ellipse(0, 0, Math.max(major, 1), Math.max(minor, 1), 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = `hsla(${h},${sat}%,${light + 12}%,${0.16 + 0.20 * near})`;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.ellipse(0, 0, Math.max(major, 1), Math.max(minor, 1), 0, 0, 7); ctx.stroke();
+      ctx.restore();
+    }
+
+    // 2) CO-RECALL TRAILS — zoom-gated, drawn under the dots, never a hairball.
+    if (edgeA > 0 && L.edges.length) {
+      ctx.lineWidth = 1;
+      for (const e of L.edges) {
+        const a = byId.get(e.a), b = byId.get(e.b); if (!a || !b) continue;
+        const [ax, ay] = P(a._x, a._y, a._z), [bx, by] = P(b._x, b._y, b._z);
+        ctx.strokeStyle = rgba(TOK.text, (0.05 + (e.w / maxW) * 0.5) * edgeA);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      }
+    }
+
+    // 3) DOTS — every memory AS IT IS NOW, in the ORIGINAL dot semantics:
+    //    importance-driven radius + rampColor by importance (NOT freshness hue).
+    //    Depth-sorted, on top. Hover tooltips + the "in today's summary" ring
+    //    survive. Hidden under the veil.
+    if (!veil) {
+      const dproj = nodes.map((n) => {
+        const [x, y, Z, s] = P(n._x, n._y, n._z);
+        return { n, x, y, Z, s };
+      }).sort((p, q) => q.Z - p.Z);
+      for (const q of dproj) {
+        const n = q.n;
+        const depthA = 0.25 + 0.75 * Math.max(0, Math.min(1, (q.s - 0.55) * 2));
+        const r = (1.2 + n.imp * 0.28) * q.s;
+        ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7);
+        ctx.fillStyle = rgba(rampColor(n.imp), depthA); ctx.fill();
+        if (summarySet.has(n.id)) {
+          ctx.strokeStyle = rgba(TOK.accent, 0.9); ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.arc(q.x, q.y, r + 2.5, 0, 7); ctx.stroke();
+        }
+        const inSum = summarySet.has(n.id) ? " · in today's summary" : "";
+        S.hits.push({ x: q.x, y: q.y, r: Math.max(r, 3), id: n.id,
+          label: `#${n.id} · importance ${n.imp}${inSum}` });
+      }
+    }
+
+    // 4) caption
+    ctx.fillStyle = rgba(TOK.dim, 0.9); ctx.font = "11px system-ui";
+    const c = L.counts;
+    ctx.fillText(veil ? "privacy veil on — anonymous biomes, memories hidden"
+      : `${c.alive} memories · ${c.clouds} biomes` +
+        (edgeA > 0 ? ` · ${c.edges} co-recall trails` : " · zoom in for trails") +
+        " · click a dot or biome for its sediment",
+      12, 18);
+  }
+
+  const S = makeScene(canvas, $("cloud-tip"), render);
+  S.auto = !REDUCED_MOTION;   // slow auto-orbit; drag takes over
+
+  // zoom = dolly + LOD driver; wheel or slider. Trails reveal past ~1.8×.
+  zoomEl.addEventListener("input", () => {
+    const z = Number(zoomEl.value) / 100;
+    zoomLabel.textContent = z < 1.8 ? "orbit — biomes & memories"
+      : `zoomed ${z.toFixed(1)}× — co-recall trails`;
+  });
+  veilBox.addEventListener("change", () => { if (veilBox.checked) sediment.hidden = true; });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    zoomEl.value = Math.max(100, Math.min(420, Number(zoomEl.value) - e.deltaY * 0.3));
+    zoomEl.dispatchEvent(new Event("input"));
+  }, { passive: false });
+  // Click-to-sediment: a dot → that memory's buried facts; else the nearest
+  // biome → the biome's sediment. (Replaces the old whole-ledger time-scrub.)
+  canvas.addEventListener("click", (e) => {
+    if (!L || veilBox.checked) return;
+    const rct = canvas.getBoundingClientRect();
+    const mx = e.clientX - rct.left, my = e.clientY - rct.top;
+    let dot = null, dd = 14 ** 2;
+    for (const h of S.hits) { if (h.id == null) continue; const d = (h.x - mx) ** 2 + (h.y - my) ** 2; if (d < dd) { dd = d; dot = h; } }
+    if (dot) { sedimentForNode(dot.id); return; }
+    let biome = null, bd = 110 ** 2;
+    for (const h of biomeHits) { const d = (h.x - mx) ** 2 + (h.y - my) ** 2; if (d < bd) { bd = d; biome = h; } }
+    if (biome) sedimentForBiome(biome.c); else sediment.hidden = true;
+  });
+}
+
+// -- The forgetting curve: the selection formula as a surface ----------------
+async function initDecay() {
+  const r = await fetch("/v1/viz/decay");
+  if (!r.ok) return;
+  const data = await r.json();
+  const HL = (imp) => imp >= 10 ? Infinity : data.half_life_base_days * (0.5 + imp / 4.0);  // 10 = pinned: never decays
+  const score = (age, imp) => (imp / 10) * Math.exp(-age / HL(imp));
+  const AGE_MAX = 365;
+  // domain → scene coords
+  const px = (age) => (Math.min(age, AGE_MAX) / AGE_MAX) * 2 - 1;
+  const pz = (imp) => ((imp - 1) / 9) * 1.6 - 0.8;
+  const py = (s) => s * 1.5 - 0.55;
+  const slider = $("decay-ahead"), label = $("decay-ahead-label");
+  makeScene($("viz-decay"), $("decay-tip"), (ctx, W, H, S) => {
+    const scale = Math.min(W, H) * 0.42;
+    const P = (age, imp, s) => S.project(px(age), py(s), pz(imp), W, H, scale);
+    // constant-importance curves, tinted by the same ramp (the star lines)
+    for (let imp = 1; imp <= 10; imp++) {
+      ctx.strokeStyle = rgba(rampColor(imp), 0.55); ctx.lineWidth = imp >= 9 ? 1.6 : 1;
+      ctx.beginPath();
+      for (let age = 0; age <= AGE_MAX; age += 10) {
+        const [x, y] = P(age, imp, score(age, imp));
+        age === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // constant-age cross lines, recessive
+    ctx.strokeStyle = rgba(TOK.dim, 0.25); ctx.lineWidth = 1;
+    for (let age = 0; age <= AGE_MAX; age += 45) {
+      ctx.beginPath();
+      for (let imp = 1; imp <= 10; imp += 0.5) {
+        const [x, y] = P(age, imp, score(age, imp));
+        imp === 1 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // axis captions (text tokens, never series color)
+    ctx.fillStyle = rgba(TOK.dim, 0.9); ctx.font = "11px system-ui";
+    const [ax, ay] = P(AGE_MAX, 1, 0);
+    ctx.fillText("1 year old", ax - 26, ay + 16);
+    const [nx, ny] = P(0, 1, 0);
+    ctx.fillText("now", nx - 10, ny + 16);
+    const [ix, iy] = P(AGE_MAX, 10, 0);
+    ctx.fillText("importance 10", ix - 36, iy - 8);
+    // the facts, living on the surface
+    const ahead = Number(slider.value)
+    let alive = 0;
+    const dots = data.facts.map((f) => {
+      const age = f.age + ahead, s = score(age, f.imp);
+      if (s > 0.05) alive++;
+      const [x, y, z, sc] = P(age, f.imp, s);
+      return { f, s, x, y, z, sc };
+    }).sort((a, b) => b.z - a.z);
+    for (const d of dots) {
+      const r = (1.3 + d.f.imp * 0.22) * d.sc;
+      const col = rampColor(d.f.imp);
+      ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, 7);
+      if (d.f.q) { ctx.strokeStyle = rgba(TOK.warn, 0.7); ctx.lineWidth = 1.2; ctx.stroke(); }
+      else { ctx.fillStyle = rgba(col, 0.3 + 0.7 * Math.min(1, d.s * 3)); ctx.fill(); }
+      S.hits.push({ x: d.x, y: d.y, r, label: `#${d.f.id} · importance ${d.f.imp} · score ${d.s.toFixed(3)}` });
+    }
+    label.textContent = ahead === 0
+      ? `today — ${alive} of ${data.facts.length} memories scoring above 0.05`
+      : `+${ahead} days — ${alive} of ${data.facts.length} still above 0.05`;
+  });
+}
+
+// -- Watch a recall think: the retrieval pipeline as a flow of filaments -----
+function initTrace() {
+  const canvas = $("viz-trace"), tip = $("trace-tip"), status = $("trace-status");
+  const ctx = canvas.getContext("2d");
+  let data = null, view = null, anim = 0, hits = [];
+  const evoRow = $("trace-evo"), evoSlider = $("trace-time"),
+        evoDate = $("trace-date"), evoPlay = $("trace-play");
+  let dupOf = new Map(), T0 = 0, T1 = 1;
+
+  // The answer AS OF time T: same scoring formula, recency recomputed against
+  // T, aliveness from lifecycle timestamps, and the greedy paraphrase collapse
+  // replayed over the (time-independent) dup edges the server sent.
+  function viewAt(T) {
+    const nodes = data.nodes.map((n) => {
+      const alive = n.c && n.c <= T && !(n.iv && n.iv <= T) && !(n.qt && n.qt <= T);
+      const rec = Math.max(0, 1 - (T - (n.ed || n.c || T)) / 86400 / 1095);
+      const score = n.sem + 0.12 * n.kw + 0.05 + (data.recency_weight || 0.1) * rec;
+      return { ...n, rec: Math.round(rec * 1000) / 1000,
+               score: Math.round(score * 10000) / 10000,
+               cand: n.cand && alive, state: "dim" };
+    }).sort((a, b) => b.score - a.score);
+    const results = [], keptSet = new Set();
+    for (const n of nodes) {
+      if (!n.cand) continue;
+      if (results.length >= 10) { n.state = "over"; continue; }
+      const dups = dupOf.get(n.id);
+      if (dups && [...dups].some((d) => keptSet.has(d))) { n.state = "collapsed"; continue; }
+      n.state = "kept"; keptSet.add(n.id); results.push(n.id);
+    }
+    return { nodes, results };
+  }
+
+  function bez(x0, y0, x1, y1, bend = 0.5) {
+    const mx = x0 + (x1 - x0) * bend;
+    ctx.moveTo(x0, y0);
+    ctx.bezierCurveTo(mx, y0, mx, y1, x1, y1);
+  }
+
+  function draw(t) {
+    const dpr = devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+    if (!W) return;
+    if (canvas.width !== Math.round(W * dpr)) { canvas.width = W * dpr; canvas.height = H * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    hits = [];
+    ctx.font = "11px system-ui";
+    if (!data) {
+      ctx.fillStyle = rgba(TOK.dim, 0.85);
+      ctx.fillText("Type a question above and hit “Trace it” — the whole ledger lights up.", 24, H / 2);
+      return;
+    }
+    const N = view.nodes.length;
+    const x0 = 60, x1 = W * 0.40, x2 = W * 0.70, x3 = W - 110, yq = H / 2;
+    // Each card keeps a FIXED position: its place in the ledger (oldest at the
+    // top). Sorting by score made every trace the same picture — winners
+    // always at the top. Fixed positions mean winners scatter to wherever
+    // their cards actually live in the book, different queries light
+    // different regions, and evolve shows answers migrating over time.
+    // Resonance still shows as tick brightness.
+    if (!draw._idOrder || draw._idOrder.size !== N) {
+      const ids = [...view.nodes.map((n) => n.id)].sort((a, b) => a - b);
+      draw._idOrder = new Map(ids.map((id, i) => [id, i]));
+    }
+    const yOf = (n) => 36 + (N <= 1 ? 0 : (draw._idOrder.get(n.id) || 0) / (N - 1)) * (H - 94);
+
+    ctx.fillStyle = rgba(TOK.accent, 0.95);
+    ctx.beginPath(); ctx.arc(x0, yq, 7, 0, 7); ctx.fill();
+    ctx.fillStyle = rgba(TOK.dim, 0.9);
+    ctx.fillText("your question", x0 - 34, yq + 24);
+    // column captions — the picture should explain its own anatomy
+    ctx.fillText("the ledger — every card, in the order written", x1 - 104, 11);
+    ctx.fillText("oldest ↑", x1 + 6, 26);
+    ctx.fillText("newest ↓", x1 + 6, H - 44);
+    ctx.fillText("the answers", x3 - 24, 11);
+    ctx.strokeStyle = rgba(TOK.dim, 0.3); ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(x2, 26); ctx.lineTo(x2, H - 30); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillText("dedup · top-k", x2 - 32, 11);
+
+    const a1 = Math.min(1, t * 2);
+    const maxScore = view.nodes[0]?.score || 1;
+    const tick = (n, y) => {
+      const strength = Math.max(0, Math.min(1, n.score / maxScore));
+      ctx.fillStyle = rgba(rampColor(n.imp), n.state === "dim" ? 0.10 + 0.15 * strength : 0.35 + 0.6 * strength);
+      ctx.fillRect(x1 - 1.5, y - 0.75, 3, 1.5);
+      if (n.state === "kept" || n.state === "collapsed")
+        hits.push({ x: x1, y, r: 4, label: `#${n.id} · sem ${n.sem} · kw ${n.kw} · score ${n.score}${n.state === "collapsed" ? " · collapsed (near-duplicate)" : ""}` });
+    };
+    // Two layers. The VEIL: every card gets a whisper-faint curve — recall
+    // reads the whole ledger, and the full fan is that truth made visible.
+    // The SIGNAL on top: winners bright, collapsed duplicates amber, the
+    // strongest runners-up a little louder than the veil.
+    let candN = 0, collapsedN = 0;
+    view.nodes.forEach((n) => {
+      const y = yOf(n);
+      if (n.cand) candN++;
+      if (n.state === "collapsed" || n.state === "dup") collapsedN++;
+      if (n.state === "kept") { tick(n, y); return; } // drawn in the signal pass
+      const veil = n.state === "dim" ? 0.025
+                 : n.state === "over" ? 0.05 + 0.12 * (n.score / maxScore) : 0.20;
+      ctx.strokeStyle = rgba(n.state === "collapsed" || n.state === "dup" ? TOK.warn : TOK.accent,
+                             veil * a1);
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); bez(x0 + 8, yq, x1 - 2, y); ctx.stroke();
+      tick(n, y);
+    });
+    view.nodes.forEach((n) => {   // signal pass: the ten that made it
+      if (n.state !== "kept") return;
+      const y = yOf(n);
+      ctx.strokeStyle = rgba(TOK.text, 0.85 * a1); ctx.lineWidth = 1.6;
+      ctx.beginPath(); bez(x0 + 8, yq, x1 - 2, y); ctx.stroke();
+      tick(n, y);
+    });
+    // plain-english tally, bottom-left
+    ctx.fillStyle = rgba(TOK.dim, 0.9);
+    ctx.fillText(`${view.nodes.length} cards searched · ${candN} resonated · ` +
+      `${view.results.length} recalled · ${collapsedN} collapsed as duplicates`, 12, H - 8);
+
+    const a2 = Math.max(0, (t - 0.45) * 1.9);
+    if (a2 > 0) {
+      const slotY = (i) => 30 + i * ((H - 60) / Math.max(1, view.results.length - 1 || 1));
+      const topScore = view.nodes.find((n) => n.state === "kept")?.score
+        || view.results.reduce((m, id) => Math.max(m, view.nodes.find((n) => n.id === id)?.score || 0), 0) || 1;
+      view.nodes.forEach((n) => {
+        const y = yOf(n);
+        if (n.state === "kept") {
+          const slot = view.results.indexOf(n.id);
+          const ry = slotY(slot);
+          // Strength is visible, not just printed: curve weight, dot size and
+          // label brightness all follow the score relative to the top result.
+          // (Resonance is a LEAD, not a verdict — the model reads all ten.)
+          const rel = Math.max(0.25, n.score / topScore);
+          ctx.strokeStyle = rgba(TOK.text, (0.35 + 0.55 * rel) * a2);
+          ctx.lineWidth = 0.8 + 1.6 * rel;
+          ctx.beginPath(); bez(x1 + 2, y, x3 - 8, ry, 0.6); ctx.stroke();
+          ctx.fillStyle = rgba(rampColor(n.imp), 0.5 + 0.5 * rel);
+          ctx.beginPath(); ctx.arc(x3, ry, 3 + 3.5 * rel, 0, 7); ctx.fill();
+          if (slot === 0) { // the strongest lead wears the ring
+            ctx.strokeStyle = rgba(TOK.accent, 0.9 * a2); ctx.lineWidth = 1.3;
+            ctx.beginPath(); ctx.arc(x3, ry, 6 + 3.5 * rel, 0, 7); ctx.stroke();
+          }
+          ctx.fillStyle = rgba(TOK.text, (0.45 + 0.5 * rel) * a2);
+          ctx.font = (slot === 0 ? "600 " : "") + "11px ui-monospace, monospace";
+          ctx.fillText(`#${n.id}  ${n.score.toFixed(3)}`, x3 + 10, ry + 3.5);
+          ctx.font = "11px system-ui";
+          hits.push({ x: x3, y: ry, r: 6, label: `rank ${slot + 1} · #${n.id} · sem ${n.sem} · kw ${n.kw} · fresh ${n.rec}` });
+        } else if (n.state === "collapsed" || n.state === "dup") {
+          // near-duplicates die at the gate — a short branch that fades out
+          ctx.strokeStyle = rgba(TOK.warn, 0.35 * a2); ctx.lineWidth = 0.8;
+          ctx.beginPath(); bez(x1 + 2, y, x2 - 6, y + (yq > y ? 14 : -14), 0.7); ctx.stroke();
+        }
+      });
+    }
+  }
+
+  canvas.addEventListener("pointermove", (e) => {
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    let best = null, bd = 196;
+    for (const h of hits) {
+      const d = (h.x - mx) ** 2 + (h.y - my) ** 2;
+      if (d < bd) { bd = d; best = h; }
+    }
+    if (best) {
+      tip.textContent = best.label;
+      tip.style.display = "block";
+      tip.style.left = Math.min(best.x + 12, canvas.clientWidth - 200) + "px";
+      tip.style.top = (best.y - 26) + "px";
+    } else tip.style.display = "none";
+  });
+  canvas.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+
+  async function run() {
+    const q = $("trace-q").value.trim();
+    if (!q) { status.textContent = "type a question first"; return; }
+    status.textContent = "tracing…";
+    const tFetch = performance.now();
+    try {
+      const r = await fetch("/v1/viz/recall_trace", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, limit: 10 }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      data = await r.json();
+      status.textContent = (data.semantic ? "" : "keyword-only (no embedding key) — ")
+        + `${data.results.length} recalled of ${data.nodes.length} considered`;
+    } catch (e) { status.textContent = "trace failed: " + e.message; return; }
+    view = { nodes: data.nodes, results: data.results }; // server truth at "now"
+    dupOf = new Map();
+    for (const [a, b] of (data.dup_edges || [])) {
+      if (!dupOf.has(a)) dupOf.set(a, new Set());
+      if (!dupOf.has(b)) dupOf.set(b, new Set());
+      dupOf.get(a).add(b); dupOf.get(b).add(a);
+    }
+    const born = data.nodes.map((n) => n.c || 0).filter(Boolean);
+    T0 = born.length ? Math.min(...born) : 0;
+    T1 = data.now || Date.now() / 1000;
+    evoRow.hidden = false;
+    evoSlider.value = 1000;
+    evoDate.textContent = "answer as of now";
+    cancelAnimationFrame(anim);
+    if (REDUCED_MOTION) { draw(1); return; }
+    // The animation replays the retrieval at its TRUE duration — the fan takes
+    // exactly as long to draw as the recall took to run (floor 80ms so a warm
+    // 0.1s trace is still perceptible as motion rather than a pop).
+    const DUR = Math.max(80, performance.now() - tFetch);
+    const t0 = performance.now();
+    (function step(now) {
+      const t = Math.min(1, (now - t0) / DUR);
+      draw(t);
+      if (t < 1) anim = requestAnimationFrame(step);
+    })(performance.now());
+  }
+  $("trace-run").addEventListener("click", (e) => { e.preventDefault(); run(); });
+  $("trace-q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+
+  // ---- evolution: the same answer, asked at every moment in history ----
+  function setTime() {
+    if (!data) return;
+    const v = Number(evoSlider.value);
+    if (v >= 998) {
+      view = { nodes: data.nodes, results: data.results }; // exact server truth
+      evoDate.textContent = "answer as of now";
+    } else {
+      const T = T0 + (v / 1000) * (T1 - T0);
+      view = viewAt(T);
+      evoDate.textContent = "answer as of " +
+        new Date(T * 1000).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) +
+        ` — ${view.results.length} recalled`;
+    }
+    draw(1);
+  }
+  evoSlider.addEventListener("input", () => { evoPlaying = false; evoPlay.textContent = "▶ evolve"; setTime(); });
+  let evoPlaying = false, evoAnim = 0;
+  evoPlay.addEventListener("click", () => {
+    if (!data) { status.textContent = "trace a question first — then evolve it"; return; }
+    evoPlaying = !evoPlaying;
+    evoPlay.textContent = evoPlaying ? "❚❚ pause" : "▶ evolve";
+    if (!evoPlaying) { cancelAnimationFrame(evoAnim); return; }
+    if (Number(evoSlider.value) >= 995) evoSlider.value = 0;
+    const DUR = REDUCED_MOTION ? 1 : 15000;
+    let last = performance.now();
+    (function step(now) {
+      if (!evoPlaying) return;
+      evoSlider.value = Math.min(1000, Number(evoSlider.value) + ((now - last) / DUR) * 1000);
+      last = now;
+      setTime();
+      if (Number(evoSlider.value) >= 1000) { evoPlaying = false; evoPlay.textContent = "▶ evolve"; return; }
+      evoAnim = requestAnimationFrame(step);
+    })(last);
+  });
+
+  // ---- live follow: when the chat's models recall, trace it here, live ----
+  // Every lookup lands in the persistent access log (HTTP and MCP client
+  // processes alike). Poll while this tab is visible; on a new event, run
+  // the trace for that exact query. Untick the box to stop following.
+  let liveTs = null; // synced to the SERVER clock on first poll — this page may
+                     // run on a device (phone over Tailscale) whose clock is
+                     // ahead, which would silently filter every event forever
+  async function pollLive() {
+    if (document.visibilityState === "visible" && $("trace-follow").checked && !evoPlaying) {
+      try {
+        const r = await fetch("/v1/viz/recalls?after=" + (liveTs ?? 9e12));
+        if (r.ok) {
+          const d = await r.json();
+          if (liveTs === null) {
+            liveTs = d.now; // first poll: just sync; act from the second on
+            if (!data) status.textContent =
+              "following live \u2014 every question pulses the summary; only deep " +
+              "lookups reach the ledger and draw the trace";
+          } else if (d.events.length) {
+            liveTs = d.events[d.events.length - 1].ts;
+            const flash = (id, delay) => setTimeout(() => {
+              const el = $(id);
+              el.classList.remove("hit"); void el.offsetWidth; // restart anim
+              el.classList.add("hit");
+            }, delay);
+            // Real timing, not theater: pulse each layer at the actual offset
+            // between its event and the batch's first (server timestamps).
+            // "Went deep" means a model CHOSE to reach the ledger — ambient
+            // (origin=auto) recalls the chat fires per-message are shown, but
+            // as preparation, and never auto-trace.
+            const deep = d.events.filter((e) => e.kind !== "summary" && e.origin !== "auto");
+            const ambient = d.events.some((e) => e.origin === "auto");
+            const t0 = d.events[0].ts;
+            const offset = (e) => Math.min(2000, Math.max(0, (e.ts - t0) * 1000));
+            const summaryEv = d.events.find((e) => e.kind === "summary");
+            flash("layer-q", 0);
+            flash("layer-summary", summaryEv ? offset(summaryEv) : 0);
+            if (deep.length) {
+              const gap = offset(deep[deep.length - 1]);
+              flash("layer-ledger", gap);
+              $("layer-status").textContent =
+                "went deep" + (summaryEv ? ` \u2014 ${Math.round(gap)}ms after the summary` : "");
+              const ev = deep[deep.length - 1];
+              if (ev.query) {
+                $("trace-q").value = ev.query;
+                await run();
+                // MCP lookups happen in a separate process (e.g. a coding
+                // agent) \u2014 say so; that they show up at all is the log working
+                const who = ev.origin && ev.origin.startsWith("mcp:")
+                  ? `an external tool (${ev.origin.slice(4)}) just`
+                  : "a model just";
+                status.textContent = `\u25cf live \u2014 ${who} ` +
+                  (ev.kind === "search" ? "searched history for this" : "recalled this") +
+                  " \u00b7 " + status.textContent;
+              }
+            } else if (ambient) {
+              flash("layer-ledger", 400);
+              $("layer-status").textContent =
+                "ambient recall prepared context \u2014 no model chose to dig deeper";
+            } else {
+              $("layer-status").textContent =
+                "answered from the summary \u2014 no deep reach needed";
+            }
+          }
+        }
+      } catch { /* service briefly away — next poll retries */ }
+    }
+    setTimeout(pollLive, 2000);
+  }
+  pollLive();
+
+  draw(1); // empty-state hint
+}
+
+initCloud(); initDecay(); initTrace();
+
+</script>
+</body>
+</html>

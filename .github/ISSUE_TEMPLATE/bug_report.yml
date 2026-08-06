@@ -1,0 +1,47 @@
+name: Bug report
+description: Something didn't work the way the docs say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! One thing before anything else:
+
+        **⚠️ This app holds real personal memories. Please REDACT before pasting.**
+        Replace names, places, and fact text with placeholders (`<my wife's name>`,
+        `<a fact about work>`). Fact IDs, counts, timestamps, and error messages
+        are safe and useful; fact *contents* are not needed to fix bugs.
+
+        Security problem? Don't open an issue : see [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Plain words are perfect. "I approved a fact in the review queue but it still doesn't show up in recall" beats jargon.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen again?
+      placeholder: |
+        1. Open the admin page
+        2. …
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The tag or `git rev-parse --short HEAD` output.
+  - type: textarea
+    id: tests
+    attributes:
+      label: Keyless test output (if you can run it)
+      description: "`env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY .venv/bin/python -m pytest tests/ -q` : the last few lines."
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I've redacted real names, places, and fact contents from this report.
+          required: true

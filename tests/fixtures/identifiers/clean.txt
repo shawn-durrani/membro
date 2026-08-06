@@ -1,0 +1,21 @@
+# Documented placeholders — SYNTHETIC examples only. The scanner must NEVER
+# flag any line in this file. If it does, a real contributor's doc example just
+# became un-writable. (This file is excluded from the tree scan by design; the
+# test feeds it to the scanner explicitly via --files.)
+
+# Tailscale host placeholders
+my-mac.my-tailnet.ts.net
+<mac>.<tailnet>.ts.net
+mymac.tailXXXX.ts.net
+
+# Home-path placeholders
+/Users/you
+/home/you
+/Users/<user>
+
+# Email placeholders
+you@example.com
+alex@example.org
+12345+alex@users.noreply.github.com
+git@github.com
+noreply@github.com

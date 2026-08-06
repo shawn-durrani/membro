@@ -1,0 +1,16 @@
+# Real-SHAPED personal / infrastructure identifiers — SYNTHETIC, but every line
+# here MUST be flagged by the scanner. None of these contain a placeholder
+# marker (tailXXXX / my-tailnet / <...> / example / you), so they read as the
+# real thing they imitate.
+
+# Tailscale hosts (real tailnets are random alphanumerics)
+workstation.tail9f3d2.ts.net
+laptop.tail8b1e0.ts.net
+
+# Machine-specific absolute home paths
+/Users/contributor
+/home/contributor
+
+# Personal emails at non-placeholder domains
+contributor@mailprovider.io
+first.last@somecompany.co

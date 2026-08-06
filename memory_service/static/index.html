@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Membro — your AI's memory</title>
+<style>
+  /* ---- tokens (shared sheet: type / spacing / radius / motion / color) ---- */
+  :root {
+    /* color — dark-first, semantic */
+    --bg: #14161a; --panel: #1c1f26; --panel2: #23272f; --border: #2c313c;
+    --text: #d8dde6; --dim: #8b93a2; --faint: #6b7280;
+    --accent: #6ea8fe; --ok: #4cc38a; --warn: #e5c07b; --err: #e06c75;
+    --info: #6ea8fe; --synth: #c678dd; --focus: #6ea8fe;
+    /* spacing (4px base) */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px; --space-8: 32px;
+    /* radius */
+    --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-full: 999px;
+    /* elevation — borders do the work, shadows whisper */
+    --shadow-pop: 0 4px 16px rgb(0 0 0 / .35), 0 0 0 1px var(--border);
+    /* motion */
+    --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 300ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --ease-in: cubic-bezier(0.3, 0, 0.8, 0.15);
+    /* type */
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  /* Themes — same five palettes as multi-model-chat, mapped to admin tokens.
+     Default (:root above) = Zinc. */
+  [data-theme="midnight"] {
+    --bg: #0b1120; --panel: #121a2b; --panel2: #1c2740; --border: #2a3a55;
+    --text: #e8ecf6; --dim: #9aa7c2; --faint: #6e7c9c;
+  }
+  [data-theme="espresso"] {
+    --bg: #141110; --panel: #1b1815; --panel2: #282218; --border: #3a3226;
+    --text: #f1ece4; --dim: #b3a895; --faint: #837868;
+    --accent: #d19a66; --focus: #d19a66; --info: #d19a66;
+  }
+  [data-theme="oled"] {
+    --bg: #000000; --panel: #0d0d0f; --panel2: #1a1a1d; --border: #26262b;
+    --text: #f5f5f7; --dim: #a0a0a8; --faint: #707078;
+  }
+  [data-theme="light"] {
+    --bg: #ffffff; --panel: #f6f6f8; --panel2: #ececf0; --border: #d5d5dc;
+    --text: #101012; --dim: #4a4a52; --faint: #7c7c87;
+    --accent: #2563eb; --ok: #15803d; --warn: #a16207; --err: #b91c1c;
+    --info: #2563eb; --synth: #7e22ce; --focus: #2563eb;
+    --shadow-pop: 0 4px 16px rgb(0 0 0 / .12), 0 0 0 1px var(--border);
+  }
+  .theme-pick {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: var(--r-sm); font: inherit; padding: 2px var(--space-2);
+  }
+  details.help { margin: 0 0 var(--space-4); }
+  details.help summary {
+    cursor: pointer; color: var(--faint); font-size: 12px; user-select: none;
+    display: inline-flex; align-items: center; gap: 6px; list-style: none;
+  }
+  details.help summary::before { content: "ⓘ"; }
+  details.help summary::-webkit-details-marker { display: none; }
+  details.help summary:hover { color: var(--dim); }
+  details.help[open] summary { color: var(--dim); margin-bottom: var(--space-2); }
+  details.help p {
+    color: var(--dim); margin: 0; max-width: 100ch;
+    font-size: 12.5px; line-height: 1.55;
+    border-left: 2px solid var(--border); padding-left: var(--space-3);
+  }
+  .help b { color: var(--text); font-weight: 600; }
+  .loadmore {
+    margin-top: var(--space-3); padding-top: var(--space-3);
+    border-top: 1px solid var(--border); color: var(--dim); font-size: 12.5px;
+    display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  }
+  .loadmore .hint { color: var(--faint); }
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: var(--space-6); background: var(--bg); color: var(--text);
+    font: 400 13px/20px var(--font-ui); text-rendering: optimizeLegibility;
+  }
+  main { max-width: min(1720px, 100%); margin: 0 auto; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* ---- header + live-ness ---- */
+  .page-head { display: flex; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-5); }
+  h1 { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .sub { color: var(--dim); font-size: 12px; line-height: 16px; margin-top: var(--space-1); }
+  .live { margin-left: auto; display: flex; align-items: center; gap: var(--space-2);
+          color: var(--dim); font-size: 12px; line-height: 16px; white-space: nowrap;
+          font-variant-numeric: tabular-nums; padding-top: var(--space-1); }
+  .dot { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--dim);
+         display: inline-block; flex: none; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); }
+
+  /* ---- health strip: stat cards ---- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+           gap: var(--space-3); margin-bottom: var(--space-5); }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md);
+          padding: var(--space-3) var(--space-4); }
+  .stat .label { color: var(--dim); font-size: 12px; line-height: 16px; }
+  .stat .value { font-size: 22px; line-height: 28px; font-weight: 600;
+                 font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+                 margin-top: var(--space-1); display: flex; align-items: center; gap: var(--space-2); }
+  .stat .value.small { font-size: 15px; line-height: 28px; font-family: var(--font-mono); font-weight: 500; }
+  /* pending review is a to-do, not a stat: warm it up when the queue isn't empty */
+  .stat.todo { border-color: var(--warn); background: rgb(229 192 123 / .06); }
+  .stat.todo .value { color: var(--warn); }
+  .stat.flash { animation: statFlash 600ms var(--ease-out); }
+  @keyframes statFlash { 0% { background: var(--panel2); } 100% { background: var(--panel); } }
+
+  /* ---- intent groups: Review / Maintain / Inspect / Admin ----
+     The page is banded by what you're trying to DO, not by which backend
+     object a section talks to. Each band gets a plain-English label + why. */
+  .group { margin-bottom: var(--space-6); }
+  .group-head {
+    display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
+    margin: 0 0 var(--space-3); padding: 0 var(--space-1);
+    font-size: 12px; font-weight: 700; line-height: 16px;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+  }
+  .group-head .why {
+    text-transform: none; letter-spacing: 0; font-weight: 400;
+    font-size: 12px; line-height: 16px; color: var(--faint);
+  }
+  /* Review is the daily to-do — lift it above the rest. */
+  .group.primary .group-head { color: var(--accent); }
+  /* Admin holds rare + dangerous controls — recede it, don't hide it. */
+  .group.admin .group-head { color: var(--faint); }
+
+  /* ---- sections ---- */
+  details.section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--r-md); margin-bottom: var(--space-4); overflow: hidden;
+  }
+  details.section > summary {
+    cursor: pointer; padding: var(--space-3) var(--space-4); font-weight: 600;
+    font-size: 15px; line-height: 24px; user-select: none;
+    display: flex; align-items: center; gap: var(--space-3); list-style: none;
+  }
+  details.section > summary::before {
+    content: "▸"; color: var(--dim); transition: transform var(--dur-fast) var(--ease-out);
+  }
+  details[open].section > summary::before { transform: rotate(90deg); }
+  details.section > summary::-webkit-details-marker { display: none; }
+  .badge {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--dim);
+    border-radius: var(--r-full); padding: 1px 8px; font-size: 11px; line-height: 16px;
+    font-weight: 500; font-variant-numeric: tabular-nums;
+  }
+  .badge.hot { color: var(--warn); border-color: var(--warn); }
+  .body { padding: var(--space-1) var(--space-4) var(--space-4); border-top: 1px solid var(--border); }
+
+  /* ---- status badges: one system, five states ---- */
+  .st { border-radius: var(--r-full); padding: 1px 8px; font-size: 11px; line-height: 16px;
+        font-weight: 500; white-space: nowrap; display: inline-block; }
+  .st.valid       { color: var(--ok);    background: rgb(76 195 138 / .12); }
+  .st.superseded  { color: var(--info);  background: rgb(110 168 254 / .12); }
+  .st.quarantined { color: var(--warn);  background: rgb(229 192 123 / .12); }
+  .st.dismissed   { color: var(--dim);   background: rgb(139 147 162 / .12); }
+  .st.synthesis   { color: var(--synth); background: rgb(198 120 221 / .12); }
+
+  /* ---- controls ---- */
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: var(--space-1) var(--space-3);
+    font: 500 12px/20px var(--font-ui); cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: #294672; border-color: #3a5f96; }
+  button.good { color: var(--ok); }
+  button.bad { color: var(--err); }
+  button.danger { color: var(--err); border-color: #6b3238; }
+  button.danger:hover { border-color: var(--err); }
+  kbd {
+    font: 500 11px/14px var(--font-mono); color: var(--dim);
+    background: var(--bg); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 4px; margin-left: 2px;
+  }
+  input, textarea, select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: var(--space-2) var(--space-2);
+    font: inherit; font-size: 13px;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  textarea { width: 100%; min-height: 64px; resize: vertical; line-height: 20px; }
+  .row-actions { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+
+  /* ---- tables ---- */
+  .table-wrap { max-height: 65vh; overflow: auto; border-radius: var(--r-sm); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+  th, td { text-align: left; padding: var(--space-2) var(--space-2);
+           border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 500; font-size: 11px; line-height: 16px;
+       text-transform: uppercase; letter-spacing: .04em;
+       position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  th.num { text-align: right; }
+  td.num { text-align: right; font-family: var(--font-mono); font-size: 12px;
+           font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mono { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  tr[hidden] { display: none; }
+  .chev { background: none; border: none; color: var(--dim); padding: 0 var(--space-1);
+          cursor: pointer; font-size: 12px; transition: transform var(--dur-fast) var(--ease-out); }
+  .chev[aria-expanded="true"] { transform: rotate(90deg); color: var(--accent); }
+  dl.prov { display: grid; grid-template-columns: max-content 1fr;
+            gap: var(--space-1) var(--space-5); margin: var(--space-2) 0;
+            padding: var(--space-2) var(--space-3); background: var(--bg);
+            border-radius: var(--r-sm); }
+  dl.prov dt { color: var(--dim); font-size: 12px; }
+  dl.prov dd { margin: 0; font-family: var(--font-mono); font-size: 12px;
+               font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+  /* ---- review queue (triage) ---- */
+  .keys-hint { color: var(--faint); font-size: 12px; line-height: 16px; margin: var(--space-2) 0 var(--space-1); }
+  .fact-card {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: var(--space-3) var(--space-4); margin: var(--space-3) 0;
+    transition: opacity var(--dur-fast) var(--ease-in), transform var(--dur-fast) var(--ease-in),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .fact-card .fact-text { font-size: 15px; line-height: 24px; max-width: 68ch; }
+  .fact-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .fact-card.leaving { opacity: 0; transform: translateY(-2px); }
+  .fact-card .meta { color: var(--dim); font-size: 12px; line-height: 16px;
+                     margin: var(--space-2) 0 var(--space-3);
+                     font-variant-numeric: tabular-nums; }
+  .reason { color: var(--warn); font-size: 12px; line-height: 16px; margin-top: var(--space-2); }
+  .muted { color: var(--dim); }
+  .empty { color: var(--dim); font-style: italic; padding: var(--space-3) 0; }
+  .empty.good { color: var(--ok); font-style: normal; }
+  .err-panel {
+    color: var(--err); border: 1px solid var(--err); border-radius: var(--r-sm);
+    background: rgb(224 108 117 / .08); padding: var(--space-3) var(--space-4);
+    margin: var(--space-3) 0; font-size: 13px;
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  }
+  .toolbar { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;
+             margin: var(--space-3) 0; }
+  .toolbar input[type=text] { flex: 1; min-width: 180px; }
+  .count-line { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  pre.summary {
+    white-space: pre-wrap; word-wrap: break-word; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    padding: var(--space-3) var(--space-5);
+    font: 13px/22px var(--font-mono); margin: var(--space-3) 0;
+    /* span the panel; column-width keeps each line a readable measure by
+       flowing the profile into columns on wide screens instead of capping */
+    column-width: 72ch; column-gap: var(--space-6); column-rule: 1px solid var(--border);
+  }
+  dl.health { display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+              gap: var(--space-1) var(--space-5); margin: var(--space-3) 0 0; }
+  dl.health .kv { display: grid; grid-template-columns: minmax(140px, max-content) 1fr;
+    column-gap: var(--space-4); align-items: baseline; }
+  dl.health dt { color: var(--dim); font-size: 12px; line-height: 20px; }
+  dl.health dd { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 20px;
+                 font-variant-numeric: tabular-nums; }
+  .editor { background: var(--bg); border: 1px dashed var(--border);
+            border-radius: var(--r-sm); padding: var(--space-3); margin: var(--space-2) 0; }
+  .editor .fields { display: flex; gap: var(--space-2); flex-wrap: wrap;
+                    margin: var(--space-2) 0 0; align-items: center; }
+  label.inline { color: var(--dim); font-size: 12px; }
+  #toast {
+    position: fixed; top: var(--space-4); right: var(--space-4); max-width: 380px; z-index: 10;
+    padding: var(--space-3) var(--space-4); border-radius: var(--r-sm); font-size: 13px;
+    display: none; border: 1px solid; background: var(--panel); box-shadow: var(--shadow-pop);
+  }
+  #toast.error { color: var(--err); border-color: var(--err); }
+  #toast.ok { color: var(--ok); border-color: var(--ok); }
+  .status-line { color: var(--dim); font-size: 12px; margin-left: var(--space-2); }
+  .add-grid { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center;
+              margin-top: var(--space-2); }
+
+  /* ---- danger zone: a standard section, in red ---- */
+  details.section.danger-zone { border-color: #6b3238; background: rgb(224 108 117 / .05); }
+  details.section.danger-zone > summary { color: var(--err); }
+  .danger-zone p { color: var(--dim); font-size: 12px; line-height: 16px;
+                   margin: 0 0 var(--space-3); max-width: 68ch; }
+  .danger-zone .fields { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+  .danger-zone input { width: 180px; }
+  .danger-zone input#del-id { width: 96px; }
+
+  /* ---- file preview modal ---- */
+  .modal-backdrop[hidden] { display: none; }  /* display:flex would defeat `hidden` */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / .62);
+    display: flex; align-items: center; justify-content: center;
+    padding: 4vh 4vw;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-pop);
+    width: min(920px, 100%); max-height: 92vh;
+    display: flex; flex-direction: column;
+  }
+  .modal-head { display: flex; align-items: center; gap: var(--space-3);
+                padding: var(--space-3) var(--space-4);
+                border-bottom: 1px solid var(--border); }
+  .modal-head h2 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+  .modal-body { overflow: auto; padding: var(--space-4); }
+  .modal-body img { display: block; max-width: 100%; max-height: 68vh;
+                    margin: 0 auto; border-radius: var(--r-sm);
+                    border: 1px solid var(--border); }
+  .modal-body .fm-text { max-height: 56vh; overflow: auto; margin: 0;
+                         column-width: auto; }
+  .fm-block { margin-top: var(--space-4); font-size: 13px; line-height: 19px; }
+  .fm-block b { display: block; margin-bottom: var(--space-1); }
+  .fm-fact { color: var(--dim); margin-top: var(--space-1); }
+  .modal-foot { display: flex; align-items: center; gap: var(--space-4);
+                padding: var(--space-3) var(--space-4);
+                border-top: 1px solid var(--border); }
+  .modal-dl { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .modal-dl:hover { text-decoration: underline; }
+
+  /* files table: name opens the preview, download sits right beside it */
+  .file-name { background: none; border: none; padding: 0; color: var(--accent);
+               font: inherit; cursor: pointer; text-align: left; }
+  .file-name:hover { text-decoration: underline; }
+  .file-dl { color: var(--dim); font-size: 12px; margin-left: var(--space-2);
+             text-decoration: none; }
+  .file-dl:hover { color: var(--accent); text-decoration: underline; }
+
+  /* ---- header link to the Mathematics page ---- */
+  .math-link {
+    color: var(--accent); text-decoration: none; white-space: nowrap;
+    border: 1px solid var(--border); border-radius: var(--r-full);
+    padding: 2px var(--space-3); font-size: 12px; line-height: 16px;
+  }
+  .math-link:hover { border-color: var(--accent); }
+  .math-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+
+
+  /* ---- setup banner: slim, dismissible, only when a key is missing ---- */
+  .setup-banner[hidden] { display: none; }  /* display:flex would defeat `hidden` */
+  .setup-banner {
+    display: flex; align-items: baseline; gap: var(--space-3);
+    border: 1px solid var(--warn); background: rgb(229 192 123 / .08);
+    border-radius: var(--r-md); padding: var(--space-2) var(--space-4);
+    margin-bottom: var(--space-4); font-size: 13px; line-height: 20px;
+  }
+  .setup-banner b { color: var(--warn); font-weight: 600; }
+  .setup-banner .msg { flex: 1; max-width: none; }
+  .setup-banner .msg code {
+    font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  }
+  .setup-banner .dismiss {
+    background: none; border: none; color: var(--dim); cursor: pointer;
+    font-size: 14px; line-height: 20px; padding: 0 var(--space-1); align-self: flex-start;
+  }
+  .setup-banner .dismiss:hover { color: var(--text); }
+
+  /* ---- narrow widths (phones ~375px): stack controls, reduce chrome ---- */
+  @media (max-width: 560px) {
+    body { padding: var(--space-3); }
+    /* header: let the live/theme cluster drop below the title */
+    .page-head { flex-wrap: wrap; gap: var(--space-3); }
+    .live { margin-left: 0; width: 100%; flex-wrap: wrap; white-space: normal; padding-top: 0; }
+    /* section toolbars: stack full-width */
+    .toolbar { flex-direction: column; align-items: stretch; }
+    .toolbar > * { width: 100%; }
+    .toolbar input[type=text] { min-width: 0; }
+    .toolbar .count-line { text-align: left; }
+    /* add-fact + danger-zone: stack fields, full-width primary action */
+    .add-grid, .danger-zone .fields { flex-direction: column; align-items: stretch; }
+    .add-grid > *, .danger-zone .fields > * { width: 100%; }
+    .add-grid input[type=date], .danger-zone input, .danger-zone input#del-id { width: 100%; }
+    /* stat cards: allow a tighter 2-up before dropping to 1-up */
+    .stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<script>
+  // theme before first paint (no flash); "zinc" = :root default, no attribute
+  (function () {
+    var t = localStorage.getItem("mm-theme");
+    if (t && t !== "zinc") document.documentElement.dataset.theme = t;
+  })();
+</script>
+<div id="toast" role="status" aria-live="polite"></div>
+<main>
+  <div class="setup-banner" id="setup-banner" role="status" hidden>
+    <span class="msg" id="setup-banner-msg"></span>
+    <button class="dismiss" id="setup-banner-x" aria-label="Dismiss setup note"
+            title="Hide this note (it comes back if a different key goes missing)">✕</button>
+  </div>
+  <header class="page-head">
+    <div>
+      <h1>Membro</h1>
+      <div class="sub">This is your AI's memory of you — every fact it keeps, and the controls
+        to review, correct, or erase them. <span id="conn"></span></div>
+    </div>
+    <div class="live">
+      <a class="math-link" href="/math"
+         title="The machinery of your memory, drawn live: the shape of everything remembered, the forgetting curve, a recall traced as it thinks">Mathematics&nbsp;&#8599;</a>
+      <form method="post" action="/logout" style="display:inline"
+            title="Forget this browser's session — you'll need your password again to unlock">
+        <button type="submit" class="math-link" style="background:none;border:none;cursor:pointer">Log&nbsp;out</button>
+      </form>
+      <label class="visually-hidden" for="theme">Theme</label>
+      <select id="theme" class="theme-pick" aria-label="Colour theme">
+        <option value="zinc">Zinc</option>
+        <option value="midnight">Midnight</option>
+        <option value="espresso">Espresso</option>
+        <option value="oled">OLED</option>
+        <option value="light">Light</option>
+      </select>
+      <span class="dot" id="live-dot"></span><span id="live-text">connecting…</span>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="Service health">
+    <div class="stat" id="stat-facts"><div class="label">Facts</div><div class="value" id="stat-facts-v">—</div></div>
+    <div class="stat" id="stat-review"><div class="label">Pending review</div><div class="value" id="stat-review-v">—</div></div>
+    <div class="stat" id="stat-messages"><div class="label">Messages</div><div class="value" id="stat-messages-v">—</div></div>
+    <div class="stat" id="stat-size"><div class="label">DB size</div><div class="value small" id="stat-size-v">—</div></div>
+    <div class="stat" id="stat-backup"><div class="label">Last backup</div><div class="value small" id="stat-backup-v">—</div></div>
+    <div class="stat" id="stat-integrity"><div class="label">Integrity</div>
+      <div class="value small"><span class="dot" id="stat-integrity-dot"></span><span id="stat-integrity-v">—</span></div></div>
+  </section>
+
+  <!-- REVIEW — the daily to-do: facts waiting for your decision -->
+  <div class="group primary" id="group-review">
+    <h2 class="group-head">Review
+      <span class="why">Facts waiting for your decision — clear this first</span></h2>
+    <details class="section" id="sec-review" open>
+      <summary>Held for review <span class="badge" id="review-count">…</span>
+        <span style="flex:1"></span>
+        <button class="bad" onclick="event.preventDefault();dismissAllReview()">Dismiss all</button>
+        <button onclick="event.preventDefault();loadReview()">Refresh</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Facts waiting for your OK.</b> When something looks off — a fact that
+          wasn't actually said in its source chat, came from roleplay, or was written by an outside
+          tool — it's held here instead of being trusted. <b>Approve</b> lets it in;
+          <b>Dismiss</b> keeps it out. Nothing is deleted either way. This is the bouncer that
+          stops one bad "fact" quietly spreading through everything the AI believes about you.</p></details>
+        <div id="review-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+  </div>
+
+  <!-- MAINTAIN — curate and keep your memory healthy -->
+  <div class="group" id="group-maintain">
+    <h2 class="group-head">Maintain
+      <span class="why">Curate your memory: add, rebuild the profile, tidy duplicates</span></h2>
+    <details class="section">
+      <summary>Add fact</summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Tell the memory something directly.</b> Anything you write here is
+          trusted immediately — you're the one writer whose word isn't checked. Best for durable
+          things ("I moved house", "my sister's name is …"), not passing details.</p></details>
+        <textarea id="add-content" placeholder="A durable fact worth remembering (no minutiae) — saved with origin_agent 'user', trusted."></textarea>
+        <div class="add-grid">
+          <label class="inline" for="add-date">Event date (optional, defaults to today)</label>
+          <input type="date" id="add-date">
+          <button class="primary" onclick="addFact()">Save fact</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="section" id="sec-summary">
+      <summary>Summary
+        <span style="flex:1"></span>
+        <span class="status-line" id="regen-status"></span>
+        <button id="regen-btn" class="primary" onclick="event.preventDefault();regenerateSummary()">Regenerate</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>The one-page profile handed to your AI at the start of every
+          conversation</b>, built only from the face-up cards (quarantined and superseded facts
+          never appear). It's a cheat-sheet, not the truth — the ledger below is the truth.
+          <b>Regenerate</b> rebuilds it after you've changed things. Every rebuild is kept in
+          <b>Previous versions</b> below — nothing is overwritten, and you can restore any
+          earlier profile if a rebuild reads worse than what it replaced.</p></details>
+        <div id="summary-body"><div class="empty">Loading…</div></div>
+        <div id="summary-versions"></div>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>Consolidation
+        <span style="flex:1"></span>
+        <span class="status-line" id="consolidate-status"></span>
+        <button id="consolidate-btn" class="primary" onclick="event.preventDefault();runConsolidation()">Run sweep</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>A tidy-up assistant.</b> It scans for duplicate and related cards and
+          <b>suggests</b> merges or supersessions — it never changes anything itself. You read
+          the proposals and decide. Run it occasionally, like sweeping a workshop.</p></details>
+        <div id="consolidate-body">
+          <div class="empty">No sweep run yet.</div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- INSPECT — look without changing: the ledger of record and the files it holds -->
+  <div class="group" id="group-inspect">
+    <h2 class="group-head">Inspect
+      <span class="why">Look without changing: browse the full ledger and stored files</span></h2>
+    <details class="section">
+      <summary>Ledger <span class="badge" id="ledger-count"></span></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Every fact ever kept about you — one card each.</b> Cards are never
+          thrown away: when something changes, the old card is flipped face-down
+          (<b>superseded</b>) and kept as history. So you can always see what the AI believes
+          now, what it used to believe, and where each belief came from.</p>
+          <p><b>Hold selected</b> is for a card that turned out to be broken — a half-sentence,
+          or a scrap that isn't really a fact about you. Tick it, say why, and it stops being
+          used: it leaves recall and your profile and moves to <b>Review</b>, where you can put
+          it back later with <b>Approve</b>. Nothing is deleted. Use <b>Supersede</b> instead
+          when a card is simply out of date and a newer card replaces it.</p>
+          <p><b>Finding specific cards.</b> The search box normally looks inside the card
+          <i>text</i>. To look up cards by their <b>id</b> number instead, start with
+          <b>#</b> — <code>#1990</code> for one, <code>#216,1394,1990</code> for several at
+          once. That's how you act on a list of ids someone (or a report) handed you: paste
+          them in, and every one appears together so you can tick them all and Hold them in a
+          single go.</p></details>
+        <div class="toolbar">
+          <select id="ledger-status" onchange="loadLedger()" aria-label="Filter by status">
+            <option value="valid" selected>valid</option>
+            <option value="superseded">superseded</option>
+            <option value="quarantined">quarantined</option>
+            <option value="all">all</option>
+          </select>
+          <input type="text" id="ledger-q" placeholder="text search, or #12 / #12,34 for ids… (Enter)"
+                 onkeydown="if(event.key==='Enter')loadLedger()">
+          <button onclick="loadLedger()">Search</button>
+          <button class="bad" id="hold-btn" disabled
+                  onclick="event.preventDefault();holdSelected()">Hold selected</button>
+          <span class="count-line" id="ledger-count-line"></span>
+        </div>
+        <div id="ledger-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>Files <span class="badge" id="files-count"></span>
+        <span style="flex:1"></span><button onclick="event.preventDefault();loadFiles()">Refresh</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Every file your memory holds</b> — documents, PDFs, and images that
+          traveled with your conversations (long pastes become files too). Each is stored
+          whole; "searchable" means its text was extracted so search and fact-mining can
+          see inside it. Click a name to download the original. Deleting one is permanent
+          and lives in the Admin band below — everything here is read-only.</p></details>
+        <div id="files-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ADMIN — rare and dangerous: diagnostics and the only real erasers -->
+  <div class="group admin" id="group-admin">
+    <h2 class="group-head">Admin
+      <span class="why">Rare &amp; dangerous: diagnostics and permanent deletes — usually leave alone</span></h2>
+    <details class="section">
+      <summary>Database health
+        <span style="flex:1"></span><button onclick="event.preventDefault();loadHealth()">Refresh</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>The vital signs of the file where all of this lives.</b> If
+          <b>Integrity</b> says ok and there's a recent backup, your memory is safe. Backups are
+          taken automatically at startup and every few hours (newest 14 kept locally,
+          rotation is automatic); restoring one is a file copy. The headline numbers are
+          always in the strip at the top of the page.</p></details>
+        <div id="health-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+
+    <details class="section danger-zone" aria-label="Danger zone">
+      <summary>Danger zone</summary>
+      <div class="body">
+        <p><b>The only real erasers in the app — and only you can press them.</b> Everything else
+           hides or retires things reversibly; these permanently destroy one fact or one stored
+           file, with no undo and no history kept. Prefer Supersede (in the ledger) or Dismiss
+           (in review) unless it should never have existed. Type the id and the word DELETE to
+           enable each button. File ids are in the Files section above.</p>
+        <div class="fields">
+          <input type="number" id="del-id" min="1" placeholder="fact id"
+                 oninput="checkDelete()" aria-label="Fact id to delete">
+          <input type="text" id="del-confirm" placeholder="type DELETE to confirm"
+                 oninput="checkDelete()" autocomplete="off" aria-label="Type DELETE to confirm">
+          <button class="danger" id="del-btn" disabled onclick="hardDelete()">Delete fact permanently</button>
+        </div>
+        <div class="fields" style="margin-top: var(--space-3)">
+          <input type="number" id="del-att-id" min="1" placeholder="file id"
+                 oninput="checkDeleteAtt()" aria-label="File id to delete">
+          <input type="text" id="del-att-confirm" placeholder="type DELETE to confirm"
+                 oninput="checkDeleteAtt()" autocomplete="off" aria-label="Type DELETE to confirm file deletion">
+          <button class="danger" id="del-att-btn" disabled onclick="hardDeleteAttachment()">Delete file permanently</button>
+        </div>
+      </div>
+    </details>
+  </div>
+</main>
+
+<!-- File preview modal: the file at full size, in its context -->
+<div id="file-modal" class="modal-backdrop" hidden onclick="if (event.target === this) closeFilePreview()">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fm-title">
+    <div class="modal-head">
+      <h2 id="fm-title"></h2>
+      <span style="flex:1"></span>
+      <button id="fm-close" onclick="closeFilePreview()" aria-label="Close preview">✕ close</button>
+    </div>
+    <div class="modal-body" id="fm-body"></div>
+    <div class="modal-foot">
+      <a id="fm-download" class="modal-dl" href="#" download>⤓ Download original</a>
+      <span class="meta">Esc or click outside to close · deleting lives in the Danger zone</span>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+// theme picker (initial value applied pre-paint in <body>'s inline script)
+{
+  const sel = document.getElementById("theme");
+  sel.value = localStorage.getItem("mm-theme") || "zinc";
+  sel.addEventListener("change", () => {
+    const t = sel.value;
+    localStorage.setItem("mm-theme", t);
+    if (t === "zinc") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+  });
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let toastTimer = null;
+function toast(msg, ok = false) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = ok ? "ok" : "error";
+  t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = "none"; }, ok ? 3000 : 6000);
+}
+
+async function api(path, opts = {}) {
+  let resp;
+  const init = { method: opts.method || "GET" };
+  if (opts.body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(opts.body);
+  }
+  // No token handling needed here (#46 v3): this page is only ever served
+  // once the browser holds the httpOnly `mm_admin` session cookie (see
+  // POST /login in api.py), and the browser attaches that cookie to these
+  // same-origin fetches automatically — nothing for page JS to read or send.
+  try {
+    resp = await fetch("/v1" + path, init);
+  } catch (e) {
+    toast("Network error — is the service running? " + e.message);
+    setLive("err", "unreachable");
+    throw e;
+  }
+  if (resp.status === 401) {
+    // The session cookie is missing/expired (or this call somehow reached a
+    // gated endpoint without it) — back to the locked page to re-authenticate.
+    location.href = "/";
+    throw new Error("session expired — reloading to log in");
+  }
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* non-JSON body */ }
+  if (!resp.ok) {
+    const msg = data && data.error
+      ? `Error ${data.error.code}: ${data.error.message}` : `HTTP ${resp.status}`;
+    toast(msg);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+const pad2 = n => String(n).padStart(2, "0");
+const fmtDate = ts => ts == null ? "—" : new Date(ts * 1000).toISOString().slice(0, 10);
+function fmtWhen(ts) {  // local time, ISO-shaped: sortable by eye
+  if (ts == null) return "never";
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+         `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function fmtBytes(n) {
+  if (n == null) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function errPanel(elId, msg, retry) {
+  $(elId).innerHTML = `<div class="err-panel"><span>${esc(msg)}</span>
+    <button onclick="${retry}()">Retry</button></div>`;
+}
+
+async function pollJob(jobId) {
+  for (;;) {
+    const job = await api(`/jobs/${jobId}`);
+    if (job.status !== "running") return job;
+    await new Promise(r => setTimeout(r, 700));
+  }
+}
+
+// ---- status badges: one system, five states ----
+
+function stateBadges(f) {
+  const b = [];
+  if (f.invalidated_at) b.push(`<span class="st superseded">superseded → #${f.superseded_by}</span>`);
+  if (f.quarantined_at) {
+    b.push(f.review_dismissed_at
+      ? '<span class="st dismissed">dismissed</span>'
+      : '<span class="st quarantined">quarantined</span>');
+  }
+  if (f.source === "synthesis") b.push('<span class="st synthesis">synthesis</span>');
+  if (!b.length) b.push('<span class="st valid">valid</span>');
+  return b.join(" ");
+}
+
+// ---- held for review: triage queue (j/k navigate, a approve, d dismiss) ----
+
+let REVIEW = [];   // facts currently in the queue, in render order
+let SEL = 0;       // selected index
+
+function setReviewCount(n) {
+  $("review-count").textContent = n;
+  $("review-count").className = n ? "badge hot" : "badge";
+  setStat("stat-review", "stat-review-v", String(n));
+  // pending review is a to-do, not just a number — warm the stat card when >0
+  $("stat-review").classList.toggle("todo", n > 0);
+}
+
+function renderSel() {
+  document.querySelectorAll("#review-body .fact-card").forEach((el, i) => {
+    el.classList.toggle("sel", i === SEL);
+    if (i === SEL) el.scrollIntoView({ block: "nearest" });
+  });
+}
+
+async function loadReview() {
+  let facts;
+  try { ({ facts } = await api("/review")); }
+  catch (e) { errPanel("review-body", "Couldn't load the review queue: " + e.message, "loadReview"); return; }
+  REVIEW = facts; SEL = Math.min(SEL, Math.max(0, facts.length - 1));
+  setReviewCount(facts.length);
+  if (!facts.length) {
+    $("review-body").innerHTML = '<div class="empty good">Nothing to review ✓</div>';
+    return;
+  }
+  $("review-body").innerHTML =
+    '<div class="keys-hint"><kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>a</kbd> approve · <kbd>d</kbd> dismiss</div>' +
+    facts.map(f => `
+    <div class="fact-card" id="review-card-${f.id}">
+      <div class="fact-text">${esc(f.content)}</div>
+      <div class="reason">⚠ ${esc(f.quarantine_reason || "quarantined")}</div>
+      <div class="meta">#${f.id} · origin <b>${esc(f.origin_agent)}</b> ·
+        event ${fmtDate(f.event_date)} · created ${fmtWhen(f.created_at)} ·
+        confidence ${esc(f.confidence)}</div>
+      <div class="row-actions">
+        <button class="good" onclick="approveFact(${f.id})">Approve <kbd>a</kbd></button>
+        <button class="bad" onclick="dismissFact(${f.id})">Dismiss <kbd>d</kbd></button>
+      </div>
+    </div>`).join("");
+  renderSel();
+}
+
+// Optimistic removal: the card leaves immediately; a failure reloads the queue.
+function removeReviewCard(id) {
+  const idx = REVIEW.findIndex(f => f.id === id);
+  if (idx === -1) return;
+  REVIEW.splice(idx, 1);
+  SEL = Math.min(SEL > idx ? SEL - 1 : SEL, Math.max(0, REVIEW.length - 1));
+  setReviewCount(REVIEW.length);
+  const card = $(`review-card-${id}`);
+  if (card) {
+    card.classList.add("leaving");
+    setTimeout(() => {
+      card.remove();
+      if (!REVIEW.length)
+        $("review-body").innerHTML = '<div class="empty good">Nothing to review ✓</div>';
+      else renderSel();
+    }, 150);
+  }
+}
+
+async function approveFact(id) {
+  removeReviewCard(id);
+  try {
+    await api(`/facts/${id}/approve`, { method: "POST" });
+    toast(`Fact #${id} approved — now canon.`, true);
+    loadLedger(); loadHealth();
+  } catch (e) { loadReview(); }
+}
+
+async function dismissFact(id) {
+  removeReviewCard(id);
+  try {
+    await api(`/facts/${id}/dismiss`, { method: "POST" });
+    toast(`Fact #${id} dismissed — kept out of recall, still in the ledger.`, true);
+    loadLedger();
+  } catch (e) { loadReview(); }
+}
+
+// Bulk twin of dismissFact — same non-destructive semantics (stays in the
+// ledger, just leaves the queue; any one is reversible with Approve later).
+// For clearing a backlog made stale by a filtering fix, not routine triage.
+async function dismissAllReview() {
+  if (!REVIEW.length) return;
+  if (!confirm(`Dismiss all ${REVIEW.length} pending facts? They stay in the `
+    + `ledger (nothing is deleted) — this just clears the review queue.`)) return;
+  try {
+    const { dismissed } = await api("/review/dismiss-all", { method: "POST" });
+    toast(`${dismissed} fact(s) dismissed — kept out of recall, still in the ledger.`, true);
+    loadReview(); loadLedger();
+  } catch (e) { toast("Couldn't dismiss all: " + e.message, false); }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
+            t.tagName === "SELECT" || t.isContentEditable)) return;
+  if (!REVIEW.length) return;
+  if (e.key === "j") { SEL = Math.min(SEL + 1, REVIEW.length - 1); renderSel(); e.preventDefault(); }
+  else if (e.key === "k") { SEL = Math.max(SEL - 1, 0); renderSel(); e.preventDefault(); }
+  else if (e.key === "a") { if (REVIEW[SEL]) approveFact(REVIEW[SEL].id); e.preventDefault(); }
+  else if (e.key === "d") { if (REVIEW[SEL]) dismissFact(REVIEW[SEL].id); e.preventDefault(); }
+});
+
+// ---- summary ----
+
+async function loadSummary() {
+  let s;
+  try { s = await api("/summary"); }
+  catch (e) { errPanel("summary-body", "Couldn't load the summary: " + e.message, "loadSummary"); return; }
+  // The word budget is a promise — show it being kept (or not) right here.
+  const words = s.word_budget
+    ? ` · ${(s.word_count || 0).toLocaleString()} words of a ${s.word_budget.toLocaleString()}-word budget`
+    : "";
+  const meta = `generated ${fmtWhen(s.generated_at)} · ${s.source_fact_ids.length} source facts${words}`;
+  $("summary-body").innerHTML = s.summary
+    ? `<div class="muted mono" style="margin-top:var(--space-2)">${esc(meta)}</div>
+       <pre class="summary">${esc(s.summary)}</pre>`
+    : '<div class="empty">No summary yet — add facts and hit Regenerate.</div>';
+  loadSummaryVersions();
+}
+
+async function loadSummaryVersions() {
+  let d;
+  try { d = await api("/summary/versions"); } catch { return; }
+  const box = $("summary-versions");
+  if (!d.versions.length) { box.innerHTML = ""; return; }
+  const rows = d.versions.map((v, i) => {
+    const label = `${fmtWhen(v.generated_at)} · ${v.word_count.toLocaleString()} words`
+      + (v.model ? ` · ${esc(v.model)}` : "")
+      + (v.restored_from ? ` · restored from an earlier version` : "");
+    const actions = i === 0
+      ? '<span class="muted">current</span>'
+      : `<button onclick="viewSummaryVersion(${v.id})">View</button>
+         <button onclick="restoreSummaryVersion(${v.id})">Restore</button>`;
+    return `<div style="display:flex;gap:var(--space-2);align-items:center;padding:2px 0">
+      <span class="muted mono" style="flex:1">${label}</span>${actions}</div>`;
+  }).join("");
+  box.innerHTML = `<details class="help" style="margin-top:var(--space-2)">
+    <summary>Previous versions (${d.versions.length})</summary>
+    <p>Every rebuild of the profile is kept — nothing is overwritten. Restoring an
+    earlier version makes it current again (the history itself is never changed).</p>
+    ${rows}<div id="summary-version-view"></div></details>`;
+}
+
+async function viewSummaryVersion(id) {
+  try {
+    const v = await api(`/summary/versions/${id}`);
+    $("summary-version-view").innerHTML =
+      `<div class="muted mono" style="margin-top:var(--space-2)">viewing ${esc(fmtWhen(v.generated_at))} — the current profile is unchanged</div>
+       <pre class="summary">${esc(v.content)}</pre>`;
+  } catch (e) { toast("Couldn't load that version: " + e.message); }
+}
+
+async function restoreSummaryVersion(id) {
+  try {
+    await api(`/summary/versions/${id}/restore`, { method: "POST" });
+    toast("Earlier profile restored — it's the current summary again.", true);
+    await loadSummary();
+  } catch (e) { toast("Restore failed: " + e.message); }
+}
+
+async function regenerateSummary() {
+  const btn = $("regen-btn"), st = $("regen-status");
+  btn.disabled = true; st.textContent = "regenerating…";
+  try {
+    const { job_id } = await api("/summary/regenerate", { method: "POST" });
+    const job = await pollJob(job_id);
+    if (job.status === "ok") { toast("Summary regenerated.", true); await loadSummary(); }
+    else toast("Summary job failed: " + (job.error || "unknown error"));
+  } finally {
+    btn.disabled = false; st.textContent = "";
+  }
+}
+
+// ---- add fact ----
+
+async function addFact() {
+  const content = $("add-content").value.trim();
+  if (!content) { toast("Write the fact first."); return; }
+  const body = { content, origin_agent: "user" };
+  if ($("add-date").value) body.event_date = $("add-date").value;
+  const res = await api("/facts", { method: "POST", body });
+  toast(res.quarantined ? `Saved #${res.id} — held for review.` : `Saved fact #${res.id}.`, true);
+  $("add-content").value = ""; $("add-date").value = "";
+  loadLedger(); loadReview(); loadHealth();
+}
+
+// ---- ledger ----
+
+function provRows(f) {
+  const rows = [
+    ["authored by", f.origin_agent], ["source", f.source],
+    ["created", fmtWhen(f.created_at)], ["event date", fmtDate(f.event_date)],
+    ["confidence", f.confidence],
+    ["conversation", f.conversation_id == null ? "—" : "#" + f.conversation_id],
+    ["source message", f.source_message_id == null ? "—" : "#" + f.source_message_id],
+  ];
+  if (f.invalidated_at) rows.push(["superseded", `${fmtWhen(f.invalidated_at)} → #${f.superseded_by}`]);
+  if (f.quarantined_at) rows.push(["quarantined", fmtWhen(f.quarantined_at)],
+                                  ["reason", f.quarantine_reason || "—"]);
+  if (f.review_dismissed_at) rows.push(["dismissed", fmtWhen(f.review_dismissed_at)]);
+  if (f.content_hash) rows.push(["content hash", String(f.content_hash).slice(0, 16)]);
+  return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
+let ledgerLimit = 200;   // grows via "Load more"; resets on any filter/search change
+
+async function loadLedger(more) {
+  // reset the window whenever the filter/search changes; grow it on Load more
+  ledgerLimit = more ? ledgerLimit + 200 : 200;
+  const status = $("ledger-status").value;
+  const q = $("ledger-q").value.trim();
+  const params = new URLSearchParams({ status, limit: String(ledgerLimit) });
+  if (q) params.set("q", q);
+  let facts;
+  try { ({ facts } = await api("/facts?" + params)); }
+  catch (e) { errPanel("ledger-body", "Couldn't load the ledger: " + e.message, "loadLedger"); return; }
+  // honest about the window: if we filled the limit, older facts may exist
+  const capped = facts.length === ledgerLimit;
+  $("ledger-count").textContent = capped ? `${facts.length}+` : facts.length;
+  $("ledger-count-line").textContent =
+    `${facts.length} fact${facts.length === 1 ? "" : "s"}` +
+    (capped ? ` (first ${ledgerLimit} — more may exist)` : "") +
+    (q ? ` matching “${q}”` : "");
+  if (!facts.length) {
+    $("ledger-body").innerHTML =
+      '<div class="empty">No facts match — the ledger is append-only; facts land here as they are saved or mined.</div>';
+    updateHoldBtn();
+    return;
+  }
+  $("ledger-body").innerHTML = `<div class="table-wrap"><table><thead><tr>
+      <th scope="col" title="Tick to hold a broken card for review">hold</th>
+      <th scope="col" class="num">id</th><th scope="col">content</th>
+      <th scope="col" class="num">event</th><th scope="col">origin</th>
+      <th scope="col">conf</th><th scope="col">state</th><th scope="col"></th>
+    </tr></thead><tbody>` + facts.map(f => `
+    <tr id="fact-row-${f.id}">
+      <td><input type="checkbox" class="hold-pick" value="${f.id}"
+             aria-label="Select fact ${f.id} to hold for review"
+             onchange="updateHoldBtn()"${f.quarantined_at ? " disabled" : ""}></td>
+      <td class="num"><button class="chev" aria-expanded="false" aria-label="Show provenance for fact ${f.id}"
+            onclick="toggleProv(${f.id}, this)">▸</button>${f.id}</td>
+      <td>${esc(f.content)}</td>
+      <td class="num">${fmtDate(f.event_date)}</td>
+      <td class="mono">${esc(f.origin_agent)}</td>
+      <td>${esc(f.confidence)}</td>
+      <td>${stateBadges(f)}</td>
+      <td><div class="row-actions">
+        <button onclick="toggleEdit(${f.id})">Edit</button>
+        <button onclick="supersedeFact(${f.id})">Supersede</button>
+      </div></td>
+    </tr>
+    <tr id="fact-prov-${f.id}" hidden><td colspan="8">
+      <dl class="prov">${provRows(f)}</dl>
+    </td></tr>
+    <tr id="fact-edit-${f.id}" hidden><td colspan="8">
+      <div class="editor">
+        <textarea id="edit-content-${f.id}">${esc(f.content)}</textarea>
+        <div class="fields">
+          <label class="inline">event date</label>
+          <input type="date" id="edit-date-${f.id}"
+                 value="${f.event_date ? fmtDate(f.event_date) : ""}">
+          <label class="inline">confidence</label>
+          <select id="edit-conf-${f.id}">
+            ${["high","medium","low"].map(c =>
+              `<option${c === f.confidence ? " selected" : ""}>${c}</option>`).join("")}
+          </select>
+          <label class="inline" title="How much this fact matters long-term (1 mundane → 9 life-defining). Higher importance ages slower. 10 = PERMANENT: never decays, always in your profile — yours to grant, the AI never assigns it.">importance</label>
+          <select id="edit-imp-${f.id}">
+            ${["", 1,2,3,4,5,6,7,8,9,10].map(v =>
+              `<option value="${v}"${String(v) === String(f.importance ?? "") ? " selected" : ""}>${v === "" ? "—" : v}</option>`).join("")}
+          </select>
+          <button class="primary" onclick="saveEdit(${f.id})">Save</button>
+          <button onclick="toggleEdit(${f.id})">Cancel</button>
+        </div>
+      </div>
+    </td></tr>`).join("") + "</tbody></table></div>" +
+    (capped ? `<div class="loadmore">Showing the first ${ledgerLimit} facts — older
+       ones may exist. <button onclick="loadLedger(true)">Load 200 more</button>
+       <span class="hint">or narrow with search above.</span></div>` : "");
+  updateHoldBtn();   // re-render clears the ticks, so reset the button with them
+}
+
+function toggleProv(id, btn) {
+  const row = $(`fact-prov-${id}`);
+  row.hidden = !row.hidden;
+  btn.setAttribute("aria-expanded", String(!row.hidden));
+}
+
+function toggleEdit(id) {
+  const row = $(`fact-edit-${id}`);
+  row.hidden = !row.hidden;
+}
+
+async function saveEdit(id) {
+  const body = {
+    content: $(`edit-content-${id}`).value.trim(),
+    confidence: $(`edit-conf-${id}`).value,
+  };
+  if ($(`edit-date-${id}`).value) body.event_date = $(`edit-date-${id}`).value;
+  if ($(`edit-imp-${id}`).value) body.importance = Number($(`edit-imp-${id}`).value);
+  if (!body.content) { toast("Content can't be empty."); return; }
+  await api(`/facts/${id}`, { method: "PATCH", body });
+  toast(`Fact #${id} updated.`, true);
+  loadLedger(); loadSummary();
+}
+
+async function supersedeFact(id) {
+  const raw = prompt(`Supersede fact #${id} — enter the id of the NEWER fact that replaces it:`);
+  if (raw == null) return;
+  const successor = parseInt(raw, 10);
+  if (!Number.isInteger(successor) || successor === id) { toast("Enter a valid other fact id."); return; }
+  await api(`/facts/${id}/supersede`, { method: "POST", body: { successor_id: successor } });
+  toast(`Fact #${id} superseded by #${successor} (kept for history).`, true);
+  loadLedger(); loadHealth();
+}
+
+// Hold (#72): pull a card that's already canon OUT of recall and the profile,
+// without deleting it. The third option between Supersede (a newer card
+// replaces this one) and Delete (gone for good) — for cards that are simply
+// broken, where there IS no replacement. Batch, because the real cases are
+// batches. Reversible from Review with Approve.
+function heldPicks() {
+  return [...document.querySelectorAll(".hold-pick:checked")].map(c => parseInt(c.value, 10));
+}
+
+function updateHoldBtn() {
+  const n = heldPicks().length;
+  const btn = $("hold-btn");
+  if (!btn) return;
+  btn.disabled = !n;
+  btn.textContent = n ? `Hold selected (${n})` : "Hold selected";
+}
+
+async function holdSelected() {
+  const ids = heldPicks();
+  if (!ids.length) return;
+  const reason = prompt(`Hold ${ids.length} card(s) for review — why? `
+    + `(e.g. "half-sentence, not a real fact"). They leave recall and your `
+    + `profile but stay in the ledger, and you can Approve them back later.`);
+  if (reason == null) return;
+  if (!reason.trim()) { toast("A reason is required — Review needs to show why."); return; }
+  try {
+    const { quarantined, skipped } = await api("/facts/quarantine",
+      { method: "POST", body: { ids, reason: reason.trim() } });
+    toast(`${quarantined.length} card(s) held for review`
+      + (skipped.length ? `, ${skipped.length} skipped (already held).` : "."), true);
+    loadLedger(); loadReview(); loadHealth();
+  } catch (e) { toast("Couldn't hold those: " + e.message, false); }
+}
+
+// ---- danger zone: the one hard delete ----
+
+function checkDelete() {
+  const id = parseInt($("del-id").value, 10);
+  $("del-btn").disabled = !(Number.isInteger(id) && id > 0 &&
+                            $("del-confirm").value === "DELETE");
+}
+
+async function hardDelete() {
+  const id = parseInt($("del-id").value, 10);
+  if (!Number.isInteger(id) || id <= 0) return;
+  await api(`/facts/${id}`, { method: "DELETE" });
+  toast(`Fact #${id} permanently deleted.`, true);
+  $("del-id").value = ""; $("del-confirm").value = ""; checkDelete();
+  loadLedger(); loadReview(); loadHealth();
+}
+
+function checkDeleteAtt() {
+  const id = parseInt($("del-att-id").value, 10);
+  $("del-att-btn").disabled = !(Number.isInteger(id) && id > 0 &&
+                                $("del-att-confirm").value === "DELETE");
+}
+
+async function hardDeleteAttachment() {
+  const id = parseInt($("del-att-id").value, 10);
+  if (!Number.isInteger(id) || id <= 0) return;
+  const res = await api(`/attachments/${id}`, { method: "DELETE" });
+  toast(`File #${id} permanently deleted${res.file_removed ? " (bytes removed from disk)" : ""}.`, true);
+  $("del-att-id").value = ""; $("del-att-confirm").value = ""; checkDeleteAtt();
+  loadFiles(); loadHealth();
+}
+
+// ---- files: every attachment the memory holds ----
+
+async function loadFiles() {
+  let d;
+  try { d = await api("/attachments"); }
+  catch (e) { errPanel("files-body", "Couldn't load files: " + e.message, "loadFiles"); return; }
+  const rows = d.attachments || [];
+  $("files-count").textContent = rows.length ? String(rows.length) : "";
+  $("files-body").innerHTML = rows.length
+    ? `<div class="table-wrap"><table><thead><tr>
+         <th>id</th><th>file</th><th>size</th><th>from conversation</th>
+         <th>received</th><th></th></tr></thead><tbody>` +
+      rows.map(a => `<tr>
+        <td class="mono">#${a.id}</td>
+        <td><button class="file-name" onclick="openFilePreview(${a.id})"
+              title="Preview ${esc(a.filename)}">${esc(a.filename)}</button>
+            <a class="file-dl" href="/v1/attachments/${a.id}/file" download
+               title="Download ${esc(a.filename)}">download</a></td>
+        <td class="mono">${fmtBytes(a.size)}</td>
+        <td>${esc(a.conversation_title || a.conversation_id)}</td>
+        <td class="mono">${fmtWhen(a.created_at)}</td>
+        <td>${a.searchable ? '<span class="st" style="color:var(--ok)">searchable</span>'
+                           : '<span class="st">stored</span>'}</td>
+      </tr>`).join("") + "</tbody></table></div>"
+    : '<div class="empty">No files yet — attachments and long pastes arrive with your chats.</div>';
+}
+
+let _modalReturnFocus = null;
+
+async function openFilePreview(id) {
+  _modalReturnFocus = document.activeElement;
+  $("file-modal").hidden = false;
+  $("fm-title").textContent = "Loading…";
+  $("fm-body").innerHTML = "";
+  $("fm-download").href = `/v1/attachments/${id}/file`;
+  $("fm-close").focus();
+  let p;
+  try { p = await api(`/attachments/${id}/preview`); }
+  catch (e) { $("fm-body").innerHTML = `<div class="meta">Couldn't load preview: ${esc(e.message)}</div>`; return; }
+  $("fm-title").textContent = p.filename;
+  const preview =
+    p.kind === "image"
+      ? `<img src="/v1/attachments/${id}/file?inline=1" alt="${esc(p.filename)}">`
+      : p.kind === "text"
+        ? `<pre class="summary fm-text">${esc(p.text)}${p.text_truncated ? "\n… (download for the rest)" : ""}</pre>`
+        : `<div class="meta">No preview for this file type — use Download below.</div>`;
+  const msg = p.message
+    ? `<div class="fm-block"><b>Arrived with</b> <span class="meta">(${esc(p.message.speaker)} · ${fmtWhen(p.message.created_at)})</span>
+         <div>${esc(p.message.content.slice(0, 600))}${p.message.content.length > 600 ? "…" : ""}</div></div>`
+    : "";
+  const facts = p.facts.length
+    ? `<div class="fm-block"><b>Ledger facts from this conversation</b>
+         ${p.facts.map(f => `<div class="fm-fact">#${f.id} · imp ${f.importance ?? "—"} · ${esc(f.content)}</div>`).join("")}</div>`
+    : `<div class="fm-block meta">No ledger facts mined from this conversation yet.</div>`;
+  $("fm-body").innerHTML = preview + msg + facts;
+}
+
+function closeFilePreview() {
+  $("file-modal").hidden = true;
+  _modalReturnFocus?.focus?.();
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("file-modal").hidden) closeFilePreview();
+});
+
+// ---- consolidation ----
+
+async function runConsolidation() {
+  const btn = $("consolidate-btn"), st = $("consolidate-status");
+  btn.disabled = true; st.textContent = "sweeping…";
+  try {
+    const { job_id } = await api("/consolidate", { method: "POST" });
+    const job = await pollJob(job_id);
+    if (job.status !== "ok") { toast("Consolidation failed: " + (job.error || "unknown")); return; }
+    const props = (job.result && job.result.proposals) || [];
+    _proposals = props;
+    // Show the actual cards and offer the action — a proposal you have to
+    // cross-reference against the ledger by hand is homework, not a proposal.
+    $("consolidate-body").innerHTML = props.length
+      ? props.map((p, i) => p.kind === "pin-nomination" ? `
+          <div class="fact-card" id="prop-${i}">
+            <div><span class="st synthesis">pin nomination</span>
+              <span class="meta">— this looks permanent (true until you explicitly change it).
+              Pinning sets importance 10: it never fades and always stays in your
+              profile. Only you can pin — the AI just spotted it.</span></div>
+            <div class="meta" style="margin:var(--space-2) 0 0 var(--space-3)">
+              #${p.keep_id} · importance ${p.facts[0].importance ?? "—"} · ${fmtWhen(p.facts[0].created_at)}
+              <div style="color:inherit">${esc(p.facts[0].content)}</div>
+            </div>
+            <div style="margin-top:var(--space-3)">
+              <button class="primary" onclick="applyPin(${i})">Pin — never forget this</button>
+              <button onclick="document.getElementById('prop-${i}').remove()">Leave as is</button>
+            </div>
+          </div>` : `
+          <div class="fact-card" id="prop-${i}">
+            <div><span class="st synthesis">${esc(p.kind)}</span>
+              <span class="meta">— the same card appears ${p.facts.length} times; keeping the
+              strongest copy (highest importance, then newest) retires the rest as
+              history (nothing is deleted)</span></div>
+            ${p.facts.map(f => `
+              <div class="meta" style="margin:var(--space-2) 0 0 var(--space-3)">
+                ${f.id === p.keep_id ? "<b>keep</b>" : "supersede"} · #${f.id} · importance ${f.importance ?? "—"} · ${fmtWhen(f.created_at)}
+                <div style="color:inherit">${esc(f.content)}</div>
+              </div>`).join("")}
+            <div style="margin-top:var(--space-3)">
+              <button class="primary" onclick="applyProposal(${i})">
+                Keep #${p.keep_id}, retire ${p.facts.length - 1} other ${p.facts.length - 1 === 1 ? "copy" : "copies"}</button>
+              <button onclick="document.getElementById('prop-${i}').remove()">Leave as is</button>
+            </div>
+          </div>`).join("")
+      : '<div class="empty good">Sweep complete — no proposals. Ledger is tidy. ✓</div>';
+    toast("Consolidation sweep finished.", true);
+  } finally {
+    btn.disabled = false; st.textContent = "";
+  }
+}
+
+let _proposals = [];
+
+async function applyPin(i) {
+  const p = _proposals[i];
+  if (!p) return;
+  const card = $(`prop-${i}`);
+  card?.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  try {
+    await api(`/facts/${p.keep_id}`, { method: "PATCH", body: { importance: 10 } });
+    toast(`Pinned — #${p.keep_id} will never fade from your profile.`, true);
+    card?.remove();
+    loadLedger();
+  } catch (e) {
+    toast("Couldn't pin: " + e.message);
+    card?.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+  }
+}
+
+async function applyProposal(i) {
+  const p = _proposals[i];
+  if (!p) return;
+  const card = $(`prop-${i}`);
+  card?.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  try {
+    for (const f of p.facts) {
+      if (f.id !== p.keep_id) {
+        await api(`/facts/${f.id}/supersede`, { method: "POST",
+                                                body: { successor_id: p.keep_id } });
+      }
+    }
+    toast(`Done — #${p.keep_id} kept, ${p.facts.length - 1} older cop${p.facts.length - 1 === 1 ? "y" : "ies"} retired as history.`, true);
+    card?.remove();
+    loadLedger();
+  } catch (e) {
+    toast("Couldn't apply: " + e.message);
+    card?.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+  }
+}
+
+// ---- health: stat cards + detail + live-ness ----
+
+const STAT_PREV = {};
+function setStat(cardId, valueId, text) {
+  const el = $(valueId);
+  if (STAT_PREV[valueId] !== undefined && STAT_PREV[valueId] !== text) {
+    const card = $(cardId);
+    card.classList.remove("flash");
+    void card.offsetWidth;  // restart the animation
+    card.classList.add("flash");
+  }
+  STAT_PREV[valueId] = text;
+  el.textContent = text;
+}
+
+let lastHealthAt = null;
+function setLive(cls, text) {
+  $("live-dot").className = "dot " + cls;
+  $("live-text").textContent = text;
+}
+setInterval(() => {
+  if (lastHealthAt == null) return;
+  const s = Math.max(0, Math.round((Date.now() - lastHealthAt) / 1000));
+  $("live-text").textContent = `updated ${s}s ago`;
+}, 5000);
+
+function healthRows(obj, prefix = "") {
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === "object") return healthRows(v, key);
+    let shown = v === null ? "—" : String(v);
+    if (key === "last_backup_at") shown = fmtWhen(v);
+    return [`<div class="kv"><dt>${esc(key)}</dt><dd>${esc(shown)}</dd></div>`];
+  });
+}
+
+// ---- setup banner: name the missing key and what degrades, in plain English ----
+// Dismissal is remembered per issue-set: if a *different* key goes missing later,
+// the banner returns. When everything is configured, nothing is shown at all.
+$("setup-banner-x").addEventListener("click", () => {
+  localStorage.setItem("mm-setup-dismissed", $("setup-banner").dataset.key || "");
+  $("setup-banner").hidden = true;
+});
+function updateSetupBanner(caps) {
+  const issues = [];
+  if (caps && caps.embeddings === false) {
+    issues.push('no <code>OPENAI_API_KEY</code> — recall falls back to keyword-only ' +
+                "matching (it finds exact words, not meanings)");
+  }
+  const el = $("setup-banner");
+  const key = issues.join("|");
+  if (!issues.length || localStorage.getItem("mm-setup-dismissed") === key) {
+    el.hidden = true;
+    return;
+  }
+  el.dataset.key = key;
+  $("setup-banner-msg").innerHTML =
+    "<b>Set-up note:</b> " + issues.join(" · ") +
+    ". To fix it, add the key to the <code>.env</code> file in the " +
+    "multi-model-memory folder, then restart the service.";
+  el.hidden = false;
+}
+
+async function loadHealth() {
+  let h;
+  try { h = await api("/health"); }
+  catch (e) { errPanel("health-body", "Couldn't load health: " + e.message, "loadHealth"); return; }
+  updateSetupBanner(h.capabilities);
+  $("conn").textContent = `· contract v${h.contract_version}`;
+  lastHealthAt = Date.now();
+  setLive(h.status === "ok" ? "ok" : "warn", "updated 0s ago");
+  const db = h.db || {};
+  setStat("stat-facts", "stat-facts-v", String(db.facts ?? "—"));
+  setStat("stat-messages", "stat-messages-v", String(db.messages ?? "—"));
+  setStat("stat-size", "stat-size-v", fmtBytes(db.size_bytes));
+  setStat("stat-backup", "stat-backup-v",
+          db.last_backup_at == null ? "never" : fmtWhen(db.last_backup_at).slice(0, 10));
+  setStat("stat-integrity", "stat-integrity-v", String(db.integrity ?? "—"));
+  $("stat-integrity-dot").className =
+    "dot " + (db.integrity === "ok" ? "ok" : db.integrity ? "err" : "warn");
+  $("health-body").innerHTML =
+    `<dl class="health">${healthRows(h.detail || {}).join("")}</dl>`;
+}
+
+// ---- boot ----
+
+loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth();
+setInterval(() => { if (document.visibilityState === "visible") loadHealth(); }, 15000);
+</script>
+</body>
+</html>

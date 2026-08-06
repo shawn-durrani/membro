@@ -1,0 +1,20 @@
+.env
+data/
+.venv/
+.venv
+node_modules/
+dist/
+__pycache__/
+.DS_Store
+config.local.json
+# ...and any editor/backup spinoff: the base name is ignored but
+# `config.local.json.bak` etc. are NOT, so a `git add -A` could commit personal
+# paths and credentials. Same trap for .env.
+config.local.json.*
+.env.*
+!.env.example
+CLAUDE.local.md
+
+# Personal-content deny-list for scripts/secret-scan.sh — the list itself is
+# personal data. Committed template: secret-scan-local.example.
+.secret-scan-local
