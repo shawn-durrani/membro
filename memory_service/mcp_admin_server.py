@@ -31,9 +31,14 @@ not an addition to it:
 
 Register with (only for a session the owner is actively directing at ledger
 remediation — MEMORY_API_URL points at wherever the live service is actually
-reachable from that session, e.g. a loopback address, a tunnel, or a LAN host):
-    MEMORY_AUTH_TOKEN=<token> MEMORY_API_URL=http://127.0.0.1:8901/v1 \
-    claude mcp add -s user membro-admin -- \
+reachable from that session, e.g. a loopback address, a tunnel, or a LAN host).
+The variables MUST be passed with -e, so they reach this server when it later
+runs; a shell env prefix in front of `claude mcp add` sets them only for the
+registration command, and the registered server would start without them:
+    claude mcp add -s user membro-admin \
+        -e MEMORY_AUTH_TOKEN=<token> \
+        -e MEMORY_API_URL=http://127.0.0.1:8901/v1 \
+        -e PYTHONPATH=<repo> -- \
         <repo>/.venv/bin/python -m memory_service.mcp_admin_server
 """
 

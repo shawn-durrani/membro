@@ -9,13 +9,35 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
 - **1.1: some endpoints require the owner credential ALWAYS, even on
-  loopback**: the exact-row ledger endpoints (`GET /facts`, `GET /review`,
-  and every verb on one existing fact by id: `PATCH`, `/supersede`,
-  `/approve`, `/dismiss`, `DELETE`), plus `POST /search`, `POST /consolidate`
-  and `GET /jobs/{id}`. This is a *separate, stricter* check from the
-  loopback-vs-token rule above, which still governs the remaining routes
-  unchanged (`/health`, `/ingest`, `/distill`, `/recall`, `/summary`, and
-  `POST /facts` to create). See "Owner admin token" below.
+  loopback.** This is a *separate, stricter* check from the loopback-vs-token
+  rule above. Sixteen routes carry that always-on check, and these are
+  all of them:
+  - `GET /facts`, `GET /review`, and every verb on one existing fact by id:
+    `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
+    `/facts/{id}/dismiss`, `DELETE /facts/{id}`
+  - the two bulk ledger verbs: `POST /facts/quarantine`,
+    `POST /review/dismiss-all`
+  - `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
+  - all four attachment routes: `GET /attachments`,
+    `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
+    `DELETE /attachments/{id}`
+
+  No other `/v1` route carries it. Two things sit outside that count
+  without contradicting it: `GET /` is not on the list yet still varies by
+  credential (an unauthenticated caller gets the locked page rather than
+  the admin UI, and no 401), and the loopback-vs-token rule above is a
+  separate gate that governs the whole surface.
+
+  Every other `/v1` route answers an unauthenticated loopback caller,
+  governed only by the loopback-vs-token rule: `/health`,
+  `/disposable-identity`, `/ingest`, `/distill`, `POST /facts` to create,
+  `/recall`, `GET /summary`, **`POST /summary/regenerate` (which rebuilds
+  the live profile) and all three `/summary/versions*` routes (including
+  the one that returns a stored profile in full and the one that restores
+  it over the live profile)**, `POST /backup`, and every `/viz/*` route.
+  See "Owner admin token" below, and "Open on loopback, and what that
+  means" at the end of it for the four a reader is most likely to expect
+  gated.
 - All bodies JSON. Errors the service raises itself use one envelope:
   `{"error": {"code": "...", "message": "..."}}` with conventional HTTP
   status. Two classes come straight from the web framework and keep its
@@ -63,9 +85,13 @@ change without a contract bump. Clients should read `db`, never `detail`.
 `GET /facts`, `GET /review`, and every verb that reads or writes ONE existing
 fact by id (`PATCH /facts/{id}`, `POST /facts/{id}/supersede`, `/approve`,
 `/dismiss`, `DELETE /facts/{id}`) require a valid credential **unconditionally,
-including from 127.0.0.1**. So do `POST /search`, `POST /consolidate` and
-`GET /jobs/{id}`: search returns verbatim transcript snippets, and job rows
-carry operation results, so they are gated the same way. Either credential
+including from 127.0.0.1**. So do the two bulk ledger verbs
+(`POST /facts/quarantine`, `POST /review/dismiss-all`), all four attachment
+routes, and `POST /search`, `POST /consolidate` and `GET /jobs/{id}`: search
+returns verbatim transcript snippets, attachments return file bytes and
+document text, and job rows carry operation results, so they are gated the
+same way. Those sixteen routes are the whole always-on set, and the list at
+the top of this document names each one. Either credential
 satisfies the check: `Authorization: Bearer <token>` (the real admin token,
 used by the MCP admin server and scripts), or the `mm_admin` session cookie a
 browser gets from `POST /login` (an opaque session id, never the token
@@ -102,10 +128,11 @@ test-enforced:
   a cookie, so a leaked session id cannot be used to derive or reconstruct
   it, and revoking a session never touches the token or any other session.
 - **Exact-row endpoints require the owner credential even on loopback** (the
-  list above), as do `POST /search`, `POST /consolidate` and
-  `GET /jobs/{id}`. The loopback-vs-token rule at the top of this document
-  governs only the open routes (`/health`, `/ingest`, `/distill`, `/recall`,
-  `/summary`, `POST /facts`).
+  list above), as do the bulk ledger verbs, the attachment routes,
+  `POST /search`, `POST /consolidate` and `GET /jobs/{id}`. The
+  loopback-vs-token rule at the top of this document governs every other
+  route, including the summary-version and `/viz/*` routes described under
+  "Open on loopback, and what that means" at the end of this section.
 
 **Getting the token in the first place is always out-of-band, never HTTP:**
 - If `MEMORY_AUTH_TOKEN` is configured (`.env` / `config.local.json` /
@@ -160,9 +187,17 @@ not part of the versioned `/v1` contract, so `contract_version` is unchanged.
    it minted at its own startup; the same restart also makes the value usable
    as the browser UI's enrolment/reset recovery secret).
 3. Register the MCP server with the **same** token and the service's reachable
-   URL: `MEMORY_AUTH_TOKEN=<token> MEMORY_API_URL=http://127.0.0.1:8901/v1
-   claude mcp add -s user membro-admin -- <repo>/.venv/bin/python -m
-   memory_service.mcp_admin_server`.
+   URL. Pass both with `-e`, so they reach the server when it later runs; a
+   shell env prefix in front of `claude mcp add` sets them only for the
+   registration command, and the registered server then starts without them:
+
+   ```sh
+   claude mcp add -s user membro-admin \
+     -e MEMORY_AUTH_TOKEN=<token> \
+     -e MEMORY_API_URL=http://127.0.0.1:8901/v1 \
+     -e PYTHONPATH=<repo> -- \
+     <repo>/.venv/bin/python -m memory_service.mcp_admin_server
+   ```
 4. Validate with one harmless read: `search_facts("")` or `review_queue()`
    should return real rows (or "No matching facts."), not an auth error.
 
@@ -173,6 +208,35 @@ is authoritative. These tools show provenance (`origin_agent`) and status
 precisely so a remediation session can propose a supersession; repeated or
 elaborate mined detail is never, by itself, a reason to prefer it over the
 owner's word.
+
+### Open on loopback, and what that means
+
+Four surfaces outside the gated set are more open than a reader of the
+paragraphs above would guess. They are stated here rather than left to be
+discovered:
+
+- **`GET /v1/summary/versions/{id}` returns a stored profile in full**, text
+  and all, to any unauthenticated loopback caller. `GET /summary` is open by
+  the same rule and returns the *current* profile, so this widens the reach
+  from "the profile now" to "any profile this database has ever generated".
+- **`POST /v1/summary/versions/{id}/restore` is a write**, and it is open on
+  loopback. Any local process can make an older profile the live one. It is
+  append-only, so nothing is destroyed and you can restore back, but the
+  profile every model reads next round can be changed with no credential.
+- **`POST /v1/summary/regenerate` rewrites the live profile**, and it is
+  open on loopback. Any local process can make the service rebuild the
+  profile from the current ledger, which spends LLM calls and replaces the
+  text `GET /summary` serves from then on. The replaced profile is kept as
+  a version row, so it can be restored, but the rebuild itself needs no
+  credential. `POST /v1/distill` runs the same rebuild whenever it mines a
+  new fact (`regenerate_summary` defaults to true) and is equally open.
+- **`GET /v1/viz/recalls` returns your questions verbatim** (`query`, first
+  200 characters, from the append-only access log), open on loopback. Fact
+  content never travels through it, but the queries are your own words, so
+  it is not geometry in the sense the rest of `/viz/*` is.
+
+These are the code's behaviour as it stands, recorded here so the document
+does not promise a gate the service does not implement.
 
 ## Episodic record (the tapes)
 
@@ -275,8 +339,11 @@ means a typo (`quarantied`) silently returns everything rather than a 422, so
 check the spelling before trusting a count.
 
 `PATCH /facts/{id}`: edit content/event_date/confidence (re-embeds) and, additively
-since 2026-07-11, `importance` (1-10, clamped); the human outranks the miner on
-how a fact ages. **Requires the owner admin token, even on loopback.**
+since 2026-07-11, `importance`; the human outranks the miner on how a fact ages.
+`importance` must be an integer 1-10: anything outside that range is **rejected
+with a `detail` 422, not clamped**, so send a value in range rather than
+relying on the endpoint to fold it back. **Requires the owner admin token,
+even on loopback.**
 
 `POST /facts/{id}/supersede`: `{"successor_id": 2}`; temporal validity, never delete.
 **Requires the owner admin token, even on loopback.**
@@ -334,16 +401,22 @@ An empty `query` skips scoring entirely and returns the most recent
 non-quarantined facts, newest first, which is useful as a cheap "what do you
 know about me lately". Those rows carry no `score` field at all.
 
-The response is the whole fact row with the embedding removed, not just the
-fields in the example. Treat the example's fields as the guaranteed subset
-(`score` only on a scored recall) and everything else as additive:
-`created_at`, `importance`, `source`, `conversation_id`,
-`source_message_id`, `content_hash`,
-`invalidated_at`, `superseded_by`, `quarantined_at`, `quarantine_reason`,
-`review_dismissed_at`. `invalidated_at` and `superseded_by` are the useful
-ones: with `include_superseded: true` they are how a client tells a
-superseded fact from a current one (the MCP adapter renders its
-`[SUPERSEDED …]` flag from `invalidated_at`).
+The response is exactly the projection in the example and nothing more:
+`id`, `content`, `event_date`, `confidence`, `origin_agent`, and `score`
+(the last on scored recalls only; an empty-query recall omits it). That set
+is `RECALL_FIELDS` in `api.py`, and a test fails if a field is added without
+amending this contract. The rest of the fact row does NOT travel over this
+endpoint: no `created_at`, `importance`, `source`, `conversation_id`,
+`source_message_id`, `content_hash`, `invalidated_at`, `superseded_by`,
+`quarantined_at`, `quarantine_reason` or `review_dismissed_at`.
+
+One consequence worth planning around: with `include_superseded: true` the
+superseded facts come back, but with **no field that marks them as
+superseded**. `invalidated_at` and `superseded_by` are both outside the
+projection, so an HTTP client cannot tell a retired fact from a current one.
+The MCP adapter can render its `[SUPERSEDED …]` flag because it calls
+`recall.recall()` in-process and sees the whole row; an HTTP caller that
+needs lifecycle state must use the owner-gated `GET /facts` instead.
 
 `GET /summary` → `{"summary": "...", "generated_at": "...", "source_fact_ids": [..],
 "word_count": 1980, "word_budget": 2000, "provenance": [{"id": 12,
@@ -371,12 +444,16 @@ mechanically-checkable source of truth; read it instead of parsing the
 summary text for attribution.
 Empty on a summary generated before this shipped (older `summary_sources` rows
 simply have no `provenance` key; the field defaults to `[]`).
-`POST /summary/regenerate`: async rebuild.
+`POST /summary/regenerate`: async rebuild of the live profile. Not gated,
+so any local process can trigger it (see "Open on loopback, and what that
+means").
 
 ## Maintenance
 
-`POST /consolidate`: advisory sweep (cluster → propose supersession/synthesis as
-quarantined entries). Async. Auto-acts only on exact-dup hygiene. **Requires
+`POST /consolidate`: advisory sweep, today covering exact-duplicate groups and
+permanence ("pin") nominations. Async. It **writes nothing at all**: the sweep
+reads the ledger and returns proposals, including for exact duplicates, and
+applying any of them is a separate human action from the admin page. **Requires
 the owner credential, even on loopback.**
 `GET /jobs/{id}` → `{"kind": "distill|summary|consolidate|viz-embeddings",
 "status": "running|ok|failed", "error": null, "result": null}`
@@ -411,12 +488,21 @@ snapshot to a second folder.
 
 Serves the human's admin pages; may change without a contract bump. Privacy
 invariant (test-enforced, and scoped to the `/v1/viz/*` endpoints): the
-visualisation endpoints return geometry only (ids, ages, importances, scores,
-coordinates), never fact content. That is what makes the Mathematics page safe
-to show and to screenshot. It is a claim about the viz endpoints alone: the
-attachment and summary-version endpoints in this same section deliberately DO
-return content, because showing you your own files and profile text is their
-whole job.
+visualisation endpoints never return **fact content**. What they return is
+geometry (ids, ages, importances, scores, coordinates). That is what makes
+the Mathematics page safe to show.
+
+The one thing that is not geometry: `GET /v1/viz/recalls` returns the `query`
+text of past lookups, which is the owner's own words, because the live view
+exists to show what was asked. So "no fact content" holds across `/viz/*`,
+but "nothing readable" does not, and the page is not safe to screenshot
+without first checking what is in that feed.
+
+The invariant is a claim about the viz endpoints alone. The attachment and
+summary-version endpoints in this same section deliberately DO return
+content, because showing you your own files and profile text is their whole
+job. Note the difference in who may ask: the attachment routes require the
+owner credential, the summary-version routes do not (see "Open on loopback").
 
 `GET /` (admin page) · `GET /math` (the Mathematics page).
 All four attachment routes below require the owner credential, on loopback
@@ -433,11 +519,15 @@ from that conversation.
 `DELETE /v1/attachments/{id}`: the attachments twin of the facts eraser:
 human-initiated via the danger zone, the only delete path; content-addressed
 bytes are unlinked only when no other row references them.
+The three summary-version routes below, unlike the attachment routes above,
+are **NOT** gated: they answer an unauthenticated loopback caller.
 `GET /v1/summary/versions`: every generated profile, newest first (metadata
 only; append-only history, so regeneration never destroys a version).
-`GET /v1/summary/versions/{id}`: one version with its full text.
+`GET /v1/summary/versions/{id}`: one version with its full text. Open on
+loopback, so any local process can read any stored profile in full.
 `POST /v1/summary/versions/{id}/restore`: make that version current again by
 APPENDING a new version row (`restored_from` set); history is never rewritten.
+Open on loopback, so any local process can change which profile is live.
 `GET /v1/viz/decay`: every live card's (age, importance, score) + formula constants.
 `GET /v1/viz/embeddings`: cached 3D PCA of up to the newest 2,500 embedded
 cards (`SAMPLE_CAP` in `viz.py`; the projection's Gram matrix costs O(n²)
@@ -475,6 +565,9 @@ Kept in lockstep with `/v1/recall` by test. `limit` is silently clamped to 20
 because the endpoint exists to draw a diagram rather than to export data.
 `GET /v1/viz/recalls?after=<ts>`: lookup events from the persistent access log:
 recalls, history searches, and per-round summary fetches, feeding the live view.
+**Not gated**, and `query` is the caller's own question verbatim (first 200
+characters), so this is the one `/viz/*` route that hands readable text to an
+unauthenticated loopback caller.
 Each event is `{ts, kind, origin, query}`: `kind` is `recall | search | summary`;
 `origin` is `http`, `auto` (an ambient recall a client fired on the user's
 behalf; `POST /recall` accepts an additive `origin` field, added 2026-07-11),

@@ -67,9 +67,17 @@ it; the miner is capped at 9.
 `/v1/recall` answers unauthenticated loopback callers because every
 chat round calls it, so it returns exactly six documented fields and at
 most 50 rows. Everything reading or writing exact rows (facts, review,
-search, attachments, jobs) requires the owner credential even on
-loopback. Sessions are opaque server-side ids in httpOnly cookies; the
-bearer token never rides in a cookie.
+search, attachments, jobs, consolidate) requires the owner credential
+even on loopback. Sessions are opaque server-side ids in httpOnly
+cookies; the bearer token never rides in a cookie.
+
+The principle is applied to exact rows, not to everything revealing, and
+four surfaces sit outside it today: `GET /v1/summary/versions/{id}`
+returns a stored profile in full, `POST /v1/summary/versions/{id}/restore`
+changes which profile is live, `POST /v1/summary/regenerate` rebuilds the
+live profile, and `GET /v1/viz/recalls` returns past queries verbatim.
+All four answer an unauthenticated loopback caller.
+The full route-by-route position is in [docs/API.md](docs/API.md).
 
 ## The word budget is enforced by rewriting
 

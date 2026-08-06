@@ -991,7 +991,10 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         dest = db.backup(settings)
         return {"snapshot": dest.name if dest else None}
 
-    # ---- Mathematics page (privacy-safe: geometry only, never content) ----
+    # ---- Mathematics page (geometry, never FACT content) ------------------
+    # The test-enforced invariant is "no fact content", not "nothing
+    # readable": /v1/viz/recalls below returns the caller's own queries
+    # verbatim, ungated, by design (see docs/API.md, "Open on loopback").
 
     @app.get("/v1/viz/decay")
     def viz_decay():
@@ -1005,6 +1008,9 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     def viz_recalls(after: float = Query(0.0)):
         # Served from the persistent access log — survives restarts and
         # includes lookups made by MCP client processes, not just this one.
+        # `query` is the user's own question verbatim (first 200 chars), so
+        # this is the one /viz/* route that hands readable text to an
+        # unauthenticated loopback caller.
         c = con()
         try:
             return {"events": access.events_since(c, after), "now": db.now()}

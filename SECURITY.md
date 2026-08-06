@@ -32,10 +32,33 @@ in a cookie.
 
 ## Open vs gated
 
-Open on loopback: `/v1/recall` (six fields, max 50 rows),
-`/v1/summary`, `/v1/health`, and the ingest/distill/fact-create flows.
 Gated even on loopback: everything reading or writing exact rows
-(facts, review, verbatim search, attachments, jobs).
+(facts, review, verbatim search, attachments, jobs, consolidate).
+
+Open on loopback: `/v1/recall` (six fields, max 50 rows),
+`/v1/summary`, `/v1/health`, the ingest/distill/fact-create flows,
+`/v1/backup`, and every `/v1/viz/*` route.
+
+Also open on loopback, and worth knowing before you assume otherwise:
+
+- `GET /v1/summary/versions/{id}` returns any stored profile in full.
+- `POST /v1/summary/versions/{id}/restore` rewrites which profile is
+  live. It is append-only, so nothing is destroyed and the change is
+  reversible, but it is a write with no credential behind it.
+- `POST /v1/summary/regenerate` rebuilds the live profile from the
+  current ledger, with no credential and at the cost of LLM calls. The
+  profile it replaces is kept as a version, so the change is
+  recoverable, but what every model reads next round is whatever the
+  rebuild produced. `POST /v1/distill` does the same rebuild whenever it
+  mines a new fact, and is equally open.
+- `GET /v1/viz/recalls` returns your recent queries verbatim. The rest
+  of `/v1/viz/*` is geometry, and no viz route returns fact content,
+  but this one returns your own words.
+
+The gate was drawn around exact ledger rows. These four are not exact
+ledger rows, so the gate does not cover them. Stated plainly here
+because the alternative is a reader inferring a guarantee that is not
+in the code.
 
 ## Known limits
 
@@ -43,8 +66,21 @@ Gated even on loopback: everything reading or writing exact rows
 - A loopback process can read fact content through `/v1/recall`'s
   bounded projection. A hostile local process is outside this app's
   threat model.
-- No isolation between OS users beyond file permissions (`data/` is
-  0600).
+- No isolation between OS users beyond file permissions. At startup the
+  service chmods exactly two things: `data/` to 0700 and `data/memory.db`
+  to 0600. Two more happen elsewhere. `data/attachments/` is created and
+  chmodded 0700 the first time this process stores or reads an
+  attachment, not at startup, so on an install that has never taken one
+  the directory does not exist. Each attachment file is chmodded 0600
+  when its bytes are first written; storage is content-addressed, so a
+  file already on disk is left as it is rather than re-chmodded. Nothing
+  else under `data/` is chmodded, so snapshots in `data/backups/` and
+  `service.log` keep whatever mode their creator's umask allowed,
+  typically 0644. The SQLite WAL and SHM files are not in that group:
+  SQLite creates them with the mode of the database file itself, so they
+  follow `memory.db` at 0600, and a umask can only clear further bits,
+  never add them. Either way, the 0700 directory is what keeps other
+  users out.
 
 ## Operational notes
 

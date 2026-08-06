@@ -84,12 +84,18 @@ proposes; granting permanence is always your action.
 | Setting | Default | What it does |
 |---|---|---|
 | `miner_model` | `claude-haiku-4-5` | Cheap model that extracts facts from chats |
-| `trusted_apps` | `["multi-model-chat"]` | Apps whose saves skip quarantine |
+| `trusted_apps` | `[]` | Apps whose saves skip quarantine; empty means none |
 | `grounding_allowlist` | `[]` | Proper nouns the walls should never question |
 
 **`miner_model`** runs often (after every chat), so it defaults cheap. If
 mined facts feel off, a stronger model here helps, at real cost, since it
 reads whole conversations.
+
+**`trusted_apps`** is empty by default, so out of the box *nothing* is
+app-trusted: every write that isn't the literal `user` origin is quarantined
+for your review. Add your own client's app slug here only once you're
+satisfied its saves belong in canon unreviewed. An `mcp:*` origin is never
+trusted whatever this is set to.
 
 **`grounding_allowlist`**: the extraction walls quarantine facts containing
 proper nouns that never appeared in the source conversation (contamination
@@ -149,12 +155,18 @@ stable value in `.env` or `config.local.json` if you register the
 secret changing on every restart. An auto-minted token still only works
 locally; remote serving needs a configured one.
 
-**Logging in.** The exact-row parts of the ledger (raw facts, the
-review queue, and every action on a single fact: edit, supersede,
-approve, dismiss, delete) always require an owner credential, even on
-loopback, so another process sharing 127.0.0.1 can't read or edit your
-memory. Two credentials satisfy that gate, and only one of them is for
-everyday use:
+**Logging in.** The exact-row parts of the ledger always require an
+owner credential, even on loopback, so another process sharing
+127.0.0.1 can't read or edit those. That covers raw facts, the review
+queue, every action on a single fact (edit, supersede, approve,
+dismiss, delete), the bulk quarantine and dismiss-all verbs, verbatim
+transcript search, the attachment routes, the consolidation sweep, and
+job results. It does **not** cover everything: recall, the profile,
+health, backup, the visualisation feeds, and the stored profile
+versions (including restoring one) all answer a local caller with no
+credential. [SECURITY.md](../SECURITY.md) says which, and why.
+Two credentials satisfy the gate, and only one of them is for everyday
+use:
 
 - **Your password** (the browser). On first run,
   `http://127.0.0.1:8901` shows a setup form: paste the recovery secret
