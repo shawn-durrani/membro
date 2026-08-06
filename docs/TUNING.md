@@ -133,7 +133,7 @@ of these constants is wrong, that's a bug report we want.
 | `mirror_keep` | `7` | Mirrored snapshots kept |
 | `host` / `port` | `127.0.0.1` / `8901` | Loopback-only by default, the security model (env: `MEMORY_PORT`) |
 | `auth_token` | unset | Your owner recovery secret and machine credential (env: `MEMORY_AUTH_TOKEN`) |
-| `trusted_hosts` | empty | Hostnames (your own tailnet name) where you may sign in with your owner password from a browser; the ledger stays sealed without a credential either way. Env only: `MEMORY_TRUSTED_HOSTS`, comma-separated. Read [SECURITY.md](../SECURITY.md) first |
+| `trusted_hosts` | empty | Hostnames (your own tailnet name) where you may sign in with your owner password from a browser; the ledger stays sealed without a credential either way. Config key `trusted_hosts` (a JSON list), or env `MEMORY_TRUSTED_HOSTS` (comma-separated). Read [SECURITY.md](../SECURITY.md) first |
 | `MEMORY_TAILSCALE_SERVE` | `0` (off) | Opt in to tailnet-only remote access at startup (env only, see below) |
 | `MEMORY_TAILSCALE_PORT` | `8443` | The HTTPS port Membro gets on your tailnet; its own origin rather than a path (env only) |
 | `MEMORY_TAILSCALE_BIN` | unset | Path to a `tailscale` CLI that is installed but not on `PATH`, the normal macOS case (env only) |
@@ -162,9 +162,9 @@ queue, every action on a single fact (edit, supersede, approve,
 dismiss, delete), the bulk quarantine and dismiss-all verbs, verbatim
 transcript search, the attachment routes, the consolidation sweep, and
 job results. It does **not** cover everything: recall, the profile,
-health, backup, the visualisation feeds, and the stored profile
-versions (including restoring one) all answer a local caller with no
-credential. [SECURITY.md](../SECURITY.md) says which, and why.
+health, backup, the visualisation feeds, the stored profile versions
+(including restoring one), and regenerating the live profile all
+answer a local caller with no credential. [SECURITY.md](../SECURITY.md) says which, and why.
 Two credentials satisfy the gate, and only one of them is for everyday
 use:
 

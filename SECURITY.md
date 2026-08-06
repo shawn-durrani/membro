@@ -36,8 +36,11 @@ Gated even on loopback: everything reading or writing exact rows
 (facts, review, verbatim search, attachments, jobs, consolidate).
 
 Open on loopback: `/v1/recall` (six fields, max 50 rows),
-`/v1/summary`, `/v1/health`, the ingest/distill/fact-create flows,
-`/v1/backup`, and every `/v1/viz/*` route.
+`/v1/summary` and its version list, `/v1/health`,
+`/v1/disposable-identity` (a probe for benchmark harnesses that
+answers "no" on a real install and reveals nothing else), the
+ingest/distill/fact-create flows, `/v1/backup`, and every `/v1/viz/*`
+route.
 
 Also open on loopback, and worth knowing before you assume otherwise:
 
