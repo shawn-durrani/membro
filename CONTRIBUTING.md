@@ -43,3 +43,24 @@ git config core.hooksPath .githooks
   synthetic by construction.
 - The scope boundaries in [ARCHITECTURE.md](ARCHITECTURE.md) are
   deliberate.
+
+## Releasing
+
+Versions are ordinary semantic versions in the 0.x range: no stability
+promise yet. `memory_service.__version__` is the single source, and the
+HTTP `contract_version` moves separately, only when the wire contract in
+[docs/API.md](docs/API.md) changes.
+
+Before a tag, every box:
+
+- [ ] Suite green keyless: `env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY .venv/bin/python -m pytest -q`
+- [ ] `pip-audit -r requirements.txt --strict` clean
+- [ ] `bash scripts/secret-scan.sh --tree` green. The bare command scans
+      only staged lines, so at release time it would scan nothing and
+      still report clean; `--tree` is the one that looks.
+- [ ] No real personal data in code, tests, docs or fixtures
+- [ ] Screenshots and any demo database come from synthetic conversations
+      only, including the sidebar: generated titles summarise whatever a
+      chat actually discussed
+- [ ] `__version__` bumped, CHANGELOG entry dated, fresh `## Unreleased`
+      left above it

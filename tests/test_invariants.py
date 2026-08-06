@@ -87,3 +87,16 @@ def test_ingest_is_idempotent(con, settings, sample_conversation):
     ])
     assert res == {"conversation_id": 1, "ingested": 1, "skipped": 1,
                    "attached": 0}
+
+
+def test_app_version_and_contract_version_are_independent():
+    """A release of the app must not silently move the wire contract that
+    clients code against, and vice versa. Keeping both here makes a change
+    to either one a deliberate edit rather than a side effect."""
+    import re
+
+    import memory_service
+    from memory_service.config import Settings
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", memory_service.__version__)
+    assert memory_service.__version__ != Settings().contract_version

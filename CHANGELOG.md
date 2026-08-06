@@ -4,7 +4,9 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
-### Initial public release
+## v0.1.0 (2026-08-06)
+
+First public release.
 
 - Local-first memory service: immutable episodic record with FTS,
   append-only fact ledger with temporal validity, and a continuously
