@@ -4,6 +4,17 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+## v0.1.1 (2026-08-07)
+
+- SECURITY.md now names the complete set of routes open on loopback:
+  the profile version list, the disposable-identity probe, and profile
+  regeneration were missing from the stated lists.
+- TUNING.md documents that trusted hosts can be set by config key as
+  well as environment variable, and their different shapes (JSON list
+  vs comma-separated).
+- Docs state the credential gate once, in one place, and the import
+  command in the README is the one that works.
+
 ## v0.1.0 (2026-08-06)
 
 First public release.
