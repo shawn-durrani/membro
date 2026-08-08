@@ -492,13 +492,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             enrolled = _enrolled()
         msg = f'<p class="err">{error}</p>' if error else ""
         head = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>membro — locked</title>
 <style>body{font-family:system-ui,sans-serif;max-width:38em;margin:3em auto;
 padding:0 1em;color:#ddd;background:#18181b} .err{color:#f87171}
+input,button{box-sizing:border-box}
 input{width:100%;padding:.5em;font-size:1em;margin-top:.3em}
-button{padding:.5em 1.2em;margin-top:.6em} details{margin-top:1.6em}
+button{padding:.6em 1.2em;margin-top:.6em;font-size:1em} details{margin-top:1.6em}
+summary{padding:.4em 0;cursor:pointer}
 label{display:block;margin-top:.6em;font-size:.9em}
-small{color:#a1a1aa}</style>
+small{color:#a1a1aa}
+@media (max-width:480px){body{margin:1.5em auto}button{width:100%}}</style>
 </head><body>
 <h1>membro admin — locked</h1>
 <p>This page holds your durable memory — exact facts, review queue, edit/delete.</p>

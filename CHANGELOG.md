@@ -4,6 +4,12 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Mobile view (#29): the admin page, both lock screen layouts, and the
+  Mathematics page are now usable at phone width. The lock screen tells
+  phones its true size (viewport tag), controls stack and grow to touch
+  size, form text is large enough that phones no longer zoom in on tap,
+  and tables scroll sideways inside their own frame instead of
+  stretching the page.
 - Passkey login (#27): enrol a Touch ID / iCloud Keychain passkey from the
   unlocked admin page (Admin → Passkeys) and the lock screen offers it first,
   password one click behind it. The password and recovery secret are
