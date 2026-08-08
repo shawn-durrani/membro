@@ -260,7 +260,7 @@
     column-gap: var(--space-4); align-items: baseline; }
   dl.health dt { color: var(--dim); font-size: 12px; line-height: 20px; }
   dl.health dd { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 20px;
-                 font-variant-numeric: tabular-nums; }
+                 font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .editor { background: var(--bg); border: 1px dashed var(--border);
             border-radius: var(--r-sm); padding: var(--space-3); margin: var(--space-2) 0; }
   .editor .fields { display: flex; gap: var(--space-2); flex-wrap: wrap;
@@ -362,6 +362,22 @@
     /* header: let the live/theme cluster drop below the title */
     .page-head { flex-wrap: wrap; gap: var(--space-3); }
     .live { margin-left: 0; width: 100%; flex-wrap: wrap; white-space: normal; padding-top: 0; }
+    /* comfortable touch targets (class-styled buttons keep their own padding) */
+    button { padding: var(--space-2) var(--space-3); }
+    .chev { padding: var(--space-2); }
+    .math-link { padding: 6px var(--space-3); }
+    .theme-pick { padding: 6px var(--space-2); }
+    /* 16px form text so phone browsers don't zoom-and-pan on focus */
+    input, textarea, select { font-size: 16px; }
+    /* section header rows wrap instead of crushing their buttons */
+    details.section > summary { flex-wrap: wrap; row-gap: var(--space-2); }
+    /* keyboard hints mean nothing on a touch screen */
+    .keys-hint, kbd { display: none; }
+    /* toast spans the phone width */
+    #toast { left: var(--space-4); max-width: none; }
+    /* tables keep readable columns and scroll sideways inside .table-wrap */
+    .table-wrap table { min-width: 560px; }
+    .table-wrap .row-actions { flex-wrap: nowrap; }
     /* section toolbars: stack full-width */
     .toolbar { flex-direction: column; align-items: stretch; }
     .toolbar > * { width: 100%; }

@@ -134,6 +134,14 @@
   .stratum.head { border-color: var(--accent); color: var(--text); }
   .sediment .handoff { color: var(--accent); text-decoration: none; }
   .sediment .handoff:hover { text-decoration: underline; }
+  /* ---- narrow widths (phones ~375px): touch-sized controls ---- */
+  @media (max-width: 560px) {
+    button { padding: var(--space-2) var(--space-3); }
+    /* 16px form text so phone browsers don't zoom-and-pan on focus */
+    input[type=text] { font-size: 16px; }
+    /* sliders span the row instead of holding a fixed 220px */
+    .viz-controls input[type=range] { width: auto; flex: 1; min-width: 140px; }
+  }
 </style>
 </head>
 <body>
@@ -729,7 +737,13 @@ function initTrace() {
     ctx.font = "11px system-ui";
     if (!data) {
       ctx.fillStyle = rgba(TOK.dim, 0.85);
-      ctx.fillText("Type a question above and hit “Trace it” — the whole ledger lights up.", 24, H / 2);
+      const hint = "Type a question above and hit “Trace it” — the whole ledger lights up.";
+      if (ctx.measureText(hint).width > W - 48) {   // phone widths: two lines
+        ctx.fillText("Type a question above and hit “Trace it”", 24, H / 2 - 8);
+        ctx.fillText("— the whole ledger lights up.", 24, H / 2 + 8);
+      } else {
+        ctx.fillText(hint, 24, H / 2);
+      }
       return;
     }
     const N = view.nodes.length;
@@ -751,14 +765,17 @@ function initTrace() {
     ctx.fillStyle = rgba(TOK.dim, 0.9);
     ctx.fillText("your question", x0 - 34, yq + 24);
     // column captions — the picture should explain its own anatomy
-    ctx.fillText("the ledger — every card, in the order written", x1 - 104, 11);
+    // (phone widths: short ledger label, drop "dedup · top-k" so nothing collides)
+    const narrow = W < 520;
+    ctx.fillText(narrow ? "the ledger" : "the ledger — every card, in the order written",
+                 x1 - (narrow ? 24 : 104), 11);
     ctx.fillText("oldest ↑", x1 + 6, 26);
     ctx.fillText("newest ↓", x1 + 6, H - 44);
     ctx.fillText("the answers", x3 - 24, 11);
     ctx.strokeStyle = rgba(TOK.dim, 0.3); ctx.setLineDash([3, 4]);
     ctx.beginPath(); ctx.moveTo(x2, 26); ctx.lineTo(x2, H - 30); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillText("dedup · top-k", x2 - 32, 11);
+    if (!narrow) ctx.fillText("dedup · top-k", x2 - 32, 11);
 
     const a1 = Math.min(1, t * 2);
     const maxScore = view.nodes[0]?.score || 1;
