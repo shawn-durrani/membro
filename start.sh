@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start.sh — one-command boot for multi-model-memory.
+# start.sh — one-command boot for Membro.
 # Creates .venv if missing, installs deps only when requirements.txt changed,
 # refuses to start a second instance, warns loudly about missing API keys,
 # then runs the FastAPI service on http://127.0.0.1:8901.
@@ -79,5 +79,5 @@ if [ "${MEMORY_TAILSCALE_SERVE:-0}" = "1" ]; then
   bash scripts/tailscale-serve.sh || true
 fi
 
-echo "Starting multi-model-memory on http://127.0.0.1:$PORT (admin UI at /) ..."
+echo "Starting Membro on http://127.0.0.1:$PORT (admin UI at /) ..."
 exec .venv/bin/python -m memory_service.api

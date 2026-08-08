@@ -89,4 +89,4 @@ def test_unreachable_service_degrades_to_a_clear_error(monkeypatch):
     monkeypatch.setenv("MEMORY_AUTH_TOKEN", "s3cret")
     monkeypatch.setenv("MEMORY_API_URL", "http://127.0.0.1:1/v1")  # nothing listens
     out = admin.search_facts("anything")
-    assert out.startswith("Error reaching the memory service")
+    assert out.startswith("Error reaching Membro")

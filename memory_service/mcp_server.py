@@ -25,7 +25,7 @@ from memory_service import recall as recall_mod, summary as summary_mod  # noqa:
 from memory_service import walls  # noqa: E402
 from memory_service.config import load_settings  # noqa: E402
 
-mcp = FastMCP("multi-model-memory")
+mcp = FastMCP("membro")
 SETTINGS = load_settings()
 CLIENT = os.environ.get("MEMORY_MCP_CLIENT", "claude-code")
 ORIGIN = f"mcp:{CLIENT}"  # access-log origin: these lookups happen in THIS

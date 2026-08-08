@@ -120,7 +120,7 @@ def search_facts(query: str = "", status: str = "all") -> str:
     except RuntimeError as e:
         return f"Error: {e}"
     except httpx.HTTPError as e:
-        return f"Error reaching the memory service at {_base_url()}: {e}"
+        return f"Error reaching Membro at {_base_url()}: {e}"
     facts = r.json().get("facts", [])
     return _fmt(facts) if facts else "No matching facts."
 
@@ -143,7 +143,7 @@ def review_queue(query: str = "") -> str:
     except RuntimeError as e:
         return f"Error: {e}"
     except httpx.HTTPError as e:
-        return f"Error reaching the memory service at {_base_url()}: {e}"
+        return f"Error reaching Membro at {_base_url()}: {e}"
     facts = r.json().get("facts", [])
     if query.strip():
         q = query.strip().lower()

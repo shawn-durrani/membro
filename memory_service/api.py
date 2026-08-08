@@ -249,7 +249,7 @@ def _read_disposable_token(data_dir) -> str | None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     db.init(settings)
-    app = FastAPI(title="Membro (multi-model-memory)", version=settings.contract_version)
+    app = FastAPI(title="Membro", version=settings.contract_version)
     app.state.settings = settings
     app.state.backup_scheduler_stop = db.start_backup_scheduler(settings)
     app.router.on_shutdown.append(app.state.backup_scheduler_stop.set)
