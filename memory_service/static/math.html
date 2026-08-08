@@ -943,14 +943,23 @@ function initTrace() {
   async function pollLive() {
     if (document.visibilityState === "visible" && $("trace-follow").checked && !evoPlaying) {
       try {
-        const r = await fetch("/v1/viz/recalls?after=" + (liveTs ?? 9e12));
+        const r = await fetch(liveTs === null
+          ? "/v1/viz/recalls?tail=15" : "/v1/viz/recalls?after=" + liveTs);
         if (r.ok) {
           const d = await r.json();
           if (liveTs === null) {
-            liveTs = d.now; // first poll: just sync; act from the second on
-            if (!data) status.textContent =
+            liveTs = d.now; // first poll: sync the clock; act from the second on
+            // Backfill so quiet is visibly different from broken (#22): name
+            // the newest logged recall instead of opening onto a blank state.
+            const recent = d.events.filter(e => e.kind === "recall").pop();
+            const opening =
               "following live \u2014 every question pulses the summary; only deep " +
               "lookups reach the ledger and draw the trace";
+            if (!data) status.textContent = recent
+              ? opening + ". Last recall " +
+                new Date(recent.ts * 1000).toLocaleString() + ": \u201c" +
+                recent.query.slice(0, 60) + "\u201d"
+              : opening + ". Nothing logged yet on this store.";
           } else if (d.events.length) {
             liveTs = d.events[d.events.length - 1].ts;
             const flash = (id, delay) => setTimeout(() => {

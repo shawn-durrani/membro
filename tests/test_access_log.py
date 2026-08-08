@@ -137,3 +137,14 @@ def test_query_capped_and_content_free(con):
     assert len(row["query"]) == access.QUERY_CAP
     # events carry ts/kind/origin/query only — never fact content or ids
     assert set(ev) == {"ts", "kind", "origin", "query"}
+
+
+def test_tail_returns_newest_events_oldest_first(settings):
+    """The live view's opening backfill: newest N, oldest first, so a fresh
+    view can show recent history instead of opening blank (#22)."""
+    with _client(settings) as client:
+        for q in ("first", "second", "third"):
+            client.post("/v1/recall", json={"query": q, "limit": 1})
+        out = client.get("/v1/viz/recalls?tail=2").json()["events"]
+        recalls = [e["query"] for e in out if e["kind"] == "recall"]
+        assert recalls == ["second", "third"]

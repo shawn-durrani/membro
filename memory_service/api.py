@@ -1008,7 +1008,8 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             c.close()
 
     @app.get("/v1/viz/recalls")
-    def viz_recalls(after: float = Query(0.0)):
+    def viz_recalls(after: float = Query(0.0),
+                    tail: int = Query(0, ge=0, le=100)):
         # Served from the persistent access log — survives restarts and
         # includes lookups made by MCP client processes, not just this one.
         # `query` is the user's own question verbatim (first 200 chars), so
@@ -1016,7 +1017,9 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # unauthenticated loopback caller.
         c = con()
         try:
-            return {"events": access.events_since(c, after), "now": db.now()}
+            events = (access.tail(c, tail) if tail
+                      else access.events_since(c, after))
+            return {"events": events, "now": db.now()}
         finally:
             c.close()
 
