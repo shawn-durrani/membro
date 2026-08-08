@@ -35,7 +35,7 @@ from memory_service.config import Settings
 
 PASSWORD = "a-durable-owner-passphrase"
 LOCAL_ORIGIN = "http://localhost"
-TAILNET_HOST = "cat.tailtest.ts.net"
+TAILNET_HOST = "my-mac.my-tailnet.ts.net"
 TAILNET_ORIGIN = f"https://{TAILNET_HOST}:8443"
 
 
