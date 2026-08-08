@@ -60,6 +60,20 @@ def record(con, kind: str, query: str = "", origin: str = "http",
         log.exception("access-log write failed; the lookup itself succeeded")
 
 
+def tail(con, n: int = 15) -> list[dict]:
+    """The newest `n` events, oldest first — the live view's opening
+    backfill. Without it a freshly opened view shows nothing until a new
+    event happens, and quiet looks identical to broken (#22). Same fields
+    and the same privacy posture as events_since."""
+    try:
+        rows = con.execute(
+            "SELECT ts, kind, origin, substr(query, 1, 200) AS query "
+            "FROM access_log ORDER BY ts DESC LIMIT ?", (max(0, n),))
+        return [dict(r) for r in rows][::-1]
+    except sqlite3.OperationalError:  # table not created yet: no events
+        return []
+
+
 def events_since(con, ts: float, limit: int = 200) -> list[dict]:
     """Events newer than `ts`, oldest first — the /math live view's feed.
     Queries are the user's own questions (shown in that view by design);
