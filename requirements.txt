@@ -8,7 +8,7 @@ openai>=1.40
 # floor turned CI red on code that had not changed. Migrating to 2.x is its
 # own reviewed change.
 mcp>=1.0,<2
-pytest>=8.0
+pytest>=9.1.1
 httpx>=0.27
 pypdf
 # Passkey (WebAuthn) verification for the admin UI (#27): vetted parsing and
