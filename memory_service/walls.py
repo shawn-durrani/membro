@@ -24,6 +24,18 @@ vocabulary, never the generic verbs or product names a real career/project
 decision or preference would use, so a fact like "Alex shipped the v2 redesign"
 or "Alex prefers dark-mode UIs" is judged by the quarantine walls like anything
 else, never silently dropped here.
+
+`speaker_class` / `speaker_trust_flag` (#31) extend the source-trust posture
+to WHO SPOKE. Ingest may attribute turns to other humans in the room
+(`guest:<name>`, or `guest:unknown` when diarization could not identify the
+voice confidently). A fact the miner draws from such a turn is quarantined by
+default, with the speaker named in the stated reason: the same held-for-review
+treatment `mcp:*` writes get from the ledger gate, never a silent drop and
+never silent trust. Any speaker class this build does not recognise is treated
+the same way (fail safe), so a newer client can never mint trust by inventing
+a class. The owner's own `user` turns and the model seats are unchanged.
+These checks live here beside the other walls; the mining pass supplies the
+per-fact speaker binding, so `check()` below is unchanged.
 """
 
 import re
@@ -255,6 +267,68 @@ def source_trusted(source_text: str) -> bool:
     """False if the chat is roleplay/persona/prep or an AI dossier — its 'facts'
     may be fiction or the model's own claims, not biography."""
     return not _PERSONA_RE.search(source_text or "")
+
+
+# ── speaker classes (#31) ────────────────────────────────────────────────────
+#
+# Ingest speaker values, classified once, here, for every consumer. The wire
+# grammar is additive to contract 1.1: `user` and bare model slugs are the
+# classes that always existed; `guest:<name>` and `guest:unknown` arrived with
+# multi-human voice sessions (crossband room mode). Anything else that carries
+# a class prefix is a class this build does not know, and fail-safe means it
+# behaves as untrusted rather than silently gaining the owner's trust.
+
+def speaker_class(speaker: str) -> str:
+    """Classify one ingest `speaker` value.
+
+    'owner'         - "user": the human this ledger is about.
+    'model'         - a bare participant slug ("claude"): an AI seat.
+    'guest'         - "guest:<name>": another, named human in the session.
+    'guest-unknown' - "guest:unknown" (or a nameless "guest:"): a human turn
+                      diarization could not attribute confidently.
+    'unrecognised'  - any other class-prefixed or empty value: a speaker class
+                      this build does not know. Treated as untrusted.
+    """
+    s = (speaker or "").strip()
+    if s == "user":
+        return "owner"
+    if ":" not in s:
+        return "model" if s else "unrecognised"
+    prefix, name = s.split(":", 1)
+    if prefix.strip().lower() == "guest":
+        name = name.strip()
+        if not name or name.lower() == "unknown":
+            return "guest-unknown"
+        return "guest"
+    return "unrecognised"
+
+
+def guest_name(speaker: str) -> str | None:
+    """The guest's name from a `guest:<name>` speaker; None for every other
+    class (including `guest:unknown`, which by definition has no name)."""
+    if speaker_class(speaker) != "guest":
+        return None
+    return speaker.strip().split(":", 1)[1].strip()
+
+
+def speaker_trust_flag(speaker: str) -> str | None:
+    """The source-trust wall applied to WHO SPOKE (#31). None for the two
+    classes mining has always consumed (the owner's `user` turns and the model
+    seats); otherwise a quarantine flag naming the speaker, so a fact drawn
+    from that turn is written but held for review — the same posture `mcp:*`
+    writes get from the ledger gate. `guest:unknown` and unrecognised classes
+    quarantine unconditionally: no name means no one to ever earn trust."""
+    cls = speaker_class(speaker)
+    if cls in ("owner", "model"):
+        return None
+    if cls == "guest":
+        return (f"guest-attribution: stated by guest {guest_name(speaker)}, "
+                "not the owner")
+    if cls == "guest-unknown":
+        return ("guest-attribution: speaker unidentified (diarization could "
+                "not attribute this turn confidently)")
+    return (f"speaker-trust: unrecognised speaker class {speaker!r}, "
+            "treated as untrusted")
 
 
 def is_system_meta(fact: str) -> bool:

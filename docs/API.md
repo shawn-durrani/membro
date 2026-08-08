@@ -265,7 +265,8 @@ does not promise a gate the service does not implement.
 ```json
 {"source_app": "multi-model-chat", "conversation_id": "chat-123",
  "title": "Weekend plans",
- "messages": [{"external_id": "m-1", "speaker": "user|<slug>",
+ "messages": [{"external_id": "m-1",
+                "speaker": "user|<slug>|guest:<name>|guest:unknown",
                 "content": "...", "created_at": "2026-07-04T10:00:00+10:00",
                 "attachments": [{"filename": "notes.txt", "mime": "text/plain",
                                   "data_b64": "..."}]}]}
@@ -276,6 +277,29 @@ does not promise a gate the service does not implement.
 later ingest of the same conversation, so a chat renamed in the client catches
 up here. It is the title `/search` hits carry back and the admin pages show;
 a client that never sends one leaves every conversation blank.
+
+`speaker` guest classes (additive, 2026-08-08, #31): beside `user` (the
+owner) and a bare model slug (`claude`), a message may carry `guest:<name>`
+for another, named human in the session (a multi-human voice session in
+room mode), or `guest:unknown` for a human turn whose voice diarization
+could not attribute confidently. `source_app` handling and conversation
+identity are untouched. What the classes mean downstream, in the mining
+pass:
+
+- A fact the miner draws from guest-attributed speech is quarantined by
+  default: written, then held in the review queue with the guest's name in
+  the stated reason, the same posture `mcp:*` writes get from the write
+  gate. `guest:unknown` speech quarantines unconditionally.
+- Pronouns resolve per speaker. A guest's first-person statement is a fact
+  about the guest, phrased into the owner's ledger in third person, never
+  absorbed into the owner's first-person profile. Guests get no profile of
+  their own: this service stays single-owner, and a guest's facts exist
+  only as facts about the owner's world. A fact about the owner asserted
+  by a guest is still guest-provenance and quarantines the same way.
+- Fail safe: any other class-prefixed speaker value (say `agent:scribe`)
+  is unrecognised and treated as untrusted, quarantining exactly like
+  guest speech, so a newer client can never mint trust by inventing a
+  class. Facts drawn from the owner's own `user` turns are unchanged.
 
 `attachments` (additive, 2026-07-11) is optional, per message. Files are part
 of the episodic record: bytes stored whole (content-addressed under

@@ -4,6 +4,14 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Guest speakers (#31): ingest accepts `guest:<name>` and `guest:unknown`
+  speaker values beside `user` and the model slugs (additive, contract
+  version unchanged). Facts mined from a guest's speech are held for
+  review with the guest's name in the stated reason, phrased in third
+  person as facts about the guest, never absorbed into the owner's
+  first-person profile. Speech from an unidentified or unrecognised
+  speaker is treated as untrusted the same way, so nothing new gains
+  trust by default; the owner's own turns are unchanged.
 - Mobile view (#29): the admin page, both lock screen layouts, and the
   Mathematics page are now usable at phone width. The lock screen tells
   phones its true size (viewport tag), controls stack and grow to touch

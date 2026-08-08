@@ -1,8 +1,10 @@
 """The reflection pass — mine a conversation's new messages for durable facts.
 
-Every mined fact passes the four walls; a flag means written-but-quarantined
-(low confidence), never silently dropped. The episodic record is read-only
-input here — this pass never modifies a message.
+Every mined fact passes the four walls, plus the per-speaker trust check
+(#31: a fact drawn from a guest's or unrecognised speaker's turn is held for
+review with the speaker named in the reason); a flag means
+written-but-quarantined (low confidence), never silently dropped. The
+episodic record is read-only input here — this pass never modifies a message.
 """
 
 import re
@@ -154,7 +156,20 @@ def _msg_body(m: dict) -> str:
 
 
 def _speaker(m: dict, user_name: str) -> str:
-    return user_name if m["speaker"] == "user" else m["speaker"]
+    """The transcript label for one turn. The owner's turns carry their real
+    name; a guest's turns carry the guest's name plus a "(guest)" marker so
+    the extractor can attribute speech per speaker (#31); an unidentified
+    human turn is labelled as exactly that, never defaulted to the owner.
+    Model slugs and unrecognised values render verbatim."""
+    s = m["speaker"]
+    if s == "user":
+        return user_name
+    cls = walls.speaker_class(s)
+    if cls == "guest":
+        return f"{walls.guest_name(s)} (guest)"
+    if cls == "guest-unknown":
+        return "Unidentified speaker (guest)"
+    return s
 
 
 def _transcript(messages: list[dict], user_name: str) -> str:
@@ -238,12 +253,28 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
         lock.release()
 
 
+# Speaker classes that count as HUMAN SPEECH worth mining (#31). Guest turns
+# mine even with the owner silent in the window — their facts land quarantined,
+# so nothing gains trust — but a window of only model turns and/or unrecognised
+# speaker classes skips the LLM exactly as model-only windows always have: an
+# unrecognised class is not known to be a human voice at all (it could be a
+# tool or a transcript artefact), so mining it as biography would guess.
+_HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown")
+
+
 def _distill_chunk(con, settings, source_app: str, conv: dict,
                    new_msgs: list[dict]) -> dict:
-    if not any(m["speaker"] == "user" for m in new_msgs):
+    if not any(walls.speaker_class(m["speaker"]) in _HUMAN_SPEAKERS
+               for m in new_msgs):
         _advance(con, conv["id"], new_msgs[-1]["id"])
         return {"added": 0, "quarantined": 0, "deduped": 0,
                 "refused_supersede": 0, "deferred_supersede": 0}
+
+    # #31: does this window carry any speech that is NOT the owner's or a model
+    # seat's? If so, a fact with no valid src= binding cannot be attributed to
+    # the owner, and the fail-safe below holds it for review.
+    untrusted_speaker_present = any(
+        walls.speaker_trust_flag(m["speaker"]) for m in new_msgs)
 
     source_text = _transcript(new_msgs, settings.user_name)
     recent = ledger.list_facts(con, status="valid", limit=250)
@@ -264,6 +295,25 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     # The [msg N] labels in source_text map back to real messages here; a fact's
     # src=N is validated against this before it can narrow event-date grounding.
     idx_to_msg = {i: m for i, m in enumerate(new_msgs, start=1)}
+    # Guest guidance enters the prompt only when the window actually carries
+    # guest (or unrecognised) speech, so the everyday owner-only path pays
+    # nothing and its prompt is byte-identical to before (#31).
+    guest_rules = "" if not untrusted_speaker_present else (
+        "GUEST SPEAKERS: turns labelled \"(guest)\" are OTHER HUMANS in the "
+        f"session — never {settings.user_name} and never an AI participant. "
+        "Resolve pronouns PER SPEAKER: a guest's 'I' is that guest, not "
+        f"{settings.user_name}. Phrase a guest's fact in third person, naming "
+        "the guest (e.g. a guest called Sam saying 'I hate coriander' becomes "
+        f"'{settings.user_name}'s wife Sam dislikes coriander' when the "
+        "excerpt states that relationship, else 'Sam (a guest) dislikes "
+        f"coriander') — NEVER as a first-person fact about "
+        f"{settings.user_name}. Do not build a profile of a guest: extract a "
+        "guest's statement only when it matters to understanding "
+        f"{settings.user_name}'s world (family, close relationships, shared "
+        "plans, things that affect them). Speech from an unidentified speaker "
+        "may still be extracted, attributed to 'an unidentified guest'. Every "
+        "fact drawn from a guest's turn must carry src=<N> naming that "
+        "guest's own turn.\n")
     prompt = (
         f"You maintain a permanent memory ledger about {settings.user_name}. From the "
         "conversation excerpt below, extract durable facts worth remembering long-term. "
@@ -300,6 +350,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "roleplay, persona, or interview-prep framing, or from an assistant's own "
         "'what do you know about me' summary; or anything already in the existing "
         "entries.\n"
+        f"{guest_rules}"
         "Each turn in the excerpt is prefixed with a [msg N] label. Every fact must "
         "carry src=<N> naming the SINGLE message it was drawn from — copy the label "
         "off that turn, do not count. If a fact draws on a few adjacent turns, cite "
@@ -427,6 +478,24 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # a fact may legitimately synthesise across turns, and #33 is about the
         # event date only — narrowing the walls here would be scope creep.
         flags = walls.check(fact, source_text, allow)
+        # #31: source-trust for WHO SPOKE. A fact bound to a guest's turn, an
+        # unidentified speaker's, or an unrecognised speaker class's is held
+        # for review with the speaker named in the reason — the same posture
+        # `mcp:*` writes get from the ledger gate. And when such turns exist in
+        # the window but the fact carries no valid binding at all, it cannot be
+        # attributed to the owner, so it is held too (fail safe — attribution
+        # is exactly what this window can no longer assume). Owner-only
+        # windows are unchanged: an unbound fact there behaves as it always
+        # has, because every human turn is the owner's.
+        if bound is not None:
+            speaker_flag = walls.speaker_trust_flag(bound["speaker"])
+        else:
+            speaker_flag = (
+                "speaker-trust: no valid src= binding in a session with guest "
+                "or unrecognised speakers — cannot attribute this fact to the "
+                "owner") if untrusted_speaker_present else None
+        if speaker_flag:
+            flags = flags + [speaker_flag]
         if importance is None:
             # #69: still unscored AFTER the corrective retry — the backstop.
             # Quarantine, don't silently trust.
