@@ -563,6 +563,29 @@
     <h2 class="group-head">Admin
       <span class="why">Rare &amp; dangerous: diagnostics and permanent deletes — usually leave alone</span></h2>
     <details class="section">
+      <summary>Passkeys
+        <span class="badge" id="pk-count"></span>
+        <span style="flex:1"></span>
+        <button onclick="event.preventDefault();loadPasskeys()">Refresh</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Unlock with your fingerprint instead of typing your password.</b> A passkey lets
+          this browser unlock Membro with Touch ID (or Face ID on a phone) — quicker than the
+          password, and nothing to remember or leak. Your password keeps working as the fallback,
+          and the recovery secret still handles resets, so a passkey can never lock you out. One
+          catch, by browser design: a passkey is tied to the exact web address it was made on, so
+          enrol one here <em>and</em> another wherever else you open Membro (say, over your
+          tailnet). The address <code>127.0.0.1</code> can't hold one at all — use
+          <code>localhost</code>. Removing a passkey below stops it unlocking Membro; the copy on
+          your device can then be tidied away in your device's password settings.</p></details>
+        <div class="fields">
+          <button onclick="enrolPasskey()" id="pk-enrol">Enrol a passkey in this browser</button>
+          <span class="count-line" id="pk-msg" role="status"></span>
+        </div>
+        <div id="passkeys-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+
+    <details class="section">
       <summary>Database health
         <span style="flex:1"></span><button onclick="event.preventDefault();loadHealth()">Refresh</button></summary>
       <div class="body">
@@ -1354,9 +1377,90 @@ async function loadHealth() {
     `<dl class="health">${healthRows(h.detail || {}).join("")}</dl>`;
 }
 
+// ---- passkeys (#27) ----
+// Not under /v1 (they are browser-session plumbing, not contract surface),
+// so these use plain fetch rather than api(). Same-origin cookies ride along
+// automatically.
+
+const pkB64uEnc = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const pkB64uDec = s => Uint8Array.from(
+  atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(s.length + (4 - s.length % 4) % 4, "=")),
+  ch => ch.charCodeAt(0));
+
+async function loadPasskeys() {
+  try {
+    const r = await fetch("/webauthn/credentials");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const rows = (await r.json()).credentials || [];
+    $("pk-count").textContent = String(rows.length);
+    $("passkeys-body").innerHTML = rows.length
+      ? `<div class="table-wrap"><table><thead><tr>
+           <th>Where it works</th><th>Enrolled</th><th>Synced</th><th></th>
+         </tr></thead><tbody>` + rows.map(c => `<tr>
+           <td class="mono">${esc(c.origin)}</td>
+           <td class="mono">${esc((c.created_at || "").slice(0, 10))}</td>
+           <td>${c.backed_up ? "yes (e.g. iCloud)" : "this device only"}</td>
+           <td><button class="bad" onclick="removePasskey('${esc(c.id)}')">Remove</button></td>
+         </tr>`).join("") + "</tbody></table></div>"
+      : `<div class="empty">No passkeys yet — enrol one to unlock with Touch ID instead of your password.</div>`;
+  } catch (e) {
+    $("passkeys-body").innerHTML = `<div class="empty">Couldn't load passkeys: ${esc(e.message)}</div>`;
+  }
+}
+
+async function enrolPasskey() {
+  const btn = $("pk-enrol"), msg = $("pk-msg");
+  btn.disabled = true; msg.textContent = "";
+  try {
+    if (!window.PublicKeyCredential) throw new Error("this browser has no passkey support");
+    const or_ = await fetch("/webauthn/register/options", { method: "POST" });
+    const o = await or_.json();
+    if (!or_.ok) throw new Error((o.error && o.error.message) || "HTTP " + or_.status);
+    const pk = o.publicKey;
+    pk.challenge = pkB64uDec(pk.challenge);
+    pk.user.id = pkB64uDec(pk.user.id);
+    (pk.excludeCredentials || []).forEach(c => c.id = pkB64uDec(c.id));
+    const cred = await navigator.credentials.create({ publicKey: pk });
+    const body = { cid: o.cid, credential: {
+      id: cred.id, rawId: pkB64uEnc(cred.rawId), type: cred.type,
+      clientExtensionResults: cred.getClientExtensionResults(),
+      response: {
+        clientDataJSON: pkB64uEnc(cred.response.clientDataJSON),
+        attestationObject: pkB64uEnc(cred.response.attestationObject),
+        transports: cred.response.getTransports ? cred.response.getTransports() : [],
+      },
+    }};
+    const rr = await fetch("/webauthn/register", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await rr.json();
+    if (!rr.ok || !r.ok) throw new Error((r.error && r.error.message) || "enrolment did not verify");
+    toast("Passkey enrolled — the lock screen here now offers it first.", true);
+    loadPasskeys();
+  } catch (e) {
+    msg.textContent = e.name === "NotAllowedError"
+      ? "Cancelled or timed out — nothing was enrolled."
+      : e.name === "InvalidStateError"
+        ? "This device already has a passkey for this address."
+        : "Enrolment failed: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removePasskey(id) {
+  if (!confirm("Remove this passkey? It will stop unlocking Membro; your password still works.")) return;
+  try {
+    const r = await fetch("/webauthn/credentials/" + encodeURIComponent(id), { method: "DELETE" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    toast("Passkey removed.", true);
+    loadPasskeys();
+  } catch (e) { toast("Couldn't remove passkey: " + e.message); }
+}
+
 // ---- boot ----
 
-loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth();
+loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth(); loadPasskeys();
 setInterval(() => { if (document.visibilityState === "visible") loadHealth(); }, 15000);
 </script>
 </body>

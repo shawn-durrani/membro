@@ -55,7 +55,17 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import access, auth, db, embeddings, episodic, jobs, ledger, mining, recall, summary, viz, walls
+import webauthn as webauthn_lib
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.exceptions import (InvalidAuthenticationResponse,
+                                         InvalidRegistrationResponse)
+from webauthn.helpers.structs import (AuthenticatorAttachment,
+                                      AuthenticatorSelectionCriteria,
+                                      PublicKeyCredentialDescriptor,
+                                      ResidentKeyRequirement,
+                                      UserVerificationRequirement)
+
+from . import access, auth, db, embeddings, episodic, jobs, ledger, mining, passkeys, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -122,6 +132,15 @@ class QuarantineBody(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class WebAuthnFinishBody(BaseModel):
+    # The second half of either passkey ceremony (#27): the opaque ceremony id
+    # this server minted with the challenge, plus the browser's credential
+    # response verbatim. The dict is attacker-supplied by definition; nothing
+    # reads it except py_webauthn's verifier.
+    cid: str = Field(min_length=8, max_length=128)
+    credential: dict
+
+
 class RecallBody(BaseModel):
     query: str = ""
     # 50, not 500: recall is a retrieval aid, and an unbounded top-N over an
@@ -162,8 +181,13 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # else there needs the bearer token or a live admin session, so no anonymous
 # tailnet caller ever reaches fact data. `/enroll` and `/reset` still demand
 # the recovery secret in their own bodies — they are listed here because a
-# cookie cannot exist before they run, not because they are unguarded.
-LOGIN_SURFACE = {"/", "/login", "/logout", "/enroll", "/reset"}
+# cookie cannot exist before they run, not because they are unguarded. The two
+# passkey LOGIN steps (#27) belong here for the same reason: they are how a
+# session comes to exist, and the assertion they accept is signature-checked
+# against an enrolled credential. Passkey ENROLMENT is not here — it requires
+# an already-unlocked session, never the lock screen.
+LOGIN_SURFACE = {"/", "/login", "/logout", "/enroll", "/reset",
+                 "/webauthn/login/options", "/webauthn/login"}
 
 
 # Benchmark disposability sentinel (#90 slice 3). A THROWAWAY data dir that the
@@ -287,6 +311,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.admin_session_ttl = 60 * 60 * 24  # 24h — a deliberately bounded default
     ADMIN_SESSION_TTL = app.state.admin_session_ttl
 
+    # In-flight WebAuthn ceremonies (#27): ceremony id -> the challenge this
+    # server minted plus the origin/RP it was minted FOR. Server-side and
+    # single-use for the same reason sessions are: the browser echoes the
+    # challenge back inside a signed structure, and verification must compare
+    # it against a value the client never chose. In-memory on purpose — an
+    # abandoned ceremony should evaporate, and a restart mid-ceremony simply
+    # means clicking the button again.
+    app.state.webauthn_pending = {}
+    WEBAUTHN_CEREMONY_TTL = 300  # seconds; a Touch ID prompt answers in far less
+
+    def _webauthn_mint(purpose: str, challenge: bytes, rp_id: str, origin: str) -> str:
+        now = db.now()
+        for k, v in list(app.state.webauthn_pending.items()):
+            if v["expires"] < now:
+                app.state.webauthn_pending.pop(k, None)
+        cid = secrets.token_urlsafe(24)
+        app.state.webauthn_pending[cid] = {
+            "purpose": purpose, "challenge": challenge, "rp_id": rp_id,
+            "origin": origin, "expires": now + WEBAUTHN_CEREMONY_TTL,
+        }
+        return cid
+
+    def _webauthn_take(cid: str, purpose: str) -> dict | None:
+        """Pop a pending ceremony — single-use, so a captured response can
+        never be replayed against the same challenge. None for unknown,
+        expired, or wrong-purpose ids, all indistinguishable to the caller."""
+        pend = app.state.webauthn_pending.pop(cid or "", None)
+        if not pend or pend["purpose"] != purpose or pend["expires"] < db.now():
+            return None
+        return pend
+
+    def _webauthn_context(request: Request) -> tuple[str, str] | None:
+        """(origin, rp_id) for a ceremony on this request, or None where
+        passkeys cannot work. The RP comes from the request's own hostname
+        gated by the #83 trust boundary (loopback's `localhost` name, or a
+        host the operator listed in `trusted_hosts`); the origin is the
+        browser's Origin header, required to name that same host. 127.0.0.1
+        yields None: an IP is not a valid RP ID, so the lock screen there
+        stays password-first (#27, verified live)."""
+        host = request.url.hostname or ""
+        rp = passkeys.rp_for_host(host, settings.trusted_hosts)
+        origin = request.headers.get("origin", "")
+        if not rp or not passkeys.origin_ok(origin, host):
+            return None
+        return origin, rp
+
     # The trust boundary, enforced per-request (not just at bind time, so it
     # holds however the app is served). Two things at once:
     # 1. DNS-rebinding defense — a malicious page re-pointing its domain at
@@ -403,12 +473,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             c.close()
 
-    def _locked_page(error: str = "", *, enrolled: bool | None = None) -> str:
+    def _locked_page(error: str = "", *, enrolled: bool | None = None,
+                     passkey: bool = False) -> str:
         # Deliberately minimal and dependency-free: no token, no verifier, no
         # ledger data, nothing but a form. Shown to any caller that hasn't
         # authenticated — including a sandboxed process making a bare GET / —
         # so there is NOTHING here for #46 v3's bypass to read. The recovery
-        # secret and the password verifier NEVER appear in this HTML (#51).
+        # secret and the password verifier NEVER appear in this HTML (#51),
+        # and neither does anything about a passkey beyond "one exists for
+        # this origin" (#27) — no credential id, no public key.
+        #
+        # `passkey` is set only on the plain GET / render when the CURRENT
+        # origin has an enrolled credential: the passkey button then leads and
+        # the password form waits behind a disclosure. Error re-renders from
+        # the password/reset forms keep the password layout: whoever just
+        # typed a wrong password wants the form, not a mode switch.
         if enrolled is None:
             enrolled = _enrolled()
         msg = f'<p class="err">{error}</p>' if error else ""
@@ -447,13 +526,68 @@ machine that can't see the terminal can't set your password.</small></p>"""
         else:
             # Ordinary case: log in with the enrolled password. A collapsible
             # reset path re-uses the same recovery-secret proof to set a new one.
-            body = f"""<p>Enter your password to unlock this browser.</p>
-{msg}
-<form method="post" action="/login">
+            # With a passkey enrolled for this origin, the passkey leads and
+            # this same password form waits behind a disclosure instead.
+            focus = "" if passkey else " autofocus"
+            password_form = f"""<form method="post" action="/login">
 <input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
-<label>Password<input type="password" name="password" autocomplete="current-password" autofocus></label>
+<label>Password<input type="password" name="password" autocomplete="current-password"{focus}></label>
 <button type="submit">Unlock</button>
-</form>
+</form>"""
+            if passkey:
+                intro = f"""<button id="pk-btn" onclick="passkeyUnlock()" autofocus>Unlock with passkey</button>
+<p class="err" id="pk-err" role="alert"></p>
+{msg}
+<details id="pw-details"><summary>Use your password instead</summary>
+{password_form}
+</details>
+<script>
+"use strict";
+const b64uEnc = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+const b64uDec = s => Uint8Array.from(
+  atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(s.length + (4 - s.length % 4) % 4, "=")),
+  ch => ch.charCodeAt(0));
+async function passkeyUnlock() {{
+  const btn = document.getElementById("pk-btn"), err = document.getElementById("pk-err");
+  btn.disabled = true; err.textContent = "";
+  try {{
+    const or_ = await fetch("/webauthn/login/options", {{method: "POST"}});
+    const o = await or_.json();
+    if (!or_.ok) throw new Error((o.error && o.error.message) || "passkey unlock is not available here");
+    const pk = o.publicKey;
+    pk.challenge = b64uDec(pk.challenge);
+    (pk.allowCredentials || []).forEach(c => c.id = b64uDec(c.id));
+    const cred = await navigator.credentials.get({{publicKey: pk}});
+    const body = {{cid: o.cid, credential: {{
+      id: cred.id, rawId: b64uEnc(cred.rawId), type: cred.type,
+      clientExtensionResults: cred.getClientExtensionResults(),
+      response: {{
+        clientDataJSON: b64uEnc(cred.response.clientDataJSON),
+        authenticatorData: b64uEnc(cred.response.authenticatorData),
+        signature: b64uEnc(cred.response.signature),
+        userHandle: cred.response.userHandle ? b64uEnc(cred.response.userHandle) : null,
+      }},
+    }}}};
+    const rr = await fetch("/webauthn/login", {{method: "POST",
+      headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(body)}});
+    const r = await rr.json();
+    if (!rr.ok || !r.ok) throw new Error((r.error && r.error.message) || "unlock failed");
+    location.replace("/");
+  }} catch (e) {{
+    err.textContent = e.name === "NotAllowedError"
+      ? "The passkey prompt was cancelled or timed out. Try again, or use your password."
+      : "Passkey unlock failed: " + e.message;
+    document.getElementById("pw-details").open = true;
+    btn.disabled = false;
+  }}
+}}
+</script>"""
+            else:
+                intro = f"""<p>Enter your password to unlock this browser.</p>
+{msg}
+{password_form}"""
+            body = intro + """
 <details><summary>Forgot your password?</summary>
 <p><small>Reset it with the <em>recovery secret</em> — the token printed to the
 terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
@@ -519,7 +653,20 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # cookie automatically (same-origin, no JS needed) — nothing is
         # embedded in the page for a bare request to read.
         if not _admin_ok(request):
-            return HTMLResponse(_locked_page())
+            # Offer the passkey path only where it can work: the request's
+            # host maps to a valid RP (localhost or a trusted host, never an
+            # IP) AND a credential is enrolled for it (#27). The flag leaks
+            # nothing beyond "a passkey exists here" — the same granularity
+            # as the enrolled/first-run split this page already shows.
+            rp = passkeys.rp_for_host(request.url.hostname, settings.trusted_hosts)
+            has_passkey = False
+            if rp:
+                c = con()
+                try:
+                    has_passkey = bool(passkeys.credentials_for_rp(c, rp))
+                finally:
+                    c.close()
+            return HTMLResponse(_locked_page(passkey=has_passkey))
         return FileResponse(static_dir / "index.html", media_type="text/html")
 
     @app.post("/login", include_in_schema=False)
@@ -572,6 +719,195 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         resp = RedirectResponse("/", status_code=303)
         resp.delete_cookie(ADMIN_COOKIE, path="/")
         return resp
+
+    # ---- passkeys (#27): WebAuthn as the everyday unlock ----
+    # Enrolment lives behind an unlocked session (the admin page), never the
+    # lock screen; login is on LOGIN_SURFACE because it is how a session comes
+    # to exist. The password (#51) and recovery secret are untouched: a
+    # passkey replaces only the password PROOF, and mints the same opaque,
+    # expiring, revocable session as a password login.
+
+    @app.post("/webauthn/register/options", include_in_schema=False,
+              dependencies=[Depends(_admin_auth)])
+    def webauthn_register_options(request: Request):
+        # Start enrolment for the origin the admin page is open on. The
+        # challenge (and the origin/RP it was minted for) is held server-side;
+        # the browser gets back exactly what navigator.credentials.create
+        # needs, and nothing about any OTHER enrolled origin.
+        ctx = _webauthn_context(request)
+        if ctx is None:
+            raise HTTPException(400, "passkeys need http://localhost:"
+                                     f"{settings.port} or a trusted https host; "
+                                     "an IP address such as 127.0.0.1 cannot "
+                                     "hold one (browser rule, not ours)")
+        origin, rp = ctx
+        c = con()
+        try:
+            handle = passkeys.user_handle(c)
+            existing = passkeys.credentials_for_rp(c, rp)
+        finally:
+            c.close()
+        opts = webauthn_lib.generate_registration_options(
+            rp_id=rp, rp_name="membro", user_id=handle, user_name="owner",
+            user_display_name="Membro owner",
+            # Platform authenticator with a discoverable credential and true
+            # user verification: Touch ID / Face ID, resident on the device,
+            # so login can offer "use a passkey" without disclosing
+            # credential ids to the anonymous lock screen.
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                user_verification=UserVerificationRequirement.REQUIRED),
+            exclude_credentials=[
+                PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["id"]))
+                for r in existing])
+        cid = _webauthn_mint("register", opts.challenge, rp, origin)
+        return {"cid": cid,
+                "publicKey": json.loads(webauthn_lib.options_to_json(opts))}
+
+    @app.post("/webauthn/register", include_in_schema=False,
+              dependencies=[Depends(_admin_auth)])
+    def webauthn_register(body: WebAuthnFinishBody):
+        # Finish enrolment: verify the browser's attestation response against
+        # the challenge/origin/RP recorded at options time, then persist ONLY
+        # the credential id and public key. py_webauthn owns the parsing of
+        # these attacker-suppliable bytes — that is the whole reason it is a
+        # dependency (#27).
+        pend = _webauthn_take(body.cid, "register")
+        if pend is None:
+            raise HTTPException(400, "enrolment challenge missing or expired; "
+                                     "start again from the Passkeys section")
+        try:
+            v = webauthn_lib.verify_registration_response(
+                credential=body.credential,
+                expected_challenge=pend["challenge"],
+                expected_rp_id=pend["rp_id"],
+                expected_origin=pend["origin"],
+                require_user_verification=True)
+        except (InvalidRegistrationResponse, ValueError):
+            raise HTTPException(400, "the browser's enrolment response did "
+                                     "not verify")
+        rec = {
+            "id": bytes_to_base64url(v.credential_id),
+            "public_key": bytes_to_base64url(v.credential_public_key),
+            "sign_count": v.sign_count,
+            "rp_id": pend["rp_id"],
+            "origin": pend["origin"],
+            "created_at": datetime.datetime.now(datetime.timezone.utc)
+                          .isoformat(timespec="seconds"),
+            "backed_up": bool(v.credential_backed_up),
+        }
+        c = con()
+        try:
+            # exclude_credentials steers the browser away from re-enrolling;
+            # this guards the API path itself.
+            if any(r.get("id") == rec["id"] for r in passkeys.list_credentials(c)):
+                raise HTTPException(409, "this passkey is already enrolled")
+            passkeys.add_credential(c, rec)
+        finally:
+            c.close()
+        return {"ok": True, "credential": {k: rec[k] for k in
+                                           ("id", "rp_id", "origin", "created_at")}}
+
+    @app.post("/webauthn/login/options", include_in_schema=False)
+    def webauthn_login_options(request: Request):
+        # Anonymous by design (lock screen), so it discloses as little as the
+        # page itself: a challenge and the RP, never a credential id or key —
+        # allowCredentials stays empty and the browser offers whatever
+        # DISCOVERABLE credential it holds for this RP (resident keys are
+        # required at enrolment for exactly this).
+        ctx = _webauthn_context(request)
+        if ctx is None:
+            raise HTTPException(400, "passkey unlock is not available on this "
+                                     "origin")
+        origin, rp = ctx
+        c = con()
+        try:
+            enrolled_here = bool(passkeys.credentials_for_rp(c, rp))
+        finally:
+            c.close()
+        if not enrolled_here:
+            raise HTTPException(400, "no passkey is enrolled for this origin")
+        opts = webauthn_lib.generate_authentication_options(
+            rp_id=rp,
+            user_verification=UserVerificationRequirement.REQUIRED)
+        cid = _webauthn_mint("login", opts.challenge, rp, origin)
+        return {"cid": cid,
+                "publicKey": json.loads(webauthn_lib.options_to_json(opts))}
+
+    @app.post("/webauthn/login", include_in_schema=False)
+    def webauthn_login(body: WebAuthnFinishBody):
+        # The passkey PROOF step. Errors are deliberately uniform 401s: an
+        # anonymous caller learns nothing about which part failed, matching
+        # the password path's single "incorrect" answer.
+        pend = _webauthn_take(body.cid, "login")
+        if pend is None:
+            raise HTTPException(401, "unlock challenge missing or expired; "
+                                     "try again")
+        cred_id = str(body.credential.get("rawId")
+                      or body.credential.get("id") or "")
+        c = con()
+        try:
+            rec = next((r for r in passkeys.credentials_for_rp(c, pend["rp_id"])
+                        if r.get("id") == cred_id), None)
+            if rec is None:
+                raise HTTPException(401, "passkey not recognised")
+            try:
+                v = webauthn_lib.verify_authentication_response(
+                    credential=body.credential,
+                    expected_challenge=pend["challenge"],
+                    expected_rp_id=pend["rp_id"],
+                    expected_origin=pend["origin"],
+                    credential_public_key=base64url_to_bytes(rec["public_key"]),
+                    credential_current_sign_count=int(rec.get("sign_count") or 0),
+                    require_user_verification=True)
+            except (InvalidAuthenticationResponse, ValueError):
+                raise HTTPException(401, "passkey not recognised")
+            # Persist the signature counter for clone detection next time
+            # (Apple authenticators report a constant 0; that verifies fine).
+            passkeys.update_sign_count(c, cred_id, v.new_sign_count)
+        finally:
+            c.close()
+        # Same session mint as a successful password login (#46 v4): fresh
+        # random opaque sid, never client-derived — but as JSON, because the
+        # caller is the lock page's fetch, which navigates on success itself.
+        sid = secrets.token_urlsafe(32)
+        app.state.admin_sessions[sid] = db.now() + ADMIN_SESSION_TTL
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(ADMIN_COOKIE, sid, httponly=True, samesite="strict",
+                        path="/", max_age=ADMIN_SESSION_TTL)
+        return resp
+
+    @app.get("/webauthn/credentials", include_in_schema=False,
+             dependencies=[Depends(_admin_auth)])
+    def webauthn_credentials():
+        # The Passkeys section's listing: metadata only, never the public key
+        # (nothing needs it client-side, so it does not travel).
+        c = con()
+        try:
+            rows = passkeys.list_credentials(c)
+        finally:
+            c.close()
+        return {"credentials": [
+            {k: r.get(k) for k in ("id", "rp_id", "origin", "created_at",
+                                   "backed_up")}
+            for r in rows]}
+
+    @app.delete("/webauthn/credentials/{cred_id}", include_in_schema=False,
+                dependencies=[Depends(_admin_auth)])
+    def webauthn_remove(cred_id: str):
+        # Removing a passkey is operational auth state, like a password reset
+        # (never ledger content). The device-side key remains; it simply
+        # stops unlocking this service. The password always remains as the
+        # fallback, so removal can never lock the owner out.
+        c = con()
+        try:
+            removed = passkeys.remove_credential(c, cred_id)
+        finally:
+            c.close()
+        if not removed:
+            raise HTTPException(404, "no passkey with that id")
+        return {"ok": True}
 
     @app.get("/math")
     def math_page():

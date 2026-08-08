@@ -23,12 +23,18 @@ serve your accumulated personal data, so:
 
 ## Credentials
 
-Two, with distinct jobs. The browser login is a durable password
-(scrypt verifier in the store). The admin bearer token gates first-run
-enrolment and password reset, and authenticates MCP/curl callers.
-Sessions are opaque server-side ids in httpOnly SameSite=Strict
-cookies; logout revokes an id everywhere; the token itself never rides
-in a cookie.
+Three, with distinct jobs. The everyday browser unlock is a passkey
+(WebAuthn platform authenticator) once one is enrolled; only the
+credential's public key is stored, so a copied store cannot impersonate
+it. The durable password (scrypt verifier in the store) is the fallback
+login. The admin bearer token gates first-run enrolment and password
+reset, and authenticates MCP/curl callers; passkey enrolment
+additionally requires an already-unlocked session, so it can never
+happen from the lock screen. Sessions are opaque server-side ids in
+httpOnly SameSite=Strict cookies; logout revokes an id everywhere; the
+token itself never rides in a cookie. A passkey is origin-bound: an
+assertion is accepted only for `localhost` or a host listed in
+`MEMORY_TRUSTED_HOSTS`, each enrolled separately.
 
 ## Open vs gated
 
