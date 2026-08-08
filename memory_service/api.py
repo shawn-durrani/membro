@@ -249,7 +249,7 @@ def _read_disposable_token(data_dir) -> str | None:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     db.init(settings)
-    app = FastAPI(title="Membro", version=settings.contract_version)
+    app = FastAPI(title="membro", version=settings.contract_version)
     app.state.settings = settings
     app.state.backup_scheduler_stop = db.start_backup_scheduler(settings)
     app.router.on_shutdown.append(app.state.backup_scheduler_stop.set)
@@ -413,7 +413,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             enrolled = _enrolled()
         msg = f'<p class="err">{error}</p>' if error else ""
         head = """<!doctype html><html><head><meta charset="utf-8">
-<title>Membro — locked</title>
+<title>membro — locked</title>
 <style>body{font-family:system-ui,sans-serif;max-width:38em;margin:3em auto;
 padding:0 1em;color:#ddd;background:#18181b} .err{color:#f87171}
 input{width:100%;padding:.5em;font-size:1em;margin-top:.3em}
@@ -421,7 +421,7 @@ button{padding:.5em 1.2em;margin-top:.6em} details{margin-top:1.6em}
 label{display:block;margin-top:.6em;font-size:.9em}
 small{color:#a1a1aa}</style>
 </head><body>
-<h1>Membro admin — locked</h1>
+<h1>membro admin — locked</h1>
 <p>This page holds your durable memory — exact facts, review queue, edit/delete.</p>
 """
         if not enrolled:
