@@ -175,6 +175,27 @@ longer accepted as the everyday login.
   same recovery-gated proof, allowed at any time, replacing the verifier.
 - `POST /logout` revokes the session server-side and clears the cookie.
 
+**Passkey login (#27).** With a passkey enrolled, the lock screen offers it
+first and the password moves one click behind it; a successful assertion
+mints exactly the same opaque session as a password login. The password and
+recovery secret are unchanged. A passkey is bound to the web origin it was
+created on, so `localhost` and each trusted host enrol separately, and an IP
+origin (`127.0.0.1`) can never hold one.
+
+- `POST /webauthn/register/options` and `POST /webauthn/register` (both
+  require an unlocked session or the bearer token): start and finish
+  enrolment for the origin the page is open on. Only the credential id and
+  public key are stored, beside the password verifier in the `settings`
+  table; the private key never leaves the authenticator.
+- `POST /webauthn/login/options` and `POST /webauthn/login` (lock-screen
+  surface): challenge out, signed assertion in, verified against the
+  enrolled public key with user verification (Touch ID / Face ID) required.
+  The options response discloses no credential ids — credentials are
+  enrolled as discoverable, so the browser finds its own.
+- `GET /webauthn/credentials` and `DELETE /webauthn/credentials/{id}`
+  (unlocked session or bearer): list and remove enrolled passkeys. Removal
+  can never lock the owner out; the password always remains.
+
 These endpoints are the browser admin UI surface (`include_in_schema=False`),
 not part of the versioned `/v1` contract, so `contract_version` is unchanged.
 

@@ -4,6 +4,13 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Passkey login (#27): enrol a Touch ID / iCloud Keychain passkey from the
+  unlocked admin page (Admin → Passkeys) and the lock screen offers it first,
+  password one click behind it. The password and recovery secret are
+  unchanged. Passkeys are per web address — enrol `http://localhost:8901`
+  and each trusted host separately; `127.0.0.1` cannot hold one (a browser
+  rule: an IP address is not a valid WebAuthn relying party).
+
 ## v0.1.1 (2026-08-07)
 
 - SECURITY.md now names the complete set of routes open on loopback:
