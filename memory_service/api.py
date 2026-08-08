@@ -435,9 +435,10 @@ use to unlock Membro from now on. To prove you're the owner, paste the
 your <code>MEMORY_AUTH_TOKEN</code>). You only do this once.</p>
 {msg}
 <form method="post" action="/enroll">
-<label>Recovery secret<input type="password" name="recovery" autofocus></label>
-<label>New password<input type="password" name="password"></label>
-<label>Confirm password<input type="password" name="confirm"></label>
+<input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
+<label>Recovery secret<input type="password" name="recovery" autocomplete="off" autofocus></label>
+<label>New password<input type="password" name="password" autocomplete="new-password"></label>
+<label>Confirm password<input type="password" name="confirm" autocomplete="new-password"></label>
 <button type="submit">Set password &amp; unlock</button>
 </form>
 <p><small>The recovery secret is proof of ownership only — it is never your
@@ -449,16 +450,18 @@ machine that can't see the terminal can't set your password.</small></p>"""
             body = f"""<p>Enter your password to unlock this browser.</p>
 {msg}
 <form method="post" action="/login">
-<label>Password<input type="password" name="password" autofocus></label>
+<input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
+<label>Password<input type="password" name="password" autocomplete="current-password" autofocus></label>
 <button type="submit">Unlock</button>
 </form>
 <details><summary>Forgot your password?</summary>
 <p><small>Reset it with the <em>recovery secret</em> — the token printed to the
 terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 <form method="post" action="/reset">
-<label>Recovery secret<input type="password" name="recovery"></label>
-<label>New password<input type="password" name="password"></label>
-<label>Confirm password<input type="password" name="confirm"></label>
+<input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
+<label>Recovery secret<input type="password" name="recovery" autocomplete="off"></label>
+<label>New password<input type="password" name="password" autocomplete="new-password"></label>
+<label>Confirm password<input type="password" name="confirm" autocomplete="new-password"></label>
 <button type="submit">Reset password &amp; unlock</button>
 </form>
 </details>
