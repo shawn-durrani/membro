@@ -4,6 +4,13 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Miner src= retry (#35): in a session with guest or unrecognised
+  speakers, a fact the miner failed to bind to its source turn now gets
+  one batched corrective re-ask before the fail-safe hold, the same
+  posture the importance score already had. Facts from your own turns
+  land as canon again instead of flooding the review queue under one
+  generic reason; facts a retry binds to a guest's turn still hold with
+  the guest named. Nothing about the walls or what quarantines changed.
 - Guest speakers (#31): ingest accepts `guest:<name>` and `guest:unknown`
   speaker values beside `user` and the model slugs (additive, contract
   version unchanged). Facts mined from a guest's speech are held for

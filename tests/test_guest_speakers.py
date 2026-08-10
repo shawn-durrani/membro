@@ -185,7 +185,9 @@ def test_unbound_fact_in_guest_session_quarantines(con, settings, fake_llm):
     # Fail safe for a missing src= binding: in a session with guest turns, a
     # fact that names no source turn cannot be attributed to the owner, so it
     # is held. (In an owner-only session an unbound fact stays valid, as
-    # test_missing_src_falls_back_to_conversation_time proves.)
+    # test_missing_src_falls_back_to_conversation_time proves.) With no queue,
+    # the #35 corrective retry sees the same unusable response and the
+    # fail-safe backstop is what this test pins down.
     _ingest(con, [
         ("user", "We are planning this week's meals."),
         ("guest:Sam", "I hate coriander."),
@@ -226,6 +228,105 @@ def test_unrecognised_only_chunk_skips_mining(con, settings, fake_llm):
                          regenerate=False)
     assert res == {"added": 0, "quarantined": 0}
     assert fake_llm["prompts"] == []
+
+
+# ── corrective retry for missing src= in guest sessions (#35) ───────────────
+
+
+def test_src_retry_binds_owner_fact_to_owner_turn(con, settings, fake_llm):
+    # The miner omits src= on a fact the owner stated. ONE batched corrective
+    # retry supplies the binding, so the fact lands as canon instead of
+    # burning a review-queue row on the generic fail-safe reason.
+    _ingest(con, [
+        ("user", "I have signed up for the Fairhaven half marathon."),
+        ("guest:Sam", "I will cheer from the finish line."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=5: Alex signed up for the Fairhaven half marathon.",
+        "FACT 1: src=1",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 0}
+    valid = ledger.list_facts(con, status="valid")
+    assert len(valid) == 1 and "marathon" in valid[0]["content"]
+    # The retry prompt carried the fact list and the labelled excerpt.
+    assert "FACT 1" in fake_llm["prompts"][1]
+    assert "[msg 1]" in fake_llm["prompts"][1]
+
+
+def test_src_retry_binding_to_guest_turn_still_holds(con, settings, fake_llm):
+    # The retry restores ATTRIBUTION, never trust: a fact the retry binds to
+    # a guest's turn holds with the guest named in the reason, exactly as a
+    # first-pass binding to that turn would.
+    _ingest(con, [
+        ("user", "Dinner planning time."),
+        ("guest:Sam", "I hate coriander."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=4: Alex's wife Sam dislikes coriander.",
+        "FACT 1: src=2",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 1}
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert "Sam" in held["quarantine_reason"]
+    assert "no valid src=" not in held["quarantine_reason"]
+
+
+def test_src_retry_second_failure_keeps_fail_safe_hold(con, settings, fake_llm):
+    # A genuine second failure — the retry names a turn the window does not
+    # contain — falls through to the existing fail-safe hold, never silent
+    # trust. src=none (honest cross-turn synthesis) behaves identically.
+    _ingest(con, [
+        ("user", "Dinner planning time."),
+        ("guest:Sam", "I hate coriander."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=4: Alex's wife Sam dislikes coriander.",
+        "FACT 1: src=99",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 1}
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert "no valid src=" in held["quarantine_reason"]
+    assert "retry" in held["quarantine_reason"]
+
+
+def test_src_retry_is_one_batched_call(con, settings, fake_llm):
+    # Two unbound facts cost ONE retry call, not one per fact: the binding
+    # can't be re-asked without resending the excerpt, so the repair batches.
+    _ingest(con, [
+        ("user", "I have signed up for the Fairhaven half marathon."),
+        ("guest:Sam", "And I am doing the ten kilometre run."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=5: Alex signed up for the Fairhaven half marathon.\n"
+        "NEW importance=4: Alex's wife Sam is doing the ten kilometre run.",
+        "FACT 1: src=1\nFACT 2: src=2",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 2, "quarantined": 1}
+    assert len(fake_llm["prompts"]) == 2   # mine + one batched retry
+    valid = ledger.list_facts(con, status="valid")
+    assert len(valid) == 1 and "marathon" in valid[0]["content"]
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert "Sam" in held["quarantine_reason"]
+
+
+def test_no_src_retry_in_owner_only_window(con, settings, fake_llm,
+                                           sample_conversation):
+    # Owner-only windows never pay for the retry: an unbound fact there is
+    # attributable by definition (every human turn is the owner's), so the
+    # miner makes exactly one call and the fact lands valid as it always has.
+    fake_llm["response"] = "NEW importance=5: Alex moved to Springfield."
+    res = mining.distill(con, settings, "multi-model-chat", "chat-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 0}
+    assert len(fake_llm["prompts"]) == 1
 
 
 # ── ingest accepts the new class (additive contract) ────────────────────────

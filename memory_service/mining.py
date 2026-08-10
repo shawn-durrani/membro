@@ -113,6 +113,59 @@ def _retry_importance(fact: str, settings) -> int | None:
     m = _IMPORTANCE_RE.search(out or "")
     return min(9, max(1, int(m.group(1)))) if m else None
 
+
+# One retry answer line: FACT <k>: src=<N or none>.
+_SRC_FIX_RE = re.compile(r"^\s*FACT\s+(\d+)\s*:\s*src\s*=\s*(\d+|none)\s*$",
+                         re.I | re.M)
+
+
+def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
+                        settings, turn_ids: set[int]) -> dict[int, int]:
+    """Reissue the facts whose src= binding the miner omitted or mis-numbered,
+    asking for the [msg N] each one was drawn from (#35).
+
+    Same posture as the #69 importance repair — a corrective retry first,
+    quarantine only on a genuine second failure — but batched: ONE call per
+    chunk covers every unbound fact, because unlike an importance score the
+    binding can't be re-asked without resending the excerpt, and a per-fact
+    loop would multiply that cost by every unbound fact in the window. The
+    caller only invokes this for guest-present windows, where an unbound fact
+    cannot be attributed to the owner and would otherwise burn a review-queue
+    row on the generic fail-safe reason (measured before this repair: 1 fact
+    in 28 arrived bound, so guest sessions quarantined near-everything).
+
+    `unbound` carries (output_line_index, fact_text) pairs; the return maps
+    output_line_index -> msg N for every answer that names a real turn in
+    `turn_ids`. A src=none answer (honest cross-turn synthesis), a turn number
+    the window doesn't contain, or missing/chatter output simply leaves that
+    fact out of the map — the caller's existing fail-safe hold is the
+    unchanged backstop, never silent trust."""
+    listing = "\n".join(f"FACT {k}: {fact}"
+                        for k, (_, fact) in enumerate(unbound, start=1))
+    prompt = (
+        f"You are correcting facts you extracted for a permanent memory ledger "
+        f"about {settings.user_name}. The excerpt below has multiple human "
+        "speakers, so every fact MUST name its source turn, and you omitted or "
+        "mis-numbered the required src= tag on the facts listed here.\n"
+        "For each fact, answer with the [msg N] label of the SINGLE turn it "
+        "was drawn from — copy the label off that turn, do not count. If a "
+        "few adjacent turns contribute, cite the one that states the fact "
+        "most directly. Only if no single turn states it (pure cross-turn "
+        "synthesis) answer src=none — never guess.\n"
+        "Output exactly one line per fact, nothing else:\n"
+        "FACT <k>: src=<N or none>\n\n"
+        f"## Facts needing their source turn\n{listing}\n\n"
+        f"## Conversation excerpt\n{source_text}"
+    )
+    out = llm.utility_complete(prompt, settings,
+                               max_tokens=min(400, 60 + 15 * len(unbound)))
+    repairs: dict[int, int] = {}
+    for m in _SRC_FIX_RE.finditer(out or ""):
+        k, val = int(m.group(1)), m.group(2).lower()
+        if 1 <= k <= len(unbound) and val != "none" and int(val) in turn_ids:
+            repairs[unbound[k - 1][0]] = int(val)
+    return repairs
+
 # A long-idle conversation (e.g. an imported backlog) can hold more transcript
 # than the utility model's context window — mine in bounded windows, advancing
 # the watermark after each so an interrupted run resumes where it stopped.
@@ -391,8 +444,36 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     out = llm.utility_complete(prompt, settings, max_tokens=1000)
     valid_ids = {f["id"] for f in recent}
     allow = {w.lower() for w in settings.grounding_allowlist} | {settings.user_name.lower()}
+    # #35: in a guest-present window an unbound fact cannot be attributed to
+    # the owner, so before judging anything, give the miner ONE batched
+    # corrective retry for every fact whose src= is missing or names no real
+    # turn — the same repair-then-backstop posture as the #69 importance
+    # retry. Owner-only windows never reach this (unbound is fine there), so
+    # the everyday path pays nothing. The pre-scan mirrors the main loop's
+    # parsing exactly, minus the drop-counter side effects: a line the main
+    # loop will drop or skip is not worth a repair slot.
+    src_repairs: dict[int, int] = {}
+    if untrusted_speaker_present:
+        unbound: list[tuple[int, str]] = []
+        for i, raw in enumerate(out.splitlines()):
+            raw = raw.strip().lstrip("-• ").strip()
+            if not raw or raw.upper() == "NONE":
+                continue
+            h = _HEAD_RE.match(raw)
+            if not h:
+                continue
+            fact = h.group("fact").strip()
+            if (len(fact) < 8 or walls.is_system_meta(fact)
+                    or walls.is_builder_process(fact)):
+                continue
+            src = _SRC_RE.search(h.group("attrs"))
+            if src is None or int(src.group(1)) not in idx_to_msg:
+                unbound.append((i, fact))
+        if unbound:
+            src_repairs = _retry_src_bindings(
+                unbound, source_text, settings, set(idx_to_msg))
     added = quarantined = deduped = refused = deferred = 0
-    for line in out.splitlines():
+    for line_no, line in enumerate(out.splitlines()):
         line = line.strip().lstrip("-• ").strip()
         if not line or line.upper() == "NONE":
             continue
@@ -464,6 +545,12 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # that happens to sit in that turn could still borrow onto an unrelated
         # fact — a narrower re-opening of the exact #33 hole.
         bound = idx_to_msg.get(int(src.group(1))) if src else None
+        if bound is None and line_no in src_repairs:
+            # #35: the corrective retry supplied the binding the first pass
+            # omitted or mis-numbered. From here the fact behaves exactly as
+            # if it had arrived bound: speaker trust, event-date grounding,
+            # and the recorded source message all read from this turn.
+            bound = idx_to_msg.get(src_repairs[line_no])
         if bound is not None:
             conv_ts = bound["created_at"]
             event_date = _grounded_event_date(
@@ -482,18 +569,20 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # unidentified speaker's, or an unrecognised speaker class's is held
         # for review with the speaker named in the reason — the same posture
         # `mcp:*` writes get from the ledger gate. And when such turns exist in
-        # the window but the fact carries no valid binding at all, it cannot be
-        # attributed to the owner, so it is held too (fail safe — attribution
-        # is exactly what this window can no longer assume). Owner-only
+        # the window but the fact still carries no valid binding after the #35
+        # corrective retry, it cannot be attributed to the owner, so it is held
+        # too (fail safe — attribution is exactly what this window can no
+        # longer assume, and the retry was its second chance). Owner-only
         # windows are unchanged: an unbound fact there behaves as it always
         # has, because every human turn is the owner's.
         if bound is not None:
             speaker_flag = walls.speaker_trust_flag(bound["speaker"])
         else:
             speaker_flag = (
-                "speaker-trust: no valid src= binding in a session with guest "
-                "or unrecognised speakers — cannot attribute this fact to the "
-                "owner") if untrusted_speaker_present else None
+                "speaker-trust: no valid src= binding, and none supplied on "
+                "retry, in a session with guest or unrecognised speakers — "
+                "cannot attribute this fact to the owner"
+            ) if untrusted_speaker_present else None
         if speaker_flag:
             flags = flags + [speaker_flag]
         if importance is None:
