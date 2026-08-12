@@ -4,6 +4,15 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Review evidence, and provenance only where it is real: a held fact now
+  shows the turn it came from — who said it and what they said — in the
+  review queue, on the admin page and in `GET /review`. A fact the miner
+  could not tie to one turn is stored unbound and says so, instead of
+  being pinned to whichever message happened to end the mining window.
+  And a src= binding the miner supplies on the corrective retry is now
+  checked against the turn it names, so a guest's sentence can no longer
+  be quietly approved as if you had said it. Nothing about what
+  quarantines changed.
 - Miner src= retry (#35): in a session with guest or unrecognised
   speakers, a fact the miner failed to bind to its source turn now gets
   one batched corrective re-ask before the fail-safe hold, the same

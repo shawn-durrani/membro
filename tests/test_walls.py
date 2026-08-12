@@ -144,3 +144,32 @@ def test_temporal_and_entity_flags_are_reported_separately():
     flags = walls.check("Alex meets Shelbyville Corp tomorrow.", SCHEDULE, set())
     assert any("grounding" in f and "Shelbyville" in f for f in flags)
     assert any("temporal" in f and "tomorrow" in f for f in flags)
+
+
+# ── lexical support: the primitive behind retry-binding verification ─────────
+
+
+def test_lexical_support_counts_shared_distinctive_words():
+    fact = "Alex signed up for the Fairhaven half marathon."
+    assert walls.lexical_support(
+        fact, "I have signed up for the Fairhaven half marathon.", {"alex"}) > 0
+    # An unrelated turn shares none of the fact's distinctive wording.
+    assert walls.lexical_support(fact, "Dinner planning time.", {"alex"}) == 0
+
+
+def test_lexical_support_ignores_function_words_and_the_allowlist():
+    # "will/have/that/thing/this" recur in every turn: counting them would make
+    # any turn look like any fact's source. The owner's own name is on the
+    # allowlist for the same reason — it is in nearly every fact.
+    assert walls.lexical_support(
+        "Alex will have that thing this week.",
+        "I will have that thing this week too.", {"alex"}) == 0
+
+
+def test_lexical_support_measures_wording_not_who_spoke():
+    # It scores WORDING only, so a guest's turn scores for a fact drawn from it
+    # exactly as the owner's would — which is what makes comparing the turns of
+    # a window a usable attribution signal in mining.
+    fact = "Alex's wife Sam dislikes coriander."
+    assert walls.lexical_support(fact, "I hate coriander.", {"alex"}) == 1
+    assert walls.lexical_support(fact, "Sam dislikes coriander.", {"alex"}) == 2

@@ -108,6 +108,16 @@ walls make the *write* safe instead. This trade-off is deliberate.
   "next Saturday") that its source never stated is quarantined for review. Before
   this, only proper nouns were checked, so a fact could carry a resolved date
   nobody wrote and still read as high-confidence.
+- **A card's source turn is recorded only when it is real.** A mined card
+  points at one message only when the extractor actually named that message,
+  and when the extractor has to be re-asked for a binding it omitted, the turn
+  it names must share the card's own wording — and must be at least as
+  plausible a source as any other speaker's turn in the same window. A card
+  nothing could be tied to is stored *unbound*, and the review queue says so,
+  rather than being attributed to whichever message happened to end the mining
+  window. Wrong provenance is quieter than a wrong fact and harder to unpick:
+  it makes a guest's sentence, or a synthesis of several turns, read like
+  something the owner said.
 - **A re-mine can't duplicate a card that's still current.** Two mining passes over
   one conversation can't overlap (a per-conversation lock), and a pass that writes
   facts and then dies before recording how far it read adds nothing on the retry: an

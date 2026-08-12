@@ -307,6 +307,16 @@ pass:
   is unrecognised and treated as untrusted, quarantining exactly like
   guest speech, so a newer client can never mint trust by inventing a
   class. Facts drawn from the owner's own `user` turns are unchanged.
+- Provenance is recorded only where it is real (2026-08-12). A mined fact
+  carries `source_message_id` only when it was actually tied to one turn;
+  a fact the miner could not bind is stored unbound (`source_message_id`
+  null) rather than pinned to whichever turn ended the mining window. In a
+  guest-present window such a fact is still held for review, unchanged.
+  When the miner supplies a missing binding on the corrective retry, that
+  answer is now checked against the turn it names — a turn sharing none of
+  the fact's wording, or one no more plausible than a guest's turn in the
+  same window, is refused and the fact stays held. A retry's guess about
+  who spoke can no longer promote a guest's sentence into owner canon.
 
 `attachments` (additive, 2026-07-11) is optional, per message. Files are part
 of the episodic record: bytes stored whole (content-addressed under
@@ -426,6 +436,24 @@ admin token, even on loopback.**
 
 `GET /review`: held-for-review queue. **Requires the owner admin token, even
 on loopback.**
+
+Each row is the whole fact row plus `source` (additive, 2026-08-12, contract
+version unchanged): the turn the fact was mined from, so the first question a
+reviewer has — who said this — is answered without leaving the queue.
+```json
+"source": {"message_id": 812, "speaker": "guest:Sam", "speaker_class": "guest",
+           "created_at": 1754616000.0, "excerpt": "I hate coriander…",
+           "truncated": false}
+```
+`source` is `null` whenever the fact names no source message: an external
+(`mcp:*`) write, a fact saved by hand, or a mined fact that could not be tied
+to a single turn (see the guest-speaker notes above). It is never filled in
+with a nearby turn — "Sam said this" and "no one knows who said this" are
+different decisions, and a queue that blurs them is worse than one that stays
+silent. `excerpt` is the first 400 characters of the message's own content
+(attachment text is not included); `truncated` says whether more exists.
+`speaker_class` is the classification mining uses (`owner`, `model`, `guest`,
+`guest-unknown`, `unrecognised`).
 
 ## Recall & summary
 

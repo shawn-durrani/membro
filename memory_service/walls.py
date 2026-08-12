@@ -36,6 +36,12 @@ the same way (fail safe), so a newer client can never mint trust by inventing
 a class. The owner's own `user` turns and the model seats are unchanged.
 These checks live here beside the other walls; the mining pass supplies the
 per-fact speaker binding, so `check()` below is unchanged.
+
+`lexical_support` is not a wall and never quarantines anything by itself. It
+is the deterministic word-overlap primitive the mining pass uses to check a
+src= binding the miner supplied on a CORRECTIVE RETRY, so an unverifiable
+guess about who spoke cannot quietly turn a guest's words into the owner's
+canon. It only ever fails toward the existing hold.
 """
 
 import re
@@ -329,6 +335,62 @@ def speaker_trust_flag(speaker: str) -> str | None:
                 "not attribute this turn confidently)")
     return (f"speaker-trust: unrecognised speaker class {speaker!r}, "
             "treated as untrusted")
+
+
+# ── lexical support (used to verify a retry-supplied src= binding) ───────────
+#
+# Function words carry no attribution signal: they appear in nearly every turn,
+# so counting them as "support" would let an unrelated turn look like a fact's
+# source. Only words of four or more characters are considered at all, which
+# already removes most of English's connective tissue; this list is the common
+# remainder plus the vague verbs a paraphrase reaches for.
+_SUPPORT_STOPWORDS = {
+    "about", "actually", "after", "again", "also", "another", "anything",
+    "back", "basically", "because", "been", "before", "being", "both", "came",
+    "come", "could", "days", "does", "doing", "done", "down", "during", "each",
+    "else", "even", "evening", "ever", "every", "everything", "from", "gets",
+    "give", "goes", "going", "gone", "have", "having", "here", "hour", "hours",
+    "into", "just", "keep", "kind", "know", "later", "like", "look", "made",
+    "make", "many", "maybe", "might", "month", "months", "more", "morning",
+    "most", "much", "must", "need", "next", "night", "okay", "over",
+    "probably", "really", "said", "same", "says", "should", "since", "some",
+    "someone", "something", "still", "stuff", "such", "sure", "take", "than",
+    "that", "them", "then", "there", "these", "they", "thing", "things",
+    "think", "this", "those", "through", "time", "today", "tonight",
+    "tomorrow", "under", "very", "want", "week", "weeks", "well", "went",
+    "were", "what", "when", "where", "which", "while", "will", "with",
+    "would", "year", "years", "yeah", "yesterday", "your",
+}
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def support_tokens(text: str, allowlist: set[str]) -> set[str]:
+    """The distinctive content words of `text`: lower-case, four characters or
+    more, minus function words and anything on the caller's allowlist (which
+    carries the owner's own name and their everyday nouns — words that recur in
+    every fact and would flatten the comparison below). Allowlist entries are
+    split into words too, so a two-word name excludes both of its parts."""
+    allowed = {w for entry in allowlist for w in _WORD_RE.findall(entry.lower())}
+    return {t for t in _WORD_RE.findall((text or "").lower())
+            if len(t) >= 4 and t not in _SUPPORT_STOPWORDS and t not in allowed}
+
+
+def lexical_support(fact: str, source_text: str, allowlist: set[str]) -> int:
+    """How many of `fact`'s distinctive content words `source_text` actually
+    contains — a coarse "did this wording come from here" signal.
+
+    Deliberately NOT a truth test and never used as one. Its single job is to
+    sanity-check a src= binding the miner supplied on a corrective retry (#35),
+    where the alternative is trusting an unverifiable guess about WHO SPOKE.
+    Exact word matches only: no stemming, no synonyms, no fuzzy matching, so a
+    heavy paraphrase scores low. That bias is the right way round, because the
+    only thing a low score can do in `mining` is HOLD a fact for review — it can
+    never drop one, and it can never grant trust a wall would otherwise refuse.
+    """
+    f = support_tokens(fact, allowlist)
+    if not f:
+        return 0
+    return len(f & support_tokens(source_text, allowlist))
 
 
 def is_system_meta(fact: str) -> bool:
