@@ -934,11 +934,17 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # record of what was dropped. Lives in `detail`, which is explicitly
         # documented as non-contractual and may change without a version bump.
         h["dropped_by_reason"] = walls.drop_diagnostics()
+        # fts_in_sync degrades status too: an out-of-sync search index means
+        # search_history/​/v1/search silently returns zero for real data —
+        # a startup repair (db.repair_fts) should have already fixed this,
+        # so seeing it here means the repair itself needs attention.
+        ok = h["integrity"] == "ok" and h["fts_in_sync"]
         return {
-            "status": "ok" if h["integrity"] == "ok" else "degraded",
+            "status": "ok" if ok else "degraded",
             "contract_version": settings.contract_version,
             "db": {"facts": h["facts"]["total"], "messages": h["messages"],
                     "size_bytes": h["size_bytes"], "integrity": h["integrity"],
+                    "fts_in_sync": h["fts_in_sync"],
                     "last_backup_at": h["last_backup_at"]},
             "capabilities": {"embeddings": embeddings.available(),
                               "miner_model": settings.miner_model},
