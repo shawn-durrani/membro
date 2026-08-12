@@ -59,7 +59,7 @@ repo's CI (against the real service) and in each client's CI (against the stub).
   "status": "ok|degraded",
   "contract_version": "1.1",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
-          "last_backup_at": null},
+          "fts_in_sync": true, "last_backup_at": null},
   "capabilities": {"embeddings": true, "miner_model": "claude-haiku-4-5"},
   "detail": {"…admin surface, may change without a contract bump…"}
 }
@@ -69,7 +69,14 @@ light up; otherwise it runs memoryless.
 
 `status` is `"degraded"` rather than `"ok"` whenever SQLite's integrity check
 (`PRAGMA quick_check`) fails, which is the whole point of a health probe: a
-client can decline to write into a damaged file instead of piling on.
+client can decline to write into a damaged file instead of piling on. It is
+also `"degraded"` when `fts_in_sync` is false: the FTS index has fallen out
+of step with the stored messages (a dropped/recreated index is rebuilt empty
+and never refills on its own), which makes every `/search` return zero rows
+without erroring. The service detects and repairs this automatically at
+startup; `scripts/rebuild_fts.py` does the same for a live instance without a
+restart. A client seeing `fts_in_sync: false` should treat search results as
+unreliable until it flips back, not as an empty archive.
 `status`, `contract_version`, `db` and `capabilities` are contractual.
 `detail` is NOT: it repeats the entire internal health dict (sqlite version,
 journal mode, integrity, size, a facts breakdown of
