@@ -11,6 +11,14 @@ House convention: user-visible change, one line each, newest first.
   land as canon again instead of flooding the review queue under one
   generic reason; facts a retry binds to a guest's turn still hold with
   the guest named. Nothing about the walls or what quarantines changed.
+- FTS desync self-repair (#37): a search index that has fallen out of
+  step with the stored messages (dropped/recreated, so every search
+  returned zero rows without erroring) is detected and rebuilt
+  automatically at startup, `/health` reports `fts_in_sync` inside the
+  contractual `db` block and goes `degraded` while it is false, and
+  `scripts/rebuild_fts.py` repairs a live instance without a restart.
+  Messages, attachments and the fact ledger are untouched - the repair
+  only rebuilds the derived index.
 - Guest speakers (#31): ingest accepts `guest:<name>` and `guest:unknown`
   speaker values beside `user` and the model slugs (additive, contract
   version unchanged). Facts mined from a guest's speech are held for
