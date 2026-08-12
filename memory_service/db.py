@@ -170,9 +170,82 @@ def init(settings) -> None:
         con.executescript(SCHEMA)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
+        # Cheap (row-count comparison) and safe (no-op unless desynced) — see
+        # repair_fts. Runs every startup so a desynced search index can never
+        # sit silent indefinitely; a repair is logged loudly since it means
+        # search was returning zero results until now.
+        repaired = repair_fts(con)
+        if repaired["repaired"]:
+            log.warning("startup FTS repair: rebuilt %s (was out of sync with "
+                        "its base table — search was silently returning zero "
+                        "results for affected data)", repaired["repaired"])
     finally:
         con.close()
     os.chmod(settings.db_path, 0o600)
+
+
+# ---- FTS5 external-content sync (#issue: search returning zero results) ----
+#
+# messages_fts / attachments_fts are external-content FTS5 tables: they hold
+# no data of their own, only a shadow index, kept current solely by the
+# AFTER INSERT triggers in SCHEMA. Nothing ever backfills them from an
+# existing base table. If the virtual table is ever dropped and silently
+# recreated empty (schema experiment, corruption recovery, a partial
+# restore that copied `messages` but not the `messages_fts` shadow tables),
+# the index desyncs from its base table forever — MATCH queries then just
+# return zero rows, no error, so callers never learn anything is wrong (the
+# LIKE fallback in episodic.search only fires on an exception, not on an
+# empty-but-successful MATCH). fts_status/repair_fts close that gap: a cheap
+# row-count comparison, and the documented `('rebuild')` command to
+# resync — safe to run any number of times, including when already in sync.
+#
+# The count has to come from the `_docsize` shadow table, NOT
+# `SELECT COUNT(*) FROM <fts_table>`: for an external-content table, a
+# non-MATCH query against the fts5 table itself is answered by reading
+# straight through to the content table (that's the whole point of
+# "external content" — no duplicate storage), so it returns the base
+# table's count even when the FTS index proper is completely empty. The
+# `_docsize` shadow table holds one row per rowid actually indexed by FTS5,
+# so it — and only it — reflects the index's real state. (Confirmed
+# empirically: dropping+recreating the virtual table left `_docsize` at 0
+# while a plain COUNT(*) on the fts table still read through to the base
+# table's row count.)
+FTS_TABLES = (("messages", "messages_fts"), ("attachments", "attachments_fts"))
+
+
+def fts_status(con: sqlite3.Connection) -> dict:
+    """Row-count comparison between each base table and its external-content
+    FTS5 index's `_docsize` shadow table (see note above — NOT a plain
+    COUNT(*) on the fts5 table, which reads through to the base table and
+    would always claim to be in sync). Tables that don't exist yet
+    (older/partial schema) are skipped rather than raising."""
+    status = {}
+    for base, fts in FTS_TABLES:
+        try:
+            base_n = con.execute(f"SELECT COUNT(*) FROM {base}").fetchone()[0]
+            fts_n = con.execute(
+                f"SELECT COUNT(*) FROM {fts}_docsize").fetchone()[0]
+        except sqlite3.OperationalError:
+            continue
+        status[fts] = {"base_table": base, "base_rows": base_n,
+                       "fts_rows": fts_n, "in_sync": base_n == fts_n}
+    return status
+
+
+def repair_fts(con: sqlite3.Connection) -> dict:
+    """Idempotent: rebuild any external-content FTS5 index whose row count
+    disagrees with its base table. A no-op (no writes) when everything is
+    already in sync. Returns {"checked": [...], "repaired": [...]} — never
+    touches `messages`/`attachments` themselves, only their derived index."""
+    status = fts_status(con)
+    repaired = []
+    for fts, s in status.items():
+        if not s["in_sync"]:
+            con.execute(f"INSERT INTO {fts}({fts}) VALUES('rebuild')")
+            repaired.append(fts)
+    if repaired:
+        con.commit()
+    return {"checked": list(status), "repaired": repaired}
 
 
 def now() -> float:
@@ -345,6 +418,10 @@ def health(settings) -> dict:
         att = con.execute(
             "SELECT COUNT(*), COALESCE(SUM(size),0), "
             "COALESCE(SUM(extracted_text != ''),0) FROM attachments").fetchone()
+        # Surfaces the search-index-desync class of bug (previously silent:
+        # an empty/short FTS index just returns zero matches, no error) as an
+        # explicit, checkable field instead — see repair_fts.
+        fts = fts_status(con)
     finally:
         con.close()
     bdir = settings.data_dir / "backups"
@@ -361,6 +438,8 @@ def health(settings) -> dict:
         "messages": messages,
         "conversations": conversations,
         "attachments": {"total": att[0], "bytes": att[1], "searchable": att[2]},
+        "fts": fts,
+        "fts_in_sync": all(v["in_sync"] for v in fts.values()),
         "last_backup_at": snaps[-1].stat().st_mtime if snaps else None,
         "backups_kept": len(snaps),
     }
