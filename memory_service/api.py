@@ -165,6 +165,45 @@ def _recall_out(f: dict) -> dict:
     return {k: f[k] for k in RECALL_FIELDS if k in f}
 
 
+# How much of the source turn a review row carries. Enough to judge "did this
+# person say this", not a transcript export: the whole message is one click
+# away in the episodic record for anyone who wants it.
+REVIEW_EXCERPT_CHARS = 400
+
+
+def _review_out(c, f: dict) -> dict:
+    """One review-queue row plus the turn it came from — speaker, speaker
+    class, and a bounded excerpt — but ONLY when the fact actually names a
+    source message that still exists.
+
+    A reviewer's first question about a held fact is "who said this", and the
+    queue could not answer it: the row carried a reason and nothing else. The
+    second rule matters as much as the first, though — an unbound fact (one
+    the miner could not tie to a single turn) gets `"source": null`, never a
+    nearby turn dressed up as its origin. "Sam said this" and "nobody knows
+    who said this" are different decisions, and the queue must not blur them.
+    """
+    out = dict(f)
+    row = None
+    if f.get("source_message_id") is not None:
+        row = c.execute(
+            "SELECT id, speaker, content, created_at FROM messages WHERE id=?",
+            (f["source_message_id"],)).fetchone()
+    if row is None:
+        out["source"] = None
+        return out
+    text = row["content"] or ""
+    out["source"] = {
+        "message_id": row["id"],
+        "speaker": row["speaker"],
+        "speaker_class": walls.speaker_class(row["speaker"]),
+        "created_at": row["created_at"],
+        "excerpt": text[:REVIEW_EXCERPT_CHARS],
+        "truncated": len(text) > REVIEW_EXCERPT_CHARS,
+    }
+    return out
+
+
 def _ts(iso: str | None) -> float | None:
     if not iso or not iso.strip():
         return None
@@ -1224,7 +1263,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     def review():
         c = con()
         try:
-            return {"facts": ledger.review_queue(c)}
+            return {"facts": [_review_out(c, f) for f in ledger.review_queue(c)]}
         finally:
             c.close()
 

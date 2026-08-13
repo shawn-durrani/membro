@@ -329,6 +329,130 @@ def test_no_src_retry_in_owner_only_window(con, settings, fake_llm,
     assert len(fake_llm["prompts"]) == 1
 
 
+# ── a retry binding is verified against the turn it names ───────────────────
+
+
+def test_retry_binding_to_a_turn_that_never_said_it_is_refused(
+        con, settings, fake_llm):
+    # THE unsafe path: the retry answers with the OWNER's turn for a sentence
+    # the guest actually said. Nothing downstream would catch it — the
+    # grounding wall reads the whole chunk (the guest's words are in it) and
+    # the speaker check reads the bound turn, which is now the owner's — so
+    # the fact would land as canon, high confidence, in Alex's own voice.
+    # The named turn shares none of the fact's wording, so the binding is
+    # refused and the fail-safe hold stands.
+    _ingest(con, [
+        ("user", "Dinner planning time."),
+        ("guest:Sam", "I hate coriander, please leave it out of everything."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=4: Alex's wife Sam dislikes coriander.",
+        "FACT 1: src=1",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 1}
+    assert ledger.list_facts(con, status="valid") == []
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert "src=" in held["quarantine_reason"]
+    assert "retry" in held["quarantine_reason"]
+    # ...and the refusal is stated as itself, not as "the miner never answered"
+    assert "none of this fact's wording" in held["quarantine_reason"]
+
+
+def test_retry_binding_refused_when_a_guest_turn_matches_as_well(
+        con, settings, fake_llm):
+    # The owner's turn does share a word with the fact — but so does the
+    # guest's, just as strongly. "These words look at least as much like Sam's"
+    # is exactly the case where attributing them to Alex is a guess, so a tie
+    # holds rather than trusts.
+    _ingest(con, [
+        ("user", "Should we do the coriander salad again?"),
+        ("guest:Sam", "I hate coriander."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=4: Alex's wife Sam dislikes coriander.",
+        "FACT 1: src=1",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 1}
+    assert ledger.list_facts(con, status="valid") == []
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert "at least as closely" in held["quarantine_reason"]
+
+
+def test_verification_does_not_hold_a_genuinely_supported_binding(
+        con, settings, fake_llm):
+    # The check must not undo #35: a retry that names the turn the fact plainly
+    # came from still lands as canon, so an omitted src= tag costs nothing.
+    # (test_src_retry_binds_owner_fact_to_owner_turn is the same guarantee from
+    # the other side; this one pins that verification is what let it through.)
+    _ingest(con, [
+        ("user", "I have signed up for the Fairhaven half marathon."),
+        ("guest:Sam", "I will cheer from the finish line."),
+    ])
+    fake_llm["queue"] = [
+        "NEW importance=5: Alex signed up for the Fairhaven half marathon.",
+        "FACT 1: src=1",
+    ]
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 0}
+    valid = ledger.list_facts(con, status="valid")
+    assert len(valid) == 1
+    first = episodic.messages_after(
+        con, episodic.get_conversation(con, "multi-model-chat", "room-1")["id"], 0)[0]
+    assert valid[0]["source_message_id"] == first["id"]
+
+
+def test_first_pass_bindings_are_not_re_judged(con, settings, fake_llm):
+    # Scope: verification applies to the RETRY's second guess, not to the first
+    # pass, which answers with the whole excerpt in front of it. A first-pass
+    # binding behaves exactly as it always has — no extra call, no new hold.
+    _ingest(con, [
+        ("user", "Dinner planning time."),
+        ("guest:Sam", "I hate coriander."),
+    ])
+    fake_llm["response"] = (
+        "NEW src=1 importance=4: Alex is organising the meals this fortnight.")
+    res = mining.distill(con, settings, "multi-model-chat", "room-1",
+                         regenerate=False)
+    assert res == {"added": 1, "quarantined": 0}
+    assert len(fake_llm["prompts"]) == 1
+
+
+# ── an unbound fact is stored unbound ───────────────────────────────────────
+
+
+def test_unbound_fact_records_no_source_message(con, settings, fake_llm):
+    # The window's last turn used to be stored as the source message of a fact
+    # that was never tied to any turn, which reads downstream as real
+    # provenance ("source message #N"). An unbound fact now records none.
+    _ingest(con, [
+        ("user", "We are planning this week's meals."),
+        ("guest:Sam", "I hate coriander."),
+    ])
+    fake_llm["response"] = "NEW importance=4: Alex's wife Sam dislikes coriander."
+    mining.distill(con, settings, "multi-model-chat", "room-1", regenerate=False)
+    held = ledger.list_facts(con, status="quarantined")[0]
+    assert held["source_message_id"] is None
+    # The chat it came from is still recorded — the trail is narrowed, not lost.
+    conv = episodic.get_conversation(con, "multi-model-chat", "room-1")
+    assert held["conversation_id"] == conv["id"]
+
+
+def test_unbound_owner_only_fact_is_still_valid_but_unbound(
+        con, settings, fake_llm, sample_conversation):
+    # Trust is untouched by this change: an unbound fact in an owner-only
+    # window is canon exactly as before. Only the fabricated provenance goes.
+    fake_llm["response"] = "NEW importance=5: Alex moved to Springfield."
+    mining.distill(con, settings, "multi-model-chat", "chat-1", regenerate=False)
+    fact = ledger.list_facts(con, status="valid")[0]
+    assert fact["source_message_id"] is None
+    assert fact["quarantine_reason"] is None
+
+
 # ── ingest accepts the new class (additive contract) ────────────────────────
 
 

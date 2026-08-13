@@ -5,6 +5,10 @@ Every mined fact passes the four walls, plus the per-speaker trust check
 review with the speaker named in the reason); a flag means
 written-but-quarantined (low confidence), never silently dropped. The
 episodic record is read-only input here — this pass never modifies a message.
+
+Provenance is recorded only where it is real: a fact this pass could not tie
+to one turn is stored UNBOUND (`source_message_id` NULL), never pinned to
+whichever turn happened to end the window.
 """
 
 import re
@@ -139,7 +143,9 @@ def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
     `turn_ids`. A src=none answer (honest cross-turn synthesis), a turn number
     the window doesn't contain, or missing/chatter output simply leaves that
     fact out of the map — the caller's existing fail-safe hold is the
-    unchanged backstop, never silent trust."""
+    unchanged backstop, never silent trust. Naming a real turn is necessary
+    but not sufficient: the caller checks every answer here against the turn
+    it names (`_repair_binding_refused`) before letting it grant trust."""
     listing = "\n".join(f"FACT {k}: {fact}"
                         for k, (_, fact) in enumerate(unbound, start=1))
     prompt = (
@@ -165,6 +171,52 @@ def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
         if 1 <= k <= len(unbound) and val != "none" and int(val) in turn_ids:
             repairs[unbound[k - 1][0]] = int(val)
     return repairs
+
+
+def _repair_binding_refused(fact: str, cand: dict, new_msgs: list[dict],
+                            allow: set[str]) -> str | None:
+    """Check a src= binding the miner supplied on the #35 corrective RETRY
+    against the turn it names. None = honour the binding; a short phrase = the
+    reason it was refused (the fact then stays unbound and the existing
+    fail-safe holds it).
+
+    Why only the retry's bindings: the first pass answers with the whole
+    excerpt in front of it, and its bindings are judged exactly as they always
+    have been. The retry is a second, narrower guess made after the miner
+    already failed to point at a source once — and in a guest-present window
+    that guess decides ATTRIBUTION. A retry that answers with the owner's turn
+    for a sentence a guest actually said converts guest speech into canon at
+    high confidence, and nothing downstream would notice: the grounding wall
+    reads the whole chunk (a guest's words ARE in the chunk), and the speaker
+    trust flag reads the bound turn, which is now the owner's.
+
+    So the binding has to survive two deterministic checks, both fail-safe:
+
+      1. the named turn must share at least one distinctive content word with
+         the fact — a turn that has none of its wording did not state it;
+      2. no OTHER speaker's turn in the window whose speech is untrusted (a
+         guest, an unidentified voice, an unrecognised class) may match the
+         fact's wording as well as, or better than, the named turn. A tie is
+         refused on purpose: "these words look at least as much like Sam's" is
+         precisely the case where attributing them to the owner is a guess.
+
+    Refusing costs a review-queue row; accepting a wrong binding costs a false
+    fact about the owner that reads as if he said it. This is the direction
+    that error should fall.
+    """
+    if cand is None:     # belt and braces: the caller already filters to real
+        return "it named no turn in this window"   # turns in this window
+    support = walls.lexical_support(fact, _msg_body(cand), allow)
+    if support == 0:
+        return "the turn it named shares none of this fact's wording"
+    rival = max((walls.lexical_support(fact, _msg_body(m), allow)
+                 for m in new_msgs
+                 if m["id"] != cand["id"] and walls.speaker_trust_flag(m["speaker"])),
+                default=0)
+    if rival >= support:
+        return ("another speaker's turn in this window matches this fact's "
+                "wording at least as closely as the turn it named")
+    return None
 
 # A long-idle conversation (e.g. an imported backlog) can hold more transcript
 # than the utility model's context window — mine in bounded windows, advancing
@@ -545,12 +597,19 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # that happens to sit in that turn could still borrow onto an unrelated
         # fact — a narrower re-opening of the exact #33 hole.
         bound = idx_to_msg.get(int(src.group(1))) if src else None
+        repair_refused = None
         if bound is None and line_no in src_repairs:
             # #35: the corrective retry supplied the binding the first pass
-            # omitted or mis-numbered. From here the fact behaves exactly as
-            # if it had arrived bound: speaker trust, event-date grounding,
-            # and the recorded source message all read from this turn.
-            bound = idx_to_msg.get(src_repairs[line_no])
+            # omitted or mis-numbered — but only after it survives
+            # _repair_binding_refused does the fact behave as if it had
+            # arrived bound (speaker trust, event-date grounding, and the
+            # recorded source message all read from this turn). A refused
+            # repair leaves the fact unbound, exactly as if the retry had
+            # answered src=none, so the fail-safe below still holds it.
+            cand = idx_to_msg.get(src_repairs[line_no])
+            repair_refused = _repair_binding_refused(fact, cand, new_msgs, allow)
+            if repair_refused is None:
+                bound = cand
         if bound is not None:
             conv_ts = bound["created_at"]
             event_date = _grounded_event_date(
@@ -560,7 +619,15 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         else:
             conv_ts = new_msgs[-1]["created_at"]
             event_date = conv_ts            # no binding → conversation time, full stop
-            source_message_id = new_msgs[-1]["id"]
+            # ...and NO source message. The window's last turn used to be
+            # recorded here as a stand-in, which read downstream (the admin
+            # page's "source message #N", any reviewer following the trail) as
+            # real provenance for a fact that was never tied to that turn — or
+            # to any turn. An unbound fact is stored unbound: the transcript
+            # still holds every word, and `conversation_id` still says which
+            # chat it came from, so nothing is lost except a claim we cannot
+            # support.
+            source_message_id = None
         # The walls (grounding/source-trust/scope) still read the whole chunk:
         # a fact may legitimately synthesise across turns, and #33 is about the
         # event date only — narrowing the walls here would be scope creep.
@@ -577,12 +644,22 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # has, because every human turn is the owner's.
         if bound is not None:
             speaker_flag = walls.speaker_trust_flag(bound["speaker"])
+        elif not untrusted_speaker_present:
+            speaker_flag = None
+        elif repair_refused:
+            # The retry did answer, and the answer did not hold up against the
+            # turn it named. Same fail-safe hold, but the reason says which of
+            # the two failures happened, so the reviewer knows whether the
+            # miner never pointed anywhere or pointed somewhere unsupported.
+            speaker_flag = (
+                "speaker-trust: the src= binding supplied on retry does not "
+                f"hold up — {repair_refused} — so this fact cannot be "
+                "attributed to the owner")
         else:
             speaker_flag = (
                 "speaker-trust: no valid src= binding, and none supplied on "
                 "retry, in a session with guest or unrecognised speakers — "
-                "cannot attribute this fact to the owner"
-            ) if untrusted_speaker_present else None
+                "cannot attribute this fact to the owner")
         if speaker_flag:
             flags = flags + [speaker_flag]
         if importance is None:

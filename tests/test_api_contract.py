@@ -123,6 +123,79 @@ def test_quarantine_accepted_facts_over_http(client):
     assert client.post(f"/v1/facts/{ids[0]}/approve").json()["quarantined_at"] is None
 
 
+# ── review evidence: the turn a held fact came from ────────────────────────
+#
+# A reviewer's first question is "who said this", and the queue could not
+# answer it. `source` answers it — and answers "nobody knows" honestly, rather
+# than pointing at a turn that merely sat nearby.
+
+
+def _room(con, settings, msgs, conv="room-r"):
+    from memory_service import episodic
+    episodic.ingest(con, "multi-model-chat", conv, [
+        {"external_id": f"m{i}", "speaker": sp, "content": text,
+         "created_at": 1700000000.0 + i * 60}
+        for i, (sp, text) in enumerate(msgs, start=1)], title="Kitchen chat")
+    return conv
+
+
+def test_review_row_carries_its_source_turn(client, con, settings, fake_llm):
+    from memory_service import mining
+    _room(con, settings, [
+        ("user", "Dinner planning time."),
+        ("guest:Sam", "I hate coriander, please leave it out of everything."),
+    ])
+    fake_llm["response"] = (
+        "NEW src=2 importance=4: Alex's wife Sam dislikes coriander.")
+    mining.distill(con, settings, "multi-model-chat", "room-r", regenerate=False)
+
+    row = client.get("/v1/review").json()["facts"][0]
+    src = row["source"]
+    assert src["message_id"] == row["source_message_id"]
+    assert src["speaker"] == "guest:Sam" and src["speaker_class"] == "guest"
+    assert "coriander" in src["excerpt"] and src["truncated"] is False
+
+
+def test_review_row_for_an_unbound_fact_names_no_turn(client, con, settings,
+                                                      fake_llm):
+    from memory_service import mining
+    _room(con, settings, [
+        ("user", "We are planning this week's meals."),
+        ("guest:Sam", "I hate coriander."),
+    ], conv="room-u")
+    # No src= anywhere, and the retry (fed the same canned answer) supplies
+    # none either — the fact is held, unattributed.
+    fake_llm["response"] = "NEW importance=4: Alex's wife Sam dislikes coriander."
+    mining.distill(con, settings, "multi-model-chat", "room-u", regenerate=False)
+
+    row = client.get("/v1/review").json()["facts"][0]
+    assert row["source_message_id"] is None
+    assert row["source"] is None        # no turn invented to fill the gap
+
+
+def test_review_source_excerpt_is_bounded(client, con, settings, fake_llm):
+    from memory_service import api, mining
+    long_turn = "I hate coriander. " + "We talked about the menu. " * 200
+    _room(con, settings, [("user", "Dinner planning time."),
+                          ("guest:Sam", long_turn)], conv="room-l")
+    fake_llm["response"] = (
+        "NEW src=2 importance=4: Alex's wife Sam dislikes coriander.")
+    mining.distill(con, settings, "multi-model-chat", "room-l", regenerate=False)
+
+    src = client.get("/v1/review").json()["facts"][0]["source"]
+    assert len(src["excerpt"]) == api.REVIEW_EXCERPT_CHARS
+    assert src["truncated"] is True     # and it says so, rather than eliding
+
+
+def test_review_row_without_any_source_message_is_unbound_too(client):
+    # Not every held fact comes from mining: an external MCP write has no turn
+    # at all. Same honest answer, no crash reaching for a message row.
+    client.post("/v1/facts", json={"content": "Alex is allergic to shellfish.",
+                                   "origin_agent": "mcp:claude-code"})
+    row = client.get("/v1/review").json()["facts"][0]
+    assert row["source"] is None
+
+
 def test_recall_and_summary_endpoints(client, fake_llm):
     client.post("/v1/facts", json={"content": "Alex trains for a triathlon."})
     hits = client.post("/v1/recall", json={"query": "triathlon"}).json()["facts"]
