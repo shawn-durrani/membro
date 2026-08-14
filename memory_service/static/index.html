@@ -635,10 +635,12 @@
       <summary>Danger zone</summary>
       <div class="body">
         <p><b>The only real erasers in the app — and only you can press them.</b> Everything else
-           hides or retires things reversibly; these permanently destroy one fact or one stored
-           file, with no undo and no history kept. Prefer Supersede (in the ledger) or Dismiss
-           (in review) unless it should never have existed. Type the id and the word DELETE to
-           enable each button. File ids are in the Files section above.</p>
+           hides or retires things reversibly; these permanently destroy one fact, one stored
+           file, or one archived message. No undo; the only trace kept is a content-free note
+           that an erasure happened. Prefer Supersede (in the ledger) or Dismiss (in review)
+           unless it should never have existed. Type the id and the word DELETE to enable each
+           button. File ids are in the Files section above; message erases usually arrive
+           prefilled via the erase link in the app that captured the message.</p>
         <div class="fields">
           <input type="number" id="del-id" min="1" placeholder="fact id"
                  oninput="checkDelete()" aria-label="Fact id to delete">
@@ -653,6 +655,15 @@
                  oninput="checkDeleteAtt()" autocomplete="off" aria-label="Type DELETE to confirm file deletion">
           <button class="danger" id="del-att-btn" disabled onclick="hardDeleteAttachment()">Delete file permanently</button>
         </div>
+        <div class="fields" style="margin-top: var(--space-3)">
+          <input type="number" id="del-msg-id" min="1" placeholder="message id"
+                 oninput="checkDeleteMsg()" aria-label="Message id to delete">
+          <input type="text" id="del-msg-confirm" placeholder="type DELETE to confirm"
+                 oninput="checkDeleteMsg()" autocomplete="off" aria-label="Type DELETE to confirm message deletion">
+          <button class="danger" id="del-msg-btn" disabled onclick="hardDeleteMessage()">Delete message permanently</button>
+        </div>
+        <div id="del-msg-preview" hidden
+             style="margin-top: var(--space-2); font-size: 12px; line-height: 16px; color: var(--dim)"></div>
       </div>
     </details>
   </div>
@@ -1249,6 +1260,58 @@ async function hardDeleteAttachment() {
   loadFiles(); loadHealth();
 }
 
+function checkDeleteMsg() {
+  const id = parseInt($("del-msg-id").value, 10);
+  $("del-msg-btn").disabled = !(Number.isInteger(id) && id > 0 &&
+                                $("del-msg-confirm").value === "DELETE");
+}
+
+async function hardDeleteMessage() {
+  const id = parseInt($("del-msg-id").value, 10);
+  if (!Number.isInteger(id) || id <= 0) return;
+  const res = await api(`/messages/${id}`, { method: "DELETE" });
+  const bits = [`Message #${id} permanently deleted.`];
+  if (res.facts_held) bits.push(`${res.facts_held} fact${res.facts_held === 1 ? "" : "s"} mined from it moved to review.`);
+  if (res.attachments_kept) bits.push(`${res.attachments_kept} attached file${res.attachments_kept === 1 ? "" : "s"} kept (erase separately if needed).`);
+  toast(bits.join(" "), true);
+  $("del-msg-id").value = ""; $("del-msg-confirm").value = "";
+  $("del-msg-preview").hidden = true;
+  checkDeleteMsg();
+  loadLedger(); loadReview(); loadHealth();
+}
+
+// A producing app can link straight to an erase:
+//   #erase=<source app>/<conversation ref>/<message ref>
+// (crossband's discard banner does, #45). Resolve the ref to OUR row id,
+// prefill the danger zone and show what would be erased with its blast
+// radius - the human still types DELETE and presses the button.
+async function prefillEraseFromHash() {
+  const m = location.hash.match(/^#erase=([^/]+)\/([^/]+)\/(.+)$/);
+  if (!m) return;
+  const [app_, conv, ref] = m.slice(1).map(decodeURIComponent);
+  let d;
+  try {
+    d = await api(`/messages/resolve?source_app=${encodeURIComponent(app_)}` +
+                  `&conversation=${encodeURIComponent(conv)}&message=${encodeURIComponent(ref)}`);
+  } catch (e) {
+    toast("Couldn't find that message in the archive: " + e.message, false);
+    return;
+  }
+  const zone = document.querySelector("details.danger-zone");
+  for (let el = zone; el; el = el.parentElement && el.parentElement.closest("details")) el.open = true;
+  $("del-msg-id").value = String(d.id);
+  const extra = [];
+  if (d.live_facts) extra.push(`${d.live_facts} live fact${d.live_facts === 1 ? "" : "s"} mined from it will move to review`);
+  if (d.attachments) extra.push(`${d.attachments} attached file${d.attachments === 1 ? "" : "s"} will stay`);
+  $("del-msg-preview").innerHTML =
+    `Message #${d.id} · ${esc(d.speaker)} · “${esc(d.excerpt)}${d.truncated ? "…" : ""}”` +
+    (extra.length ? ` · ${esc(extra.join(" · "))}` : "");
+  $("del-msg-preview").hidden = false;
+  checkDeleteMsg();
+  zone.scrollIntoView({ block: "center" });
+  $("del-msg-confirm").focus();
+}
+
 // ---- files: every attachment the memory holds ----
 
 async function loadFiles() {
@@ -1573,6 +1636,7 @@ async function removePasskey(id) {
 // ---- boot ----
 
 loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth(); loadPasskeys();
+prefillEraseFromHash();
 setInterval(() => { if (document.visibilityState === "visible") loadHealth(); }, 15000);
 </script>
 </body>

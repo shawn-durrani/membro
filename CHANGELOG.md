@@ -4,6 +4,16 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- The owner can erase one archived message (#45), finishing what
+  crossband's discard starts: a voice turn deleted at the source may
+  already have a copy here, and nothing automated may touch it. The
+  danger zone gains a third eraser (and producers can deep-link it
+  prefilled, with a preview and the blast radius shown before you type
+  DELETE). Facts mined from the erased message move to review instead
+  of vanishing; attached files stay for their own eraser. Every human
+  erasure now leaves a content-free journal row: what was erased is
+  gone, that it was erased is not.
+
 - The review queue groups by hold reason, and one decision clears a
   cause (#34). Every held fact carries a stable reason class (said by a
   guest, couldn't prove who said it, external write, and so on); the

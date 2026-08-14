@@ -14,7 +14,14 @@ every test passes. Run it with:
 messages, attachments, or the access log; tests grep the source for
 forbidden statements as well as exercising behaviour. Supersession,
 quarantine, and dismissal round-trip reversibly. Summary regenerations
-append to a restorable history.
+append to a restorable history. The only deletes anywhere are the three
+human erasers on the admin surface (fact, file, message - the message
+one is #45, closing crossband#106's loop): `test_message_erase.py`
+proves the erase is owner-gated and single-row, search and health stay
+honest afterwards, live facts mined from an erased message resurface
+for review instead of vanishing, attachments are counted not cascaded,
+and every eraser journals a content-free `erasures` row - what was
+erased is gone, that it was erased is not.
 
 **Extraction walls.** Ungrounded names quarantine. Ungrounded or
 relative dates never mint an event date; a missing year comes from the

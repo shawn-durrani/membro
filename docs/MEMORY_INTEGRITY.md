@@ -91,7 +91,12 @@ walls make the *write* safe instead. This trade-off is deliberate.
 - Append-only: no automated path deletes a fact (supersede / quarantine / dismiss
   only; the sole hard delete is a human pressing the button).
 - The episodic transcript is ground truth and is never modified by any pass, which is
-  what makes a bad card *detectable* and traceable to its source.
+  what makes a bad card *detectable* and traceable to its source. The one exception
+  is the same human hand: the owner can erase a single archived message
+  (`DELETE /v1/messages/{id}`, #45 - the other half of crossband#106's discard).
+  Facts mined from it move to review rather than vanishing, and every erasure
+  (fact, file, or message) leaves a content-free row in the `erasures` journal:
+  what was erased is gone, that it was erased is not.
 - External writes (any MCP client) are quarantined at creation regardless of what
   they claim to be; the same "constrain the write" principle applied to authorship.
 - A mined fact's **event date** (the date the fact is *about*) is only honoured when

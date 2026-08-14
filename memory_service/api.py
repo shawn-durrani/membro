@@ -1,8 +1,9 @@
 """HTTP API — the full surface, per docs/API.md (contract v1).
 
 Local-only by default: serving on a non-loopback host without an auth token is
-refused at startup. DELETE /facts/{id} is the single hard-delete path in the
-entire service, and it only exists here — human-initiated by definition.
+refused at startup. Hard deletes exist ONLY here and ONLY as the three human
+erasers — DELETE /facts/{id}, /attachments/{id}, /messages/{id} — each of
+which journals a content-free tombstone in `erasures` (#45).
 
 Exact-row endpoints (GET /facts, GET /review, and every verb that reads or
 writes ONE existing fact by id — PATCH, supersede, approve, dismiss, DELETE)
@@ -50,6 +51,7 @@ import os
 import re
 import secrets
 import stat
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
@@ -1218,13 +1220,15 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.delete("/v1/facts/{fact_id}", dependencies=[Depends(_admin_auth)])
     def hard_delete(fact_id: int):
-        # THE only hard delete in the service — human-initiated via API/UI.
+        # One of the three human erasers (facts / attachments / messages);
+        # each journals a content-free tombstone in `erasures` (#45).
         c = con()
         try:
             cur = c.execute("DELETE FROM facts WHERE id=?", (fact_id,))
-            c.commit()
             if not cur.rowcount:
                 raise HTTPException(404, "no such fact")
+            db.journal_erasure(c, "fact", f"fact:{fact_id}")
+            c.commit()
             return {"deleted": fact_id}
         finally:
             c.close()
@@ -1315,6 +1319,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             c.execute("DELETE FROM attachments WHERE id=?", (att_id,))
             shared = c.execute("SELECT 1 FROM attachments WHERE stored_name=? LIMIT 1",
                                (row["stored_name"],)).fetchone()
+            db.journal_erasure(c, "attachment", f"attachment:{att_id}")
             c.commit()
         finally:
             c.close()
@@ -1323,6 +1328,95 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             (settings.data_dir / "attachments" / row["stored_name"]).unlink(missing_ok=True)
             removed = True
         return {"deleted": att_id, "file_removed": removed}
+
+    # ---- messages (admin surface): resolve a producer's ref, and the one
+    # message eraser (#45 - the human hand behind crossband#106's honesty) ----
+
+    @app.get("/v1/messages/resolve", dependencies=[Depends(_admin_auth)])
+    def resolve_message(source_app: str, conversation: str, message: str):
+        # A producer names a message as (source_app, conversation external
+        # id, message external id) - it never sees our row ids. This bridge
+        # exists so an erase link can land on the admin page prefilled, with
+        # a preview the owner confirms BEFORE typing DELETE. Owner-gated:
+        # the preview is verbatim content, same posture as /v1/search.
+        c = con()
+        try:
+            conv = c.execute(
+                "SELECT id, title FROM conversations "
+                "WHERE source_app=? AND external_id=?",
+                (source_app, conversation)).fetchone()
+            row = conv and c.execute(
+                "SELECT id, speaker, content, created_at FROM messages "
+                "WHERE conversation_id=? AND external_id=?",
+                (conv["id"], message)).fetchone()
+            if not row:
+                raise HTTPException(404, "no such message")
+            live = c.execute(
+                "SELECT COUNT(*) AS n FROM facts WHERE source_message_id=? "
+                "AND invalidated_at IS NULL AND quarantined_at IS NULL",
+                (row["id"],)).fetchone()["n"]
+            atts = c.execute(
+                "SELECT COUNT(*) AS n FROM attachments "
+                "WHERE conversation_id=? AND message_external_id=?",
+                (conv["id"], message)).fetchone()["n"]
+        finally:
+            c.close()
+        text = row["content"] or ""
+        return {"id": row["id"], "speaker": row["speaker"],
+                "created_at": row["created_at"],
+                "conversation_title": conv["title"],
+                "excerpt": text[:REVIEW_EXCERPT_CHARS],
+                "truncated": len(text) > REVIEW_EXCERPT_CHARS,
+                "live_facts": live, "attachments": atts}
+
+    @app.delete("/v1/messages/{message_id}", dependencies=[Depends(_admin_auth)])
+    def hard_delete_message(message_id: int):
+        # The messages twin of the facts eraser. A voice turn discarded at
+        # the source (crossband#106) may already be ingested here, and the
+        # append-only invariant rightly stops every AUTOMATED path from
+        # touching the copy; this is the human hand. One row, owner auth,
+        # no bulk form - and no producer's code ever calls it.
+        #
+        # Facts mined from the row are NOT deleted: live ones quarantine
+        # with a `source-deleted:` reason and surface in review, because
+        # silently vanishing derived knowledge would make the erasure
+        # dishonest in the other direction. Attachments that rode the
+        # message keep their own eraser; the response counts what stays.
+        c = con()
+        try:
+            row = c.execute(
+                "SELECT m.id, m.external_id, m.content, m.conversation_id, "
+                "cv.source_app, cv.external_id AS conv_ref "
+                "FROM messages m JOIN conversations cv "
+                "ON cv.id=m.conversation_id WHERE m.id=?",
+                (message_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "no such message")
+            # external-content FTS needs an explicit tombstone before the row goes
+            c.execute("INSERT INTO messages_fts(messages_fts, rowid, content) "
+                      "VALUES('delete', ?, ?)", (message_id, row["content"]))
+            c.execute("DELETE FROM messages WHERE id=?", (message_id,))
+            held = c.execute(
+                "UPDATE facts SET quarantined_at=?, quarantine_reason=? "
+                "WHERE source_message_id=? "
+                "AND invalidated_at IS NULL AND quarantined_at IS NULL",
+                (time.time(),
+                 "source-deleted: origin message erased by owner",
+                 message_id)).rowcount
+            kept = c.execute(
+                "SELECT COUNT(*) AS n FROM attachments "
+                "WHERE conversation_id=? AND message_external_id=?",
+                (row["conversation_id"], row["external_id"])).fetchone()["n"]
+            db.journal_erasure(
+                c, "message",
+                f"message:{message_id} "
+                f"conv:{row['source_app']}/{row['conv_ref']} "
+                f"ref:{row['external_id']}")
+            c.commit()
+        finally:
+            c.close()
+        return {"deleted": message_id, "facts_held": held,
+                "attachments_kept": kept}
 
     @app.get("/v1/review", dependencies=[Depends(_admin_auth)])
     def review():
