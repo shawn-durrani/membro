@@ -4,6 +4,15 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Person records land (#33, first slice): membro is now the fleet's
+  durable home for who-is-who. Capture apps create people and upload
+  their voice clips (content-addressed, owner-only, kept in full);
+  guest facts link to the person on sight of a matching alias; a
+  one-press forget deletes the audio, marks the person forgotten for
+  every syncing app, and moves their approved facts back into review
+  as one group - nothing silently deleted. A model's name can never
+  become a person, enforced server-side too.
+
 - The owner can erase one archived message (#45), finishing what
   crossband's discard starts: a voice turn deleted at the source may
   already have a copy here, and nothing automated may touch it. The

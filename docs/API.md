@@ -631,6 +631,42 @@ quarantine with a `source-deleted:` reason and surface in review (the owner
 decides each - derived knowledge never silently vanishes); attachments that
 rode the message are counted in the response, never cascaded. Journals to
 `erasures`. **Requires the owner admin token, even on loopback.**
+
+### Person records (#33, the fleet's identity home)
+
+Apps that capture voices create person records here and upload their
+accepted clips, so a learned voice survives a lost client data directory.
+Membro never does voice identification itself; it records what apps
+assert. All five routes **require the owner admin token, even on
+loopback**:
+
+`GET /v1/persons?since=<time>`: person records changed since then,
+forgotten marks included - a syncing app deletes its local copies of
+anyone marked forgotten. Each record carries slug, display name (and
+whether the owner set it - an owner-set name survives client updates),
+relationship, aliases, clip count, and timestamps.
+
+`POST /v1/persons`: create or update by slug. Aliases combine; an alias
+already belonging to a different person is refused (409), never
+reassigned. A name membro has seen as a MODEL speaker label is refused
+outright - the crossband participant boundary (#65), backstopped
+server-side. Existing `guest:<alias>` facts link to the person on upsert
+(the response reports how many).
+
+`POST /v1/persons/{slug}/anchors`: upload one clip (base64). Content-
+addressed - the same bytes for the same person is a no-op. Files live
+under `voice_anchors/`, owner-only modes, every clip kept (owner
+decision: no server-side pruning).
+
+`GET /v1/persons/{slug}/anchors` and `.../{id}/file`: list and download,
+for rebuilding a lost client cache.
+
+`POST /v1/persons/{slug}/forget`: the one-press forget. Deletes the
+audio from disk (one content-free `erasures` row), marks the person
+forgotten, and moves their approved facts back into review as one
+person-forgotten group (owner decision: nothing silently deleted).
+Anchor routes answer `410 gone` afterwards; the record itself stays
+listed so syncing apps learn to delete their copies.
 The three summary-version routes below, unlike the attachment routes above,
 are **NOT** gated: they answer an unauthenticated loopback caller.
 `GET /v1/summary/versions`: every generated profile, newest first (metadata
