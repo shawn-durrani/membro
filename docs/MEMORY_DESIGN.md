@@ -118,7 +118,9 @@ The ledger still has every fact, and `recall_memory` can still fetch anything
 on demand; a card missing from today's profile has merely been out-selected
 and remains retrievable.
 
-**The word budget is enforced honestly.** The profile is written to a word
+#### The word budget
+
+The profile is written to a word
 budget (default 2000, `memory_summary_words`) with a per-section ceiling, and
 the budget is enforced by *rewriting*, never truncation: if the draft
 overshoots by more than ~20%, it gets one "compress to budget" pass.
@@ -132,7 +134,9 @@ an append-only version history, and any earlier version can be restored from
 the admin page if a rebuild reads worse than what it replaced; this is the
 same never-delete standard the ledger holds facts to.
 
-**The profile's topics morph with your life.** The spine is fixed (Identity,
+#### Topics morph with your life
+
+The spine is fixed (Identity,
 Preferences, Relationships & People at the stable top; Goals & Active
 Threads, Recent Changes at the volatile bottom) because that stable→volatile
 separation is the load-bearing structure. But the middle sections are named

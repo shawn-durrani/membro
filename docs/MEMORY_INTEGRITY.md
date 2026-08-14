@@ -66,10 +66,10 @@ summary, flagged low-confidence), never silently trusted. A human clears the que
 
 4. **System-meta (a drop rather than a quarantine)**: a "fact" about this memory
    system's own machinery or the AI tooling itself ("the memory ledger quarantined
-   100 facts", "the grounding wall over-flagged", "PID 4321") is not biography about
-   the user at all, so there is nothing to review; quarantining it only floods the
-   queue when a conversation happens to be *about the memory system*, a failure mode
-   this project hit in practice. Such lines are never extracted. The filter is
+   100 facts", "the grounding wall over-flagged", "PID 4321") is not biography
+   about the user at all, so there is nothing to review. Quarantining it only
+   floods the queue when a conversation happens to be *about the memory system*,
+   a failure mode this project hit in practice. Such lines are never extracted. The filter is
    deliberately narrow: it matches system/AI-tooling *mechanics* vocabulary only,
    never generic verbs ("deployed", "committed") or product names a real
    career/project fact might carry; those stay eligible and are judged by the three
@@ -114,10 +114,10 @@ walls make the *write* safe instead. This trade-off is deliberate.
   this, only proper nouns were checked, so a fact could carry a resolved date
   nobody wrote and still read as high-confidence.
 - **A card's source turn is recorded only when it is real.** A mined card
-  points at one message only when the extractor actually named that message,
-  and when the extractor has to be re-asked for a binding it omitted, the turn
-  it names must share the card's own wording — and must be at least as
-  plausible a source as any other speaker's turn in the same window. A card
+  points at one message only when the extractor actually named that message.
+  When the extractor has to be re-asked for a binding it omitted, the turn it
+  names must share the card's own wording, and must be at least as plausible
+  a source as any other speaker's turn in the same window. A card
   nothing could be tied to is stored *unbound*, and the review queue says so,
   rather than being attributed to whichever message happened to end the mining
   window. Wrong provenance is quieter than a wrong fact and harder to unpick:
@@ -131,7 +131,9 @@ walls make the *write* safe instead. This trade-off is deliberate.
   like five confirmations. The match is on exact wording, which is what that
   crash-retry case needs; a reworded re-mine is a different problem (see below).
 
-**Supersession direction is enforced.** The miner may propose that a new
+### Supersession direction is enforced
+
+The miner may propose that a new
 fact retires a listed one, but two guards bound what a proposal can actually do.
 A fact whose grounded event date is more than a day older than its target's
 cannot supersede it, so mining imported or re-mined history files old claims
@@ -141,7 +143,7 @@ deferred, and today surfaces as a count in the distill result, for the human
 pass to apply or ignore. Both guards bind the automated path only; the owner's
 supersede action in review stays unrestricted.
 
-**Honest limitations (tracked in the public issues):**
+### Limitations (tracked in the public issues)
 - The walls are high-recall *detection* rather than perfect prevention: they flag
   for review (~12% false-positive on genuinely valid facts in the original tuning);
   they don't hard-reject. A stricter semantic gate is planned.

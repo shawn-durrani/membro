@@ -1,6 +1,7 @@
 # Changelog
 
-House convention: user-visible change, one line each, newest first.
+House convention: one entry per user-visible change, newest first. Keep an
+entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
@@ -48,7 +49,7 @@ House convention: user-visible change, one line each, newest first.
   approve anything.
 
 - Review evidence, and provenance only where it is real: a held fact now
-  shows the turn it came from — who said it and what they said — in the
+  shows the turn it came from (who said it and what they said) in the
   review queue, on the admin page and in `GET /review`. A fact the miner
   could not tie to one turn is stored unbound and says so, instead of
   being pinned to whichever message happened to end the mining window.
@@ -64,9 +65,9 @@ House convention: user-visible change, one line each, newest first.
   generic reason; facts a retry binds to a guest's turn still hold with
   the guest named. Nothing about the walls or what quarantines changed.
 - FTS desync self-repair (#37): a search index that has fallen out of
-  step with the stored messages (dropped/recreated, so every search
-  returned zero rows without erroring) is detected and rebuilt
-  automatically at startup, `/health` reports `fts_in_sync` inside the
+  step with the stored messages (dropped or recreated, so every search
+  returned zero rows without erroring) is now detected and rebuilt
+  automatically at startup. `/health` reports `fts_in_sync` inside the
   contractual `db` block and goes `degraded` while it is false, and
   `scripts/rebuild_fts.py` repairs a live instance without a restart.
   Messages, attachments and the fact ledger are untouched - the repair
@@ -88,7 +89,7 @@ House convention: user-visible change, one line each, newest first.
 - Passkey login (#27): enrol a Touch ID / iCloud Keychain passkey from the
   unlocked admin page (Admin → Passkeys) and the lock screen offers it first,
   password one click behind it. The password and recovery secret are
-  unchanged. Passkeys are per web address — enrol `http://localhost:8901`
+  unchanged. Passkeys are per web address: enrol `http://localhost:8901`
   and each trusted host separately; `127.0.0.1` cannot hold one (a browser
   rule: an IP address is not a valid WebAuthn relying party).
 

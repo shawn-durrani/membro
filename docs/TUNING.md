@@ -142,12 +142,14 @@ Set `mirror_dir` to a folder inside iCloud Drive/Dropbox/OneDrive and every
 snapshot is copied off-machine automatically. This is strongly recommended,
 because the database holds your accumulated memory.
 
-**`auth_token`** is one secret with three jobs: (1) proof that you're the
-owner when you set or reset your admin password, (2) the
-`Authorization: Bearer` credential for machine callers (MCP servers
-such as the optional `membro-admin`, or curl), and (3) the thing that
-lets the service be served beyond localhost at all: with no configured
-value it refuses to bind a non-loopback host. Leaving it unset does
+**`auth_token`** is one secret with three jobs:
+
+1. Proof that you're the owner when you set or reset your admin password.
+2. The `Authorization: Bearer` credential for machine callers: MCP servers
+   such as the optional `membro-admin`, or curl.
+3. The thing that lets the service be served beyond localhost at all. With
+   no configured value it refuses to bind a non-loopback host.
+ Leaving it unset does
 **not** mean no secret exists: the service mints a fresh random one at
 every start and prints it to the terminal that ran `./start.sh`. Set a
 stable value in `.env` or `config.local.json` if you register the
@@ -155,7 +157,9 @@ stable value in `.env` or `config.local.json` if you register the
 secret changing on every restart. An auto-minted token still only works
 locally; remote serving needs a configured one.
 
-**Logging in.** The exact-row parts of the ledger always require an
+### Logging in
+
+The exact-row parts of the ledger always require an
 owner credential, even on loopback, so another process sharing
 127.0.0.1 can't read or edit those. That covers raw facts, the review
 queue, every action on a single fact (edit, supersede, approve,
@@ -187,15 +191,17 @@ in [API.md](API.md), the threat model and its honest limits in
 [SECURITY.md](../SECURITY.md), and the first-run walkthrough in
 [README.md](../README.md).
 
-**Remote access over your tailnet.** `MEMORY_TAILSCALE_SERVE=1`
+### Remote access over your tailnet
+
+`MEMORY_TAILSCALE_SERVE=1`
 in `.env` makes `start.sh` run `scripts/tailscale-serve.sh` at every startup,
 which maps this loopback service onto its own HTTPS port on your OWN
 Tailscale tailnet (`MEMORY_TAILSCALE_PORT`, default `8443`) via `tailscale
 serve`; never `tailscale funnel`, never a public port (see SECURITY.md's
 trust boundary). It uses a dedicated port rather than a path under the
-tailnet root on purpose: the admin UI links absolute paths (`/math`,
+tailnet root on purpose. The admin UI links absolute paths (`/math`,
 `/v1/…`), which under a `/membro` prefix would resolve to the root and hit
-whatever else is served there; on a machine also serving the chat client,
+whatever else is served there. On a machine also serving the chat client,
 that is a different application entirely. To actually sign in from a browser
 you must ALSO name that hostname in `MEMORY_TRUSTED_HOSTS`, or the request
 is refused by design.
