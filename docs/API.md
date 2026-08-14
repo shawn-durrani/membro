@@ -445,6 +445,16 @@ reviewer has — who said this — is answered without leaving the queue.
            "created_at": 1754616000.0, "excerpt": "I hate coriander…",
            "truncated": false}
 ```
+Each row also carries `reason_class` (additive, 2026-08-14, #34): a stable
+token derived from the hold reason's prefix (`guest-attribution`,
+`speaker-trust`, `grounding`, `temporal`, `source-trust`, `importance`,
+`external-write`, else `other`; a multi-flag reason classes by its first
+flag). The admin page groups the queue by it, and
+`POST /facts/bulk-approve` / `POST /facts/bulk-dismiss` (owner credential,
+body `{"ids": [...]}`) act on explicit id lists - only ids currently in the
+queue are touched, everything else is skipped, not an error, so one decision
+clears a whole cause without ever sweeping rows the owner has not seen.
+
 `source` is `null` whenever the fact names no source message: an external
 (`mcp:*`) write, a fact saved by hand, or a mined fact that could not be tied
 to a single turn (see the guest-speaker notes above). It is never filled in

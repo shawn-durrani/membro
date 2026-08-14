@@ -4,6 +4,14 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- The review queue groups by hold reason, and one decision clears a
+  cause (#34). Every held fact carries a stable reason class (said by a
+  guest, couldn't prove who said it, external write, and so on); the
+  admin page shows the queue grouped by it, largest cause first, with
+  approve-all and dismiss-all per group acting on exactly the rows on
+  screen. Owner-only, like every review action - nothing automated can
+  approve anything.
+
 - Review evidence, and provenance only where it is real: a held fact now
   shows the turn it came from — who said it and what they said — in the
   review queue, on the admin page and in `GET /review`. A fact the miner
