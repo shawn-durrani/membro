@@ -23,6 +23,14 @@ for review instead of vanishing, attachments are counted not cascaded,
 and every eraser journals a content-free `erasures` row - what was
 erased is gone, that it was erased is not.
 
+**Person records (#33).** Owner-set names survive client updates; an
+alias can never be reassigned to a different person; a model speaker
+label can never become a person; clips are content-addressed and
+owner-only on disk; sync includes forgotten marks; forget deletes the
+audio (journalled content-free), moves the person's approved facts back
+into review as one group and leaves held facts alone; every route
+refuses callers without the owner token (`test_person_records.py`).
+
 **Extraction walls.** Ungrounded names quarantine. Ungrounded or
 relative dates never mint an event date; a missing year comes from the
 conversation. Untrusted sources quarantine. System-meta and

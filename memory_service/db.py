@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS facts(
   superseded_by INTEGER,
   quarantined_at REAL,                         -- held out of recall+summary pending review
   quarantine_reason TEXT,
-  review_dismissed_at REAL                     -- reviewed-and-kept-out (stays quarantined)
+  review_dismissed_at REAL,                    -- reviewed-and-kept-out (stays quarantined)
+  person_id INTEGER                            -- #33: the person record this fact links to
 );
 
 CREATE TABLE IF NOT EXISTS conversations(
@@ -145,6 +146,41 @@ CREATE TRIGGER IF NOT EXISTS attachment_captions_ai AFTER INSERT ON attachment_c
   INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.attachment_id, new.caption);
 END;
 
+-- Person records (#33): the fleet's identity home. Apps capture voices
+-- and assert identity; membro records it durably. A person row is never
+-- deleted - forgetting marks it (forgotten_at) and deletes only the audio.
+CREATE TABLE IF NOT EXISTS persons(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,          -- stable id other apps use, e.g. 'p-9f3a2c'
+  display_name TEXT NOT NULL,
+  name_owner_set INTEGER NOT NULL DEFAULT 0,  -- owner renamed it: client upserts can't change it
+  relationship TEXT NOT NULL DEFAULT '',      -- owner-set free text ('partner', 'colleague')
+  created_at REAL NOT NULL,
+  origin_client TEXT NOT NULL DEFAULT '',     -- which app first created it
+  updated_at REAL NOT NULL DEFAULT 0, -- stamped on every change; what ?since= filters on
+  merged_into INTEGER,                -- set when merged into another person; row kept
+  forgotten_at REAL                   -- set when forgotten; how other apps find out
+);
+
+CREATE TABLE IF NOT EXISTS person_aliases(
+  person_id INTEGER NOT NULL REFERENCES persons(id),
+  alias TEXT NOT NULL UNIQUE COLLATE NOCASE,  -- an alias points at exactly one person
+  kind TEXT NOT NULL DEFAULT 'spelling'       -- spelling | pronunciation
+);
+
+CREATE TABLE IF NOT EXISTS voice_anchors(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id INTEGER NOT NULL REFERENCES persons(id),
+  sha256 TEXT NOT NULL,               -- file fingerprint; the same clip is never stored twice
+  stored_name TEXT NOT NULL,          -- file on disk under voice_anchors/, owner-only
+  seconds REAL NOT NULL DEFAULT 0,
+  score REAL NOT NULL DEFAULT 0,      -- the uploading app's quality score, kept for reference
+  source TEXT NOT NULL DEFAULT '',    -- accumulated | introduction | correction
+  captured_at REAL NOT NULL DEFAULT 0,
+  client TEXT NOT NULL DEFAULT '',
+  UNIQUE(person_id, sha256)
+);
+
 -- The erasure journal (#45): each use of the three human erasers (fact /
 -- attachment / message) appends one CONTENT-FREE row - kind, refs/ids, when.
 -- What was erased is gone; THAT it was erased is not. Additive to schema v1,
@@ -187,6 +223,11 @@ def init(settings) -> None:
             raise RuntimeError(
                 f"database schema v{ver} is newer than this code (v{SCHEMA_VERSION}) — refusing to open")
         con.executescript(SCHEMA)
+        # #33 additive column on an existing DB: IF NOT EXISTS cannot add
+        # columns, so guard an ALTER by inspecting the live table.
+        cols = {r[1] for r in con.execute("PRAGMA table_info(facts)")}
+        if "person_id" not in cols:
+            con.execute("ALTER TABLE facts ADD COLUMN person_id INTEGER")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
         # Cheap (row-count comparison) and safe (no-op unless desynced) — see

@@ -44,6 +44,7 @@ secret. Sessions remain opaque, HttpOnly, SameSite=Strict, in-memory (cleared
 on restart), expiring, and revocable, exactly as v4 left them.
 """
 
+import base64
 import datetime
 import hmac
 import json
@@ -68,7 +69,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, auth, db, embeddings, episodic, jobs, ledger, mining, passkeys, recall, summary, viz, walls
+from . import access, auth, db, embeddings, episodic, jobs, ledger, mining, passkeys, persons, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -1417,6 +1418,122 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             c.close()
         return {"deleted": message_id, "facts_held": held,
                 "attachments_kept": kept}
+
+    # ---- persons (#33): the fleet's identity home. Capture apps create
+    # and upload; the admin surface renames/merges/forgets; forget is the
+    # one-press flow whose numbered steps live on the issue. ----
+
+    class PersonBody(BaseModel):
+        slug: str = Field(min_length=1, max_length=80)
+        display_name: str = Field(min_length=1, max_length=80)
+        aliases: list[str] = []
+        relationship: str | None = None
+        origin_client: str = ""
+
+    class AnchorBody(BaseModel):
+        data_b64: str
+        seconds: float = 0
+        score: float = 0
+        source: str = ""
+        captured_at: float = 0
+        client: str = ""
+
+    def _person_or_404(c, slug, allow_forgotten=False):
+        row = c.execute("SELECT * FROM persons WHERE slug=?",
+                        (slug,)).fetchone()
+        if not row:
+            raise HTTPException(404, "no such person")
+        if row["forgotten_at"] and not allow_forgotten:
+            raise HTTPException(410, "this person was forgotten")
+        return row
+
+    @app.get("/v1/persons", dependencies=[Depends(_admin_auth)])
+    def list_persons(since: float = 0):
+        # Forgotten people are INCLUDED - the mark is how a syncing app
+        # learns to delete its local copies (forgetting step 3).
+        c = con()
+        try:
+            rows = c.execute(
+                "SELECT * FROM persons WHERE updated_at > ? "
+                "ORDER BY id", (since,)).fetchall()
+            return {"persons": [persons.out(c, r) for r in rows]}
+        finally:
+            c.close()
+
+    @app.post("/v1/persons", dependencies=[Depends(_admin_auth)])
+    def upsert_person(body: PersonBody):
+        c = con()
+        try:
+            return persons.upsert(
+                c, settings, slug=body.slug.strip(),
+                display_name=body.display_name,
+                aliases=body.aliases, relationship=body.relationship,
+                origin_client=body.origin_client)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        finally:
+            c.close()
+
+    @app.post("/v1/persons/{slug}/anchors",
+              dependencies=[Depends(_admin_auth)])
+    def upload_anchor(slug: str, body: AnchorBody):
+        try:
+            data = base64.b64decode(body.data_b64, validate=True)
+        except Exception:
+            raise HTTPException(400, "data_b64 is not valid base64")
+        if not data:
+            raise HTTPException(400, "empty clip")
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            return persons.add_clip(
+                c, settings, person, data=data, seconds=body.seconds,
+                score=body.score, source=body.source,
+                captured_at=body.captured_at, client=body.client)
+        finally:
+            c.close()
+
+    @app.get("/v1/persons/{slug}/anchors",
+             dependencies=[Depends(_admin_auth)])
+    def list_anchors(slug: str):
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            rows = [dict(r) for r in c.execute(
+                "SELECT id, sha256, seconds, score, source, captured_at, "
+                "client FROM voice_anchors WHERE person_id=? ORDER BY id",
+                (person["id"],))]
+            return {"anchors": rows}
+        finally:
+            c.close()
+
+    @app.get("/v1/persons/{slug}/anchors/{anchor_id}/file",
+             dependencies=[Depends(_admin_auth)])
+    def anchor_file(slug: str, anchor_id: int):
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            row = c.execute(
+                "SELECT stored_name FROM voice_anchors WHERE id=? AND "
+                "person_id=?", (anchor_id, person["id"])).fetchone()
+        finally:
+            c.close()
+        if not row:
+            raise HTTPException(404, "no such clip")
+        path = persons.clips_dir(settings) / row["stored_name"]
+        if not path.exists():
+            raise HTTPException(410, "clip bytes missing on disk")
+        return FileResponse(path, media_type="audio/wav")
+
+    @app.post("/v1/persons/{slug}/forget",
+              dependencies=[Depends(_admin_auth)])
+    def forget_person(slug: str):
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            return persons.forget(c, settings, person)
+        finally:
+            c.close()
 
     @app.get("/v1/review", dependencies=[Depends(_admin_auth)])
     def review():
