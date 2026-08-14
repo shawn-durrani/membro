@@ -47,6 +47,7 @@ import datetime
 import hmac
 import json
 import os
+import re
 import secrets
 import stat
 from pathlib import Path
@@ -170,6 +171,22 @@ def _recall_out(f: dict) -> dict:
 # away in the episodic record for anyone who wants it.
 REVIEW_EXCERPT_CHARS = 400
 
+# The hold-reason CLASSES the review queue groups by (#34). Reasons are
+# free text with a stable "prefix:" convention (and multi-flag reasons join
+# with "; "); the class is the first flag's prefix, so one decision can
+# clear a whole cause. Kept additive: the full reason still rides each row.
+_REASON_PREFIX_RE = re.compile(r"^([a-z-]+):")
+
+
+def reason_class(reason) -> str:
+    head = (reason or "").split(";")[0].strip()
+    if not head:
+        return "other"
+    if head.startswith("external write"):
+        return "external-write"
+    m = _REASON_PREFIX_RE.match(head)
+    return m.group(1) if m else "other"
+
 
 def _review_out(c, f: dict) -> dict:
     """One review-queue row plus the turn it came from — speaker, speaker
@@ -184,6 +201,7 @@ def _review_out(c, f: dict) -> dict:
     who said this" are different decisions, and the queue must not blur them.
     """
     out = dict(f)
+    out["reason_class"] = reason_class(f.get("quarantine_reason"))
     row = None
     if f.get("source_message_id") is not None:
         row = c.execute(
@@ -1135,6 +1153,53 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             if not ledger.dismiss(c, fact_id):
                 raise HTTPException(409, "fact missing or not quarantined")
             return ledger.get_fact(c, fact_id)
+        finally:
+            c.close()
+
+    class BulkIds(BaseModel):
+        ids: list[int]
+
+    def _pending_among(c, ids):
+        """Of these ids, the ones actually IN the review queue right now
+        (quarantined and not yet dismissed). The ledger primitives are
+        looser on purpose - approve un-quarantines anything, dismiss
+        re-stamps an already-dismissed row - but a BULK action's contract
+        is the queue, so anything else is skipped, not touched."""
+        if not ids:
+            return set()
+        marks = ",".join("?" * len(ids))
+        return {r[0] for r in c.execute(
+            f"SELECT id FROM facts WHERE id IN ({marks}) "
+            "AND quarantined_at IS NOT NULL AND review_dismissed_at IS NULL",
+            ids)}
+
+    @app.post("/v1/facts/bulk-approve", dependencies=[Depends(_admin_auth)])
+    def bulk_approve(body: BulkIds):
+        # #34: one decision clears a cause. Acts only on ids CURRENTLY in
+        # the queue; anything else is skipped, not an error, so a stale
+        # screen re-submits harmlessly. Owner-gated like every review
+        # action - the no-auto-approve invariant holds.
+        c = con()
+        try:
+            pending = _pending_among(c, body.ids)
+            done = sum(1 for i in body.ids
+                       if i in pending and ledger.approve(c, i))
+            return {"approved": done, "skipped": len(body.ids) - done}
+        finally:
+            c.close()
+
+    @app.post("/v1/facts/bulk-dismiss", dependencies=[Depends(_admin_auth)])
+    def bulk_dismiss(body: BulkIds):
+        # Bulk twin of the per-fact dismiss, by explicit ids (#34): the
+        # group the owner SAW is the group acted on - never "whatever
+        # matches the reason right now", which could sweep rows that
+        # arrived after the screen rendered.
+        c = con()
+        try:
+            pending = _pending_among(c, body.ids)
+            done = sum(1 for i in body.ids
+                       if i in pending and ledger.dismiss(c, i))
+            return {"dismissed": done, "skipped": len(body.ids) - done}
         finally:
             c.close()
 

@@ -240,6 +240,15 @@
   .src-turn.unbound { border-left-color: var(--warn); }
   .src-turn.unbound .who { color: var(--warn); }
   .muted { color: var(--dim); }
+  /* hold-reason groups (#34): one decision clears a cause */
+  .review-group { margin-bottom: var(--space-4); }
+  .review-group-head { display: flex; align-items: center; justify-content: space-between;
+                       gap: var(--space-3); padding: var(--space-2) 0;
+                       border-bottom: 1px solid var(--border);
+                       margin-bottom: var(--space-2); position: sticky; top: 0;
+                       background: var(--bg); z-index: 2; }
+  .review-group-title { font-weight: 600; }
+  .review-group-actions { display: flex; gap: var(--space-2); }
   .empty { color: var(--dim); font-style: italic; padding: var(--space-3) 0; }
   .empty.good { color: var(--ok); font-style: normal; }
   .err-panel {
@@ -814,19 +823,36 @@ function sourceTurn(f) {
     <div class="said">${esc(s.excerpt)}${s.truncated ? " …" : ""}</div></div>`;
 }
 
-async function loadReview() {
-  let facts;
-  try { ({ facts } = await api("/review")); }
-  catch (e) { errPanel("review-body", "Couldn't load the review queue: " + e.message, "loadReview"); return; }
-  REVIEW = facts; SEL = Math.min(SEL, Math.max(0, facts.length - 1));
-  setReviewCount(facts.length);
-  if (!facts.length) {
-    $("review-body").innerHTML = '<div class="empty good">Nothing to review ✓</div>';
-    return;
-  }
-  $("review-body").innerHTML =
-    '<div class="keys-hint"><kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>a</kbd> approve · <kbd>d</kbd> dismiss</div>' +
-    facts.map(f => `
+// Plain-English headings for the hold-reason classes (#34). Unknown
+// classes render their raw token rather than being guessed at.
+const REASON_CLASS_COPY = {
+  "guest-attribution": "Said by a guest",
+  "speaker-trust": "Couldn't prove who said it",
+  "grounding": "Not grounded in the transcript",
+  "temporal": "Uncertain when this happened",
+  "source-trust": "Untrusted source content",
+  "importance": "Low importance",
+  "external-write": "Written by external tooling",
+  "other": "Other holds",
+};
+
+function reasonHeading(cls) { return REASON_CLASS_COPY[cls] || cls; }
+
+// One decision clears a cause (#34): bulk act on exactly the ids the owner
+// is LOOKING at in this group - never "whatever matches the reason now".
+async function bulkReview(action, ids) {
+  const verb = action === "approve" ? "Approve" : "Dismiss";
+  if (!confirm(`${verb} all ${ids.length} facts in this group?`)) return;
+  try {
+    await api(`/facts/bulk-${action}`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }) });
+  } catch (e) { alert(`Bulk ${action} failed: ` + e.message); }
+  loadReview(); loadStats();
+}
+
+function reviewCard(f) {
+  return `
     <div class="fact-card" id="review-card-${f.id}">
       <div class="fact-text">${esc(f.content)}</div>
       <div class="reason">⚠ ${esc(f.quarantine_reason || "quarantined")}</div>
@@ -838,6 +864,41 @@ async function loadReview() {
         <button class="good" onclick="approveFact(${f.id})">Approve <kbd>a</kbd></button>
         <button class="bad" onclick="dismissFact(${f.id})">Dismiss <kbd>d</kbd></button>
       </div>
+    </div>`;
+}
+
+async function loadReview() {
+  let facts;
+  try { ({ facts } = await api("/review")); }
+  catch (e) { errPanel("review-body", "Couldn't load the review queue: " + e.message, "loadReview"); return; }
+  REVIEW = facts; SEL = Math.min(SEL, Math.max(0, facts.length - 1));
+  setReviewCount(facts.length);
+  if (!facts.length) {
+    $("review-body").innerHTML = '<div class="empty good">Nothing to review ✓</div>';
+    return;
+  }
+  // Group by hold-reason class (#34), groups ordered largest first so the
+  // one decision that clears the most is always at the top.
+  const groups = new Map();
+  for (const f of facts) {
+    const cls = f.reason_class || "other";
+    if (!groups.has(cls)) groups.set(cls, []);
+    groups.get(cls).push(f);
+  }
+  const ordered = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+  $("review-body").innerHTML =
+    '<div class="keys-hint"><kbd>j</kbd>/<kbd>k</kbd> navigate · <kbd>a</kbd> approve · <kbd>d</kbd> dismiss</div>' +
+    ordered.map(([cls, rows]) => `
+    <div class="review-group">
+      <div class="review-group-head">
+        <span class="review-group-title">${esc(reasonHeading(cls))}
+          <span class="muted">· ${rows.length}</span></span>
+        <span class="review-group-actions">
+          <button class="good" onclick='bulkReview("approve", ${JSON.stringify(rows.map(r => r.id))})'>Approve all ${rows.length}</button>
+          <button class="bad" onclick='bulkReview("dismiss", ${JSON.stringify(rows.map(r => r.id))})'>Dismiss all ${rows.length}</button>
+        </span>
+      </div>
+      ${rows.map(reviewCard).join("")}
     </div>`).join("");
   renderSel();
 }
