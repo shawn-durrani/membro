@@ -431,8 +431,10 @@ appear in `GET /review`; each is reversible with `/facts/{id}/approve`. This is
 the third treatment between `supersede` (asserts a replacement fact, which a
 malformed row does not have) and `DELETE` (destructive). **Requires the owner
 admin token, even on loopback.**
-`DELETE /facts/{id}`: the ONLY hard delete; human-initiated only, never automated.
-**Requires the owner admin token, even on loopback.**
+`DELETE /facts/{id}`: one of the three human erasers (facts / attachments /
+messages); human-initiated only, never automated. Every erasure appends a
+content-free row (kind, refs, when - never content) to the `erasures` journal
+(#45). **Requires the owner admin token, even on loopback.**
 
 `GET /review`: held-for-review queue. **Requires the owner admin token, even
 on loopback.**
@@ -608,7 +610,27 @@ image/binary kind), the message it arrived with, and the ledger facts mined
 from that conversation.
 `DELETE /v1/attachments/{id}`: the attachments twin of the facts eraser:
 human-initiated via the danger zone, the only delete path; content-addressed
-bytes are unlinked only when no other row references them.
+bytes are unlinked only when no other row references them. Journals to
+`erasures` like every eraser.
+
+`GET /v1/messages/resolve?source_app=&conversation=&message=`: maps a
+producer's ref (how crossband names a message: source app, conversation
+external id, message external id) to the internal row id, with a verbatim
+preview and the erase's blast radius (live facts that would move to review,
+attached files that would stay). Exists so a producer's erase link can land
+on the admin page prefilled; the admin page reads
+`#erase=<source_app>/<conversation>/<message>` and calls this. **Requires
+the owner admin token, even on loopback.**
+
+`DELETE /v1/messages/{id}`: the messages twin of the facts eraser (#45),
+closing the crossband#106 loop - a voice turn discarded at its source may
+already be ingested here, and no automated path may touch the copy; this is
+the human hand. One row, no bulk form, never called by any producer's code.
+The row leaves the archive and the search index; live facts mined from it
+quarantine with a `source-deleted:` reason and surface in review (the owner
+decides each - derived knowledge never silently vanishes); attachments that
+rode the message are counted in the response, never cascaded. Journals to
+`erasures`. **Requires the owner admin token, even on loopback.**
 The three summary-version routes below, unlike the attachment routes above,
 are **NOT** gated: they answer an unauthenticated loopback caller.
 `GET /v1/summary/versions`: every generated profile, newest first (metadata

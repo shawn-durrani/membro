@@ -144,6 +144,17 @@ CREATE TRIGGER IF NOT EXISTS attachment_captions_ai AFTER INSERT ON attachment_c
            (SELECT extracted_text FROM attachments WHERE id = new.attachment_id));
   INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.attachment_id, new.caption);
 END;
+
+-- The erasure journal (#45): each use of the three human erasers (fact /
+-- attachment / message) appends one CONTENT-FREE row - kind, refs/ids, when.
+-- What was erased is gone; THAT it was erased is not. Additive to schema v1,
+-- created on init like access_log.
+CREATE TABLE IF NOT EXISTS erasures(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL NOT NULL,
+  kind TEXT NOT NULL,                     -- fact | attachment | message
+  ref TEXT NOT NULL                       -- ids only, never content
+);
 """
 
 
@@ -153,6 +164,14 @@ def connect(db_path: Path) -> sqlite3.Connection:
     con.execute("PRAGMA busy_timeout = 30000")
     con.execute("PRAGMA foreign_keys = ON")
     return con
+
+
+def journal_erasure(con, kind: str, ref: str) -> None:
+    """One content-free row per human erasure - ids in `ref`, never content.
+    Caller commits: the journal row must land in the SAME transaction as the
+    delete it records."""
+    con.execute("INSERT INTO erasures(ts, kind, ref) VALUES (?,?,?)",
+                (time.time(), kind, ref))
 
 
 def init(settings) -> None:
