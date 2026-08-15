@@ -578,6 +578,23 @@
     </details>
 
     <details class="section">
+      <summary>People <span class="badge" id="people-count"></span>
+        <span style="flex:1"></span><button onclick="event.preventDefault();loadPeople()">Refresh</button></summary>
+      <div class="body">
+        <details class="help"><summary>What is this &amp; why it matters</summary><p><b>Everyone the fleet
+          knows by voice</b> - person records created by the apps that capture voices
+          (this page never creates one). Each holds a name, spellings, and the stored
+          voice clips backing it. Rename fixes the name everywhere (apps can't change
+          it back). Merge folds a duplicate into the real person - spellings, clips
+          and linked facts move across. Listen plays a stored clip; moving or deleting
+          one corrects the durable record the same way the capture app does. Forget is
+          the strong one: the audio is deleted for every app, and that person's
+          approved facts return to review for you to judge.</p></details>
+        <div id="people-body"><div class="empty">Loading…</div></div>
+      </div>
+    </details>
+
+    <details class="section">
       <summary>Files <span class="badge" id="files-count"></span>
         <span style="flex:1"></span><button onclick="event.preventDefault();loadFiles()">Refresh</button></summary>
       <div class="body">
@@ -1314,6 +1331,103 @@ async function prefillEraseFromHash() {
 
 // ---- files: every attachment the memory holds ----
 
+// ---- people (#33): person records and their stored voices ----
+
+async function loadPeople() {
+  let d;
+  try { d = await api("/persons"); }
+  catch (e) { errPanel("people-body", "Couldn't load people: " + e.message, "loadPeople"); return; }
+  const rows = (d.persons || []).filter(p => !p.merged_into);
+  const living = rows.filter(p => !p.forgotten_at);
+  $("people-count").textContent = living.length ? String(living.length) : "";
+  if (!rows.length) {
+    $("people-body").innerHTML = '<div class="empty">Nobody yet - people appear here when a capture app (crossband) syncs its learned voices.</div>';
+    return;
+  }
+  $("people-body").innerHTML = rows.map(p => {
+    const names = (p.aliases || []).map(a => esc(a.alias)).join(", ");
+    if (p.forgotten_at) {
+      return `<div class="kv"><dt>${esc(p.display_name)}</dt><dd>forgotten ${new Date(p.forgotten_at * 1000).toLocaleDateString()} - audio deleted everywhere</dd></div>`;
+    }
+    const others = living.filter(o => o.slug !== p.slug);
+    const mergeOpts = others.map(o => `<option value="${esc(o.slug)}">${esc(o.display_name)}</option>`).join("");
+    return `
+    <div class="kv" style="align-items:start">
+      <dt>${esc(p.display_name)}${p.relationship ? ` <span style="color:var(--dim)">(${esc(p.relationship)})</span>` : ""}</dt>
+      <dd>
+        <div>${p.clip_count} clip${p.clip_count === 1 ? "" : "s"}${names ? " · also answers to: " + names : ""}</div>
+        <div class="fields" style="margin-top:4px">
+          <input type="text" id="rn-${esc(p.slug)}" placeholder="rename" style="width:120px" aria-label="Rename ${esc(p.display_name)}">
+          <button onclick="renamePerson('${esc(p.slug)}')">Rename</button>
+          ${others.length ? `<select id="mg-${esc(p.slug)}" aria-label="Merge ${esc(p.display_name)} into"><option value="">merge into…</option>${mergeOpts}</select>
+          <button onclick="mergePerson('${esc(p.slug)}')">Merge</button>` : ""}
+          <button onclick="toggleClips('${esc(p.slug)}')">clips</button>
+          <button class="danger" onclick="forgetPerson('${esc(p.slug)}', '${esc(p.display_name)}')">Forget…</button>
+        </div>
+        <div id="clips-${esc(p.slug)}" hidden style="margin-top:6px"></div>
+      </dd>
+    </div>`;
+  }).join("");
+}
+
+async function renamePerson(slug) {
+  const name = $(`rn-${slug}`).value.trim();
+  if (!name) return;
+  try {
+    await api(`/persons/${encodeURIComponent(slug)}`, { method: "PATCH", body: { display_name: name } });
+    toast(`Renamed to ${name}. Apps can't change it back.`, true);
+    loadPeople();
+  } catch (e) { toast("Couldn't rename: " + e.message, false); }
+}
+
+async function mergePerson(slug) {
+  const into = $(`mg-${slug}`).value;
+  if (!into) return;
+  if (!confirm("Fold this person into the selected one? Spellings, clips and linked facts all move across. The empty record stays, marked merged.")) return;
+  try {
+    const r = await api(`/persons/${encodeURIComponent(slug)}/merge`, { method: "POST", body: { into } });
+    toast(`Merged into ${r.into}.`, true);
+    loadPeople();
+  } catch (e) { toast("Couldn't merge: " + e.message, false); }
+}
+
+async function forgetPerson(slug, name) {
+  if (!confirm(`Forget ${name}? Their stored voice audio is deleted here AND in every app that syncs, and their approved facts return to review for you to judge. The only trace kept is a content-free log line.`)) return;
+  try {
+    const r = await api(`/persons/${encodeURIComponent(slug)}/forget`, { method: "POST" });
+    toast(`${name} forgotten: ${r.clips_deleted} clip(s) deleted, ${r.facts_held} fact(s) moved to review.`, true);
+    loadPeople(); loadReview(); loadHealth();
+  } catch (e) { toast("Couldn't forget: " + e.message, false); }
+}
+
+async function toggleClips(slug) {
+  const box = $(`clips-${slug}`);
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<span class="empty">Loading…</span>';
+  let d;
+  try { d = await api(`/persons/${encodeURIComponent(slug)}/anchors`); }
+  catch (e) { box.innerHTML = esc("Couldn't load clips: " + e.message); return; }
+  const rows = d.anchors || [];
+  if (!rows.length) { box.innerHTML = '<span class="empty">No stored clips.</span>'; return; }
+  box.innerHTML = rows.map(a => `
+    <div class="fields" style="margin-top:2px">
+      <span style="color:var(--dim);font-size:12px">${a.seconds ? a.seconds.toFixed(1) + "s" : "clip"} · ${esc(a.source || "?")}</span>
+      <audio controls preload="none" style="height:24px" src="/v1/persons/${encodeURIComponent(slug)}/anchors/${a.id}/file"></audio>
+      <button class="danger" onclick="deleteClip('${esc(slug)}', ${a.id})">delete</button>
+    </div>`).join("");
+}
+
+async function deleteClip(slug, id) {
+  if (!confirm("Delete this recording permanently? It is removed from the durable record; the capture app's copy (if any) is its own delete.")) return;
+  try {
+    await api(`/persons/${encodeURIComponent(slug)}/anchors/${id}`, { method: "DELETE" });
+    toast("Clip deleted.", true);
+    toggleClips(slug); toggleClips(slug);
+    loadPeople();
+  } catch (e) { toast("Couldn't delete: " + e.message, false); }
+}
+
 async function loadFiles() {
   let d;
   try { d = await api("/attachments"); }
@@ -1635,7 +1749,7 @@ async function removePasskey(id) {
 
 // ---- boot ----
 
-loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth(); loadPasskeys();
+loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth(); loadPasskeys(); loadPeople();
 prefillEraseFromHash();
 setInterval(() => { if (document.visibilityState === "visible") loadHealth(); }, 15000);
 </script>

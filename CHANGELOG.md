@@ -4,6 +4,14 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- People are manageable from the admin page (#33, slice 3): rename
+  (apps can't change it back), merge duplicates (spellings, clips and
+  linked facts move across), listen to any stored clip, move or delete
+  a single recording, and forget - each action saying plainly what it
+  does before it does it. Clip moves and deletes are the same
+  corrections crossband replays here, so the durable record and a
+  future rebuild always reflect your judgement.
+
 - Person records land (#33, first slice): membro is now the fleet's
   durable home for who-is-who. Capture apps create people and upload
   their voice clips (content-addressed, owner-only, kept in full);
