@@ -35,8 +35,34 @@ from . import db, walls
 
 DIR_NAME = "voice_anchors"
 
-# Sources a human stood behind - mirrors crossband's vouch sources (#83).
-HUMAN_METHODS = ("introduction", "owner-correction")
+# Methods a human stood behind - mirrors crossband's vouch sources (#83).
+HUMAN_METHODS = ("introduced", "owner-correction")
+VOICE_MATCH_MIN_CONFIDENCE = 0.8   # owner decision 3 (membro#33)
+
+
+def binding(con, identity) -> int | None:
+    """The person a fact should link to, per owner decision 3: a
+    human-confirmed identity (introduced / owner-correction) always binds;
+    a voice-match binds at confidence 0.8 or above; by-elimination and
+    anything unknown never auto-binds - those stay for the review queue's
+    human. A merged-away slug resolves to its winner; a forgotten or
+    unknown slug binds nothing."""
+    if not identity or not identity.get("person"):
+        return None
+    method = identity.get("method") or ""
+    if method not in HUMAN_METHODS and not (
+            method == "voice-match"
+            and (identity.get("confidence") or 0) >= VOICE_MATCH_MIN_CONFIDENCE):
+        return None
+    person = _row(con, identity["person"])
+    for _ in range(8):                     # follow merges, bounded
+        if person is None or person["forgotten_at"]:
+            return None
+        if not person["merged_into"]:
+            return person["id"]
+        person = con.execute("SELECT * FROM persons WHERE id=?",
+                             (person["merged_into"],)).fetchone()
+    return None
 
 
 def clips_dir(settings):

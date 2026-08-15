@@ -5,6 +5,7 @@ are all reversible state changes; hard delete exists only as the human-initiated
 API endpoint.
 """
 
+import json
 import logging
 import re
 import threading
@@ -119,14 +120,30 @@ def add_fact(con, content: str, settings, *, source: str = "user",
             return {"id": dup["id"], "quarantined": bool(dup["quarantined_at"]),
                     "duplicate": True}
     ts = db.now()
+    # #33 contract 1.2: a fact born from a message that carries a
+    # structured speaker identity links to that person when the identity
+    # is strong enough (persons.binding - human-confirmed always,
+    # voice-match at 0.8+, weaker never). Same hold rules either way:
+    # the link changes what review can say, never whether a fact is held.
+    person_id = None
+    if source_message_id is not None:
+        row = con.execute("SELECT speaker_identity FROM messages WHERE id=?",
+                          (source_message_id,)).fetchone()
+        if row and row["speaker_identity"]:
+            from . import persons as persons_mod
+            try:
+                person_id = persons_mod.binding(
+                    con, json.loads(row["speaker_identity"]))
+            except (ValueError, KeyError):
+                person_id = None
     cur = con.execute(
         "INSERT INTO facts(content, source, origin_agent, conversation_id, "
         "source_message_id, created_at, event_date, confidence, importance, "
-        "content_hash, quarantined_at, quarantine_reason) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        "content_hash, quarantined_at, quarantine_reason, person_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (content, source, origin, conversation_id, source_message_id, ts,
          event_date or ts, confidence, importance, db.content_hash(content),
-         ts if reason else None, reason))
+         ts if reason else None, reason, person_id))
     con.commit()
     _spawn_embed(settings, cur.lastrowid, content)
     return {"id": cur.lastrowid, "quarantined": bool(reason)}

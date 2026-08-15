@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS messages(
   speaker TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at REAL NOT NULL,
+  speaker_identity TEXT NOT NULL DEFAULT '',  -- #33 contract 1.2: {person, confidence, method} json, or ''
   UNIQUE(conversation_id, external_id)
 );
 
@@ -228,6 +229,10 @@ def init(settings) -> None:
         cols = {r[1] for r in con.execute("PRAGMA table_info(facts)")}
         if "person_id" not in cols:
             con.execute("ALTER TABLE facts ADD COLUMN person_id INTEGER")
+        mcols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+        if "speaker_identity" not in mcols:
+            con.execute("ALTER TABLE messages ADD COLUMN speaker_identity "
+                        "TEXT NOT NULL DEFAULT ''")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
         # Cheap (row-count comparison) and safe (no-op unless desynced) — see
