@@ -1,10 +1,10 @@
 # Tuning: every knob, what it does, and why you'd turn it
 
-This service works out of the box with no tuning at all. But memory is
-personal, and the defaults are best guesses rather than laws; this page lists
-everything you can change, in plain English, with the reasoning behind each
-default. It is written to be pasted at an AI assistant ("help me set this up
-for my situation") or followed unaided.
+This service works out of the box with no tuning at all. Memory is personal
+though, and the defaults are best guesses rather than laws. Every setting you
+can change is listed here with the reasoning behind its default. Paste this
+page at an AI assistant ("help me set this up for my situation") or follow it
+unaided.
 
 ## How to change a setting
 
@@ -53,15 +53,13 @@ biography. The admin page shows actual words next to budget.
 stronger model than the fact miner. Any Anthropic (`claude-*`) or OpenAI
 model name works; the needed API key must be set.
 
-**The profile's headings are not a setting** (they used to be). The profile
-keeps a fixed spine (Identity, Preferences, Relationships & People at the
-top; Goals & Active Threads, Recent Changes at the bottom) and the model
-names the two to five middle sections from what your facts actually cluster
-around ("Pottery", "The garden build"…). Topics appear when they earn space
-and dissolve as they fade; why the spine is fixed is in
-[MEMORY_DESIGN.md](MEMORY_DESIGN.md). This ran behind a `summary_emergent_topics`
-flag from 2026-07-09 and graduated on 2026-07-26, so there is no fixed-headings
-mode any more; an old value left in your config is simply ignored.
+**The profile's headings are not a setting.** The profile keeps a fixed spine
+(Identity, Preferences, Relationships & People at the top; Goals & Active
+Threads, Recent Changes at the bottom). The model names the two to five middle
+sections from what your facts actually cluster around ("Pottery", "The garden
+build"…). Topics appear when they earn space and dissolve as they fade. Why
+the spine is fixed is in [MEMORY_DESIGN.md](MEMORY_DESIGN.md). A
+`summary_emergent_topics` value left in your config is ignored.
 
 **Importance and permanence.** The miner scores the facts it extracts
 from conversations 1–9: how much a fact matters to understanding you
@@ -118,7 +116,7 @@ you can watch them act on your real data. One consequence worth knowing
 before you go looking for a knob: a recall can come back with fewer
 facts than the limit asked for. Cards that clear neither the similarity
 floor nor a word from the query never enter the ranking, and
-near-duplicates collapse after it; returning fewer honest cards is
+near-duplicates collapse after it; returning fewer accurate cards is
 preferred to padding an answer with noise. If live use convinces you one
 of these constants is wrong, that's a bug report we want.
 
@@ -187,7 +185,7 @@ use:
 
 Your password is stored only as a salted scrypt verifier, never in a
 reversible form, and never handed back to the browser. The endpoints are
-in [API.md](API.md), the threat model and its honest limits in
+in [API.md](API.md), the threat model and its limits in
 [SECURITY.md](../SECURITY.md), and the first-run walkthrough in
 [README.md](../README.md).
 
@@ -227,5 +225,5 @@ check, changing nothing); it's idempotent and safe to repeat.
   review. No trust setting bypasses it.
 - **The episodic record**: ingested messages are immutable.
 
-These are the invariants the rest of the system's honesty depends on
+These are the invariants the rest of the system depends on
 (tested in `tests/test_invariants.py`).

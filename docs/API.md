@@ -295,7 +295,7 @@ discovered:
 These are the code's behaviour as it stands, recorded here so the document
 does not promise a gate the service does not implement.
 
-## Episodic record (the tapes)
+## Episodic record
 
 `POST /ingest`: append transcript messages (idempotent on `(source_app, external_id)`).
 ```json
@@ -389,7 +389,7 @@ conversation's title as last ingested (empty string if the client never sent
 one); `content` is an FTS snippet with `>>match<<` markers, not the whole
 message.
 
-## Ledger (the cards)
+## Ledger
 
 `POST /facts`: save one fact.
 ```json

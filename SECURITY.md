@@ -65,9 +65,7 @@ Also open on loopback, and worth knowing before you assume otherwise:
   but this one returns your own words.
 
 The gate was drawn around exact ledger rows. These four are not exact
-ledger rows, so the gate does not cover them. Stated plainly here
-because the alternative is a reader inferring a guarantee that is not
-in the code.
+ledger rows, so the gate does not cover them.
 
 ## Known limits
 
@@ -75,21 +73,21 @@ in the code.
 - A loopback process can read fact content through `/v1/recall`'s
   bounded projection. A hostile local process is outside this app's
   threat model.
-- No isolation between OS users beyond file permissions. At startup the
-  service chmods exactly two things: `data/` to 0700 and `data/memory.db`
-  to 0600. Two more happen elsewhere. `data/attachments/` is created and
-  chmodded 0700 the first time this process stores or reads an
-  attachment, not at startup, so on an install that has never taken one
-  the directory does not exist. Each attachment file is chmodded 0600
-  when its bytes are first written; storage is content-addressed, so a
-  file already on disk is left as it is rather than re-chmodded. Nothing
-  else under `data/` is chmodded, so snapshots in `data/backups/` and
-  `service.log` keep whatever mode their creator's umask allowed,
-  typically 0644. The SQLite WAL and SHM files are not in that group:
-  SQLite creates them with the mode of the database file itself, so they
-  follow `memory.db` at 0600, and a umask can only clear further bits,
-  never add them. Either way, the 0700 directory is what keeps other
-  users out.
+- No isolation between OS users beyond file permissions. What the service
+  actually sets:
+
+  | path | mode | when |
+  |---|---|---|
+  | `data/` | 0700 | every startup |
+  | `data/memory.db` | 0600 | every startup |
+  | `data/attachments/` | 0700 | first time an attachment is stored or read, so it does not exist on an install that has never taken one |
+  | each attachment file | 0600 | when its bytes are first written; storage is content-addressed, so a file already on disk is left as it is |
+  | `data/backups/`, `service.log` | whatever the creator's umask allowed, typically 0644 | not chmodded at all |
+
+  The SQLite WAL and SHM files follow `memory.db` at 0600: SQLite creates
+  them with the database file's own mode, and a umask can only clear
+  further bits, never add them. Either way, the 0700 directory is what
+  keeps other users out.
 
 ## Operational notes
 

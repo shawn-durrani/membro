@@ -18,10 +18,10 @@ Meet "Sam." Here's a three-step poisoning, none of it done on purpose by the use
 
 2. **The model launders the fiction into a claim.** Later Sam asks a model *"what do
    you know about me?"* The model, summarising loosely, writes *"Sam is based in
-   Metropolis."* The note-taker mines that assistant summary and files a card:
+   Metropolis."* The miner reads that assistant summary and files a card:
    *Sam lives in Metropolis.*
 
-3. **The lie multiplies.** The note-taker is shown the current ledger (it has to be;
+3. **The lie multiplies.** The miner is shown the current ledger (it has to be;
    that's how it de-dupes and detects supersessions). Now *Metropolis* looks
    canonical, so it gets restated and reinforced, stamped onto home-renovation chats,
    scheduling chats, chats that never mentioned any city at all.
@@ -76,9 +76,9 @@ summary, flagged low-confidence), never silently trusted. A human clears the que
    quarantine walls, so at worst they land in review, never silently dropped. The
    verbatim message always survives in the episodic record, so nothing is lost.
 
-## Why the note-taker still sees the ledger
+## Why the miner still sees the ledger
 
-It would be tempting to "fix" contamination by hiding the ledger from the note-taker.
+It would be tempting to "fix" contamination by hiding the ledger from the miner.
 That breaks de-duplication and supersession detection: the miner could no longer tell
 "already known" from "new," or "this updates that." The ledger stays visible; the
 walls make the *write* safe instead. This trade-off is deliberate.
@@ -118,9 +118,7 @@ walls make the *write* safe instead. This trade-off is deliberate.
   When the extractor has to be re-asked for a binding it omitted, the turn it
   names must share the card's own wording, and must be at least as plausible
   a source as any other speaker's turn in the same window. A card
-  nothing could be tied to is stored *unbound*, and the review queue says so,
-  rather than being attributed to whichever message happened to end the mining
-  window. Wrong provenance is quieter than a wrong fact and harder to unpick:
+  nothing could be tied to is stored *unbound*, and the review queue says so. Wrong provenance is quieter than a wrong fact and harder to unpick:
   it makes a guest's sentence, or a synthesis of several turns, read like
   something the owner said.
 - **A re-mine can't duplicate a card that's still current.** Two mining passes over

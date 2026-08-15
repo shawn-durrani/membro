@@ -1,7 +1,7 @@
-# How memory works, and how we're refining it
+# How memory works
 
-Plain-English first, then the limits and the plan. For the cited research behind the
-refinements see [REFERENCES.md](REFERENCES.md); for the wire contract see
+The model in plain English, then what is capped and what is not. The cited
+research is in [REFERENCES.md](REFERENCES.md), the wire contract in
 [API.md](API.md). No real personal data appears here; examples are invented.
 
 ## Three layers, three jobs
@@ -10,40 +10,38 @@ refinements see [REFERENCES.md](REFERENCES.md); for the wire contract see
    real date and who said it. Never edited. Ground truth. Searchable verbatim.
    Files that travelled with messages (pasted documents, PDFs, images) are part
    of the tapes too: stored whole on disk, their text extracted where possible so
-   search and the note-taker see it. A memory that silently dropped what you
+   search and the miner see it. A memory that silently dropped what you
    pasted wouldn't be ground truth.
 2. **The cards** (the ledger): short durable facts distilled from the tapes, one
    fact per card. **Append-only**: a card is never thrown away; when something
    changes, the old card is flipped face-down (*superseded*) and kept as history.
-3. **The cheat-sheet** (the summary): a one-page profile built from the face-up
-   cards, handed to the models at the start of every chat so they know you without a
+3. **The profile** (the summary): one page built from the face-up cards, handed to the models at the start of every chat so they know you without a
    lookup. It is a *cache* over the cards, and the cards remain the source of
    truth.
 
-A cheap "note-taker" model reads each conversation on the way out and writes cards; a
-"bouncer" (the four extraction walls) checks each card before it's trusted.
+A cheap miner model reads each conversation on the way out and writes cards.
+The four extraction walls check each card before it is trusted.
 
-Alongside the three layers sits **the visitor book** (the access log):
+Alongside the three layers sits **the access log**:
 every deep recall, history search and summary fetch, from the chat app
 and from the model-facing MCP tools alike, appends one row saying when it
 happened and where the request came from. How much detail the row carries
 depends on the kind: a recall records the question and which cards came
 back, with their scores; a history search records the question and how
 many messages matched (the results are tapes, not cards); a summary fetch
-records only that the cheat-sheet was read. It changes nothing about
+records only that the profile was read. It changes nothing about
 what's remembered; it's how the system can later show you your memory
 being *used* (the Mathematics page's live view reads it) and, eventually,
 let often-recalled cards resist forgetting (reinforce-on-reuse).
 Browsing the ledger *directly* (the admin page's Ledger table, or the
-read-only admin MCP tools) is not logged today; the visitor book covers
+read-only admin MCP tools) is not logged today; the access log covers
 lookups made on a model's behalf rather than your own inspection.
 
 ## What is capped, and what is not
 
-This is the part worth being precise about, because "cap" means several
-different things here, and **only two of them are real limits**: how much
-of one long message the note-taker reads, and how many cards the
-cheat-sheet folds.
+"Cap" means several different things here and **only two of them are real
+limits**: how much of one long message the miner reads, and how many cards
+the profile folds.
 
 ### Storage: never capped
 The ledger holds unlimited cards. Nothing is ever dropped, deleted, or aged out by
@@ -51,8 +49,8 @@ the software; a fact only ever becomes *superseded* or *quarantined* (both
 reversible, both kept). The database growing is fine: invalid cards cost nothing
 because they're simply not shown to the models.
 
-### What the note-taker reads: bounded per message (a real limit)
-The note-taker reads a *bounded view* of each message: the message plus
+### What the miner reads: bounded per message (a real limit)
+The miner reads a *bounded view* of each message: the message plus
 any text extracted from the files that travelled with it, truncated to
 **20,000 characters** for extraction only. So a 200,000-character pasted
 document contributes its first 20,000 characters to the cards; the tapes
@@ -60,8 +58,7 @@ still keep every byte, and a history search still finds any word of it,
 including inside attached files. Long or long-idle conversations are mined
 in windows of **120 messages / ~350,000 characters**, each window advancing a
 watermark so an interrupted run resumes where it stopped instead of
-re-reading (or overflowing) what it already mined. The honest reason for
-both bounds: what the note-taker reads has to fit in one model call.
+re-reading (or overflowing) what it already mined. Both bounds exist because what the miner reads has to fit in one model call.
 
 ### Reading the ledger yourself (the admin UI): paged rather than capped
 The ledger table fetches a page at a time (200 rows) for browser performance, then
@@ -81,7 +78,7 @@ deliberate: the model wants the few cards that bear on the question rather than
 1,000 facts dumped into a tool result, so ranking plus a small limit is the
 right behaviour here.
 
-### The summary (the always-on cheat-sheet): folds ~500 cards (a real limit)
+### The profile (always on): folds ~500 cards (a real limit)
 The profile is rebuilt by *folding*: one pass in which the selected cards
 are read together and rewritten into the one-page profile. The fold is fed
 two pools of currently-valid cards: **up to 200 durable cards + up to 300
@@ -91,7 +88,7 @@ competition; see below).
 Below ~500 facts, everything you have is represented: the two pools together
 hold more cards than the ledger does, so nothing has to be left out. Past
 that the fold hits its ceiling and cards start being left out of the
-cheat-sheet, out-selected on merit. So *which* cards make it matters. Selection (`weighting.py`, mechanisms cited
+profile, out-selected on merit. So *which* cards make it matters. Selection (`weighting.py`, mechanisms cited
 in [REFERENCES.md](REFERENCES.md)) is:
 
 - **Recency × importance**, decaying on the card's true `event_date` (never
@@ -143,8 +140,7 @@ separation is the load-bearing structure. But the middle sections are named
 by the model from what your facts actually cluster around: a hobby, a
 project, a career thread. Topics appear when they earn their space and
 dissolve as their facts fade; the forgetting curve becomes visible in the
-document's own table of contents. (Research lineage and the honest caveats
-are in [REFERENCES.md](REFERENCES.md). This began behind a config flag as a
+document's own table of contents. (Research lineage and the caveats are in [REFERENCES.md](REFERENCES.md). This began behind a config flag as a
 reversible experiment and later became the only layout; there is no
 fixed-headings mode to switch back to.)
 
@@ -155,27 +151,17 @@ job routed to a stronger model
 deserves space is worth paying for; the cheap miner keeps the high-volume
 extraction work.
 
-## How we're refining it further
+## What is planned
 
-The direction (researched and cited in [REFERENCES.md](REFERENCES.md); future
-work is tracked in the public issues):
+Per-section fold budgets, half-life tuning on real data, incremental rebuild,
+and consolidation v2 (clustered merge proposals you approve). The research
+behind each is in [REFERENCES.md](REFERENCES.md); the work itself is tracked
+in the public issues.
 
-- **Per-section budgets** so each profile section has its own slice of the fold,
-  plus dynamic reallocation when one section runs hot.
-- **Half-life tuning**: the 30-day base constant is a researched starting
-  point; real-world feel decides where it lands.
-- **Incremental rebuild**: fold only new/changed cards instead of re-reading all 500
-  every time, so the cheat-sheet stays cheap as the ledger grows.
-- **Consolidation v2**: cluster related cards and propose merges/supersessions
-  (advisory; you still approve), so the ledger stays tidy and the 500 budget spends
-  on distinct facts, not near-duplicates. Its clusters also unlock a saturating
-  per-topic frequency boost (an active thread surfaces; a noisy topic can't
-  monopolise).
-
-Underneath all of it, one principle: **the ledger is the system of record; the
-summary is a fast cache over it.** The refinements make the cache smarter without
-ever making it the source of truth, so a two-year-old stable fact is always still
-recallable even if it's not in today's profile.
+Underneath all of it, one principle: **the ledger is the system of record and
+the profile is a fast cache over it.** A refinement makes the cache smarter
+without ever making it the source of truth, so a two-year-old stable fact
+stays recallable even when it is not in today's profile.
 
 ## Why SQLite
 
@@ -190,7 +176,7 @@ rather than a database swap. And because clients only ever speak the versioned
 HTTP contract, never the database itself, the choice is an implementation
 detail that could be replaced without breaking anyone.
 
-## Current limitations, stated plainly
+## Current limitations
 - Summary selection is salience-weighted but not yet section-budgeted (the word
   budget has per-section caps; the *fold selection* doesn't yet); the decay
   half-life is untuned.

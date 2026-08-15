@@ -19,8 +19,10 @@ sessions with write access working for the maintainer:
 
 - The suite and every workflow run keyless. Never add a hard dependency
   on an API key.
-- No real personal data in any diff: synthetic roster only (see the PR
-  template).
+- No real personal data in any diff. The fleet synthetic roster: people
+  Alex, Sam, Dave, Mateo; place Fairhaven; companies AcmeCo, Initech,
+  Globex. The eval corpora keep their own role-named cast, where the
+  name states the relationship being tested.
 - `data/` is the user's memory. Never read, copy, or quote its contents
   into code, tests, docs, commits, or chat. Debug with disposable
   stores.
