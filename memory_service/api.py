@@ -81,11 +81,22 @@ class IngestAttachment(BaseModel):
     data_b64: str = Field(..., max_length=34_000_000)
 
 
+class SpeakerIdentity(BaseModel):
+    """#33, contract 1.2: which person record the sending app believes
+    spoke, and how it knows. The label string stays authoritative
+    provenance; this is the structured belief beside it."""
+    person: str | None = None            # membro person slug
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    method: str = ""    # introduced | voice-match | by-elimination | owner-correction
+
+
 class IngestMessage(BaseModel):
     external_id: str
     speaker: str
     content: str
     created_at: str  # ISO 8601
+    # additive, contract 1.2 (#33): absent = exactly the 1.1 behaviour
+    speaker_identity: SpeakerIdentity | None = None
     # additive, contract 1.0 (2026-07-11); per-message count capped so one
     # request can't balloon past what the per-file bound intended (security
     # pass 2026-07-11 — the trust boundary is local, the memory isn't infinite)
@@ -1035,6 +1046,8 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         try:
             msgs = [{"external_id": m.external_id, "speaker": m.speaker,
                      "content": m.content, "created_at": _ts(m.created_at),
+                     "speaker_identity": (m.speaker_identity.model_dump()
+                                          if m.speaker_identity else None),
                      "attachments": [a.model_dump() for a in m.attachments]}
                     for m in body.messages]
             res = episodic.ingest(c, body.source_app, body.conversation_id,

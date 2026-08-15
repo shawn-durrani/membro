@@ -11,6 +11,7 @@ local, uncapped memory is to never lose this stuff.
 """
 
 import base64
+import json
 import hashlib
 import io
 import logging
@@ -104,10 +105,12 @@ def ingest(con, source_app: str, conversation_external_id: str,
             (source_app, conversation_external_id, title, db.now())).lastrowid
     ingested = skipped = attached = 0
     for m in messages:
+        identity = m.get("speaker_identity")
         cur = con.execute(
             "INSERT OR IGNORE INTO messages(conversation_id, external_id, speaker, "
-            "content, created_at) VALUES(?,?,?,?,?)",
-            (conv_id, m["external_id"], m["speaker"], m["content"], m["created_at"]))
+            "content, created_at, speaker_identity) VALUES(?,?,?,?,?,?)",
+            (conv_id, m["external_id"], m["speaker"], m["content"], m["created_at"],
+             json.dumps(identity) if identity else ""))
         if cur.rowcount:
             ingested += 1
         else:

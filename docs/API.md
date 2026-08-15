@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.1
+# Memory Service API: the HTTP contract, v1.2
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -8,6 +8,13 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- **1.2 (#33): messages on `/ingest` may carry `speaker_identity`** -
+  which person record the sending app believes spoke (`person` slug,
+  `confidence` 0..1, `method`: introduced | voice-match | by-elimination
+  | owner-correction). Stored verbatim beside the message. A fact born
+  from an identified message links to that person when the identity is
+  strong (introduced/owner-correction always; voice-match at 0.8+; weaker
+  never auto-binds). Absent field = exactly the 1.1 behaviour.
 - **1.1: some endpoints require the owner credential ALWAYS, even on
   loopback.** This is a *separate, stricter* check from the loopback-vs-token
   rule above. Sixteen routes carry that always-on check, and these are
@@ -57,7 +64,7 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.1",
+  "contract_version": "1.2",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
   "capabilities": {"embeddings": true, "miner_model": "claude-haiku-4-5"},

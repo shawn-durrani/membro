@@ -23,7 +23,12 @@ for review instead of vanishing, attachments are counted not cascaded,
 and every eraser journals a content-free `erasures` row - what was
 erased is gone, that it was erased is not.
 
-**Person records (#33).** The admin surface renames (owner-set, clients
+**Person records (#33).** The wire identity (contract 1.2,
+`test_identity_wire.py`): `speaker_identity` stores verbatim and absent
+means 1.1 behaviour exactly; facts bind per the owner's policy
+(introduced/owner-correction always, voice-match at 0.8+, weaker never);
+merged slugs resolve to their winner, forgotten slugs bind nothing, and
+binding never changes whether a fact is held. Admin surface and base: The admin surface renames (owner-set, clients
 can't undo), merges (aliases, clips and fact links re-point; supersede
 not rewrite; refused on forgotten sides), moves and deletes single clips
 (moves collapse onto duplicates; deletes journal and unlink bytes) - all

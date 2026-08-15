@@ -4,6 +4,14 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- The wire knows who spoke (#33, final slice; contract 1.2). A message
+  arriving on ingest may carry the sending app's structured belief -
+  which person record, how confident, and how it knows. Facts mined
+  from such a message link to the person automatically when the
+  identity is human-confirmed (introduced, owner-corrected) or a
+  strong voice match; weaker guesses never auto-link. Old clients are
+  untouched: without the field everything behaves exactly as 1.1.
+
 - People are manageable from the admin page (#33, slice 3): rename
   (apps can't change it back), merge duplicates (spellings, clips and
   linked facts move across), listen to any stored clip, move or delete
