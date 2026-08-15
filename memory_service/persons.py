@@ -221,3 +221,108 @@ def forget(con, settings, person) -> dict:
     con.commit()
     return {"forgotten": person["slug"], "clips_deleted": len(rows),
             "files_removed": removed, "facts_held": held}
+
+
+def rename(con, person, display_name: str, relationship=None) -> dict:
+    """The owner renames (admin surface): sets the name AND the owner-set
+    flag, so no client upsert can change it again. Relationship is
+    owner-set free text (decision 5)."""
+    display_name = " ".join((display_name or "").split())
+    if not display_name:
+        raise ValueError("a name is required")
+    now = time.time()
+    con.execute("UPDATE persons SET display_name=?, name_owner_set=1, "
+                "updated_at=? WHERE id=?",
+                (display_name, now, person["id"]))
+    if relationship is not None:
+        con.execute("UPDATE persons SET relationship=? WHERE id=?",
+                    (relationship, person["id"]))
+    con.commit()
+    return out(con, con.execute("SELECT * FROM persons WHERE id=?",
+                                (person["id"],)).fetchone())
+
+
+def move_clip(con, settings, person, anchor_id: int, to_person) -> dict:
+    """Re-point one clip to the right person - the owner's correction
+    (or crossband replaying one made there). The bytes stay; only the
+    attribution changes. Refused onto a forgotten person."""
+    if to_person["forgotten_at"]:
+        raise ValueError("cannot move a clip to a forgotten person")
+    row = con.execute(
+        "SELECT id, sha256 FROM voice_anchors WHERE id=? AND person_id=?",
+        (anchor_id, person["id"])).fetchone()
+    if not row:
+        return {"moved": False, "reason": "no such clip"}
+    dup = con.execute(
+        "SELECT id FROM voice_anchors WHERE person_id=? AND sha256=?",
+        (to_person["id"], row["sha256"])).fetchone()
+    now = time.time()
+    if dup:
+        # the target already holds these bytes: the move collapses to a
+        # delete of the mis-attributed row
+        con.execute("DELETE FROM voice_anchors WHERE id=?", (row["id"],))
+    else:
+        con.execute("UPDATE voice_anchors SET person_id=? WHERE id=?",
+                    (to_person["id"], row["id"]))
+    con.execute("UPDATE persons SET updated_at=? WHERE id IN (?, ?)",
+                (now, person["id"], to_person["id"]))
+    con.commit()
+    return {"moved": True, "to": to_person["slug"]}
+
+
+def delete_clip(con, settings, person, anchor_id: int) -> dict:
+    """Delete one clip - the owner's judgement that this audio should not
+    exist under this person (or crossband replaying that judgement).
+    Journalled like every erasure; bytes unlinked when no other row
+    shares them."""
+    row = con.execute(
+        "SELECT id, sha256, stored_name FROM voice_anchors "
+        "WHERE id=? AND person_id=?", (anchor_id, person["id"])).fetchone()
+    if not row:
+        return {"deleted": False, "reason": "no such clip"}
+    con.execute("DELETE FROM voice_anchors WHERE id=?", (row["id"],))
+    shared = con.execute(
+        "SELECT 1 FROM voice_anchors WHERE stored_name=? LIMIT 1",
+        (row["stored_name"],)).fetchone()
+    removed = False
+    if not shared:
+        (clips_dir(settings) / row["stored_name"]).unlink(missing_ok=True)
+        removed = True
+    con.execute("UPDATE persons SET updated_at=? WHERE id=?",
+                (time.time(), person["id"]))
+    db.journal_erasure(con, "voice",
+                       f"clip:{row['sha256'][:12]} person:{person['slug']} "
+                       f"file_removed:{removed}")
+    con.commit()
+    return {"deleted": True, "file_removed": removed}
+
+
+def merge(con, settings, loser, winner) -> dict:
+    """Fold LOSER into WINNER - aliases, clips and fact links re-point,
+    the loser row stays with merged_into set (supersede, never rewrite).
+    Refused when either is forgotten. Crossband merges replay through
+    this too, so a merged-away membro record can never resurrect stale
+    clips into a rebuild."""
+    if loser["id"] == winner["id"]:
+        raise ValueError("cannot merge a person into themselves")
+    if loser["forgotten_at"] or winner["forgotten_at"]:
+        raise ValueError("cannot merge a forgotten person")
+    now = time.time()
+    con.execute("UPDATE person_aliases SET person_id=? WHERE person_id=?",
+                (winner["id"], loser["id"]))
+    # clips the winner already holds (same bytes) would violate the
+    # per-person sha uniqueness - drop the loser's duplicate rows first
+    con.execute(
+        "DELETE FROM voice_anchors WHERE person_id=? AND sha256 IN "
+        "(SELECT sha256 FROM voice_anchors WHERE person_id=?)",
+        (loser["id"], winner["id"]))
+    con.execute("UPDATE voice_anchors SET person_id=? WHERE person_id=?",
+                (winner["id"], loser["id"]))
+    con.execute("UPDATE facts SET person_id=? WHERE person_id=?",
+                (winner["id"], loser["id"]))
+    con.execute("UPDATE persons SET merged_into=?, updated_at=? WHERE id=?",
+                (winner["id"], now, loser["id"]))
+    con.execute("UPDATE persons SET updated_at=? WHERE id=?",
+                (now, winner["id"]))
+    con.commit()
+    return {"merged": loser["slug"], "into": winner["slug"]}

@@ -191,3 +191,111 @@ def test_every_route_is_owner_gated(client):
         "data_b64": _b64(WAV)}).status_code in (401, 403)
     assert bare.get("/v1/persons/p-alex1/anchors").status_code in (401, 403)
     assert bare.post("/v1/persons/p-alex1/forget").status_code in (401, 403)
+
+
+def test_rename_is_owner_set_and_never_creates(client):
+    _mk(client)
+    r = client.patch("/v1/persons/p-alex1", json={
+        "display_name": "Alexandra", "relationship": "colleague"})
+    assert r.json()["display_name"] == "Alexandra"
+    assert r.json()["name_owner_set"] is True
+    # a client upsert can no longer change it
+    p = _mk(client, name="Alex")
+    assert p["display_name"] == "Alexandra"
+    assert p["relationship"] == "colleague"
+    # rename never creates (decision 2)
+    assert client.patch("/v1/persons/p-nobody", json={
+        "display_name": "X Y"}).status_code == 404
+
+
+def test_move_clip_repoints_and_collapses_duplicates(client):
+    _mk(client, slug="p-a", name="Blair")
+    _mk(client, slug="p-b", name="Casey")
+    client.post("/v1/persons/p-a/anchors", json={"data_b64": _b64(WAV)})
+    a = client.get("/v1/persons/p-a/anchors").json()["anchors"][0]
+
+    r = client.post(f"/v1/persons/p-a/anchors/{a['id']}/move",
+                    json={"to": "p-b"})
+    assert r.json() == {"moved": True, "to": "p-b"}
+    assert client.get("/v1/persons/p-a/anchors").json()["anchors"] == []
+    b_rows = client.get("/v1/persons/p-b/anchors").json()["anchors"]
+    assert len(b_rows) == 1 and b_rows[0]["sha256"] == a["sha256"]
+    # moving bytes the target already holds collapses to a delete
+    client.post("/v1/persons/p-a/anchors", json={"data_b64": _b64(WAV)})
+    a2 = client.get("/v1/persons/p-a/anchors").json()["anchors"][0]
+    client.post(f"/v1/persons/p-a/anchors/{a2['id']}/move",
+                json={"to": "p-b"})
+    assert client.get("/v1/persons/p-a/anchors").json()["anchors"] == []
+    assert len(client.get("/v1/persons/p-b/anchors"
+                          ).json()["anchors"]) == 1
+
+
+def test_delete_clip_is_journalled_and_unlinks_bytes(client, settings):
+    _mk(client)
+    client.post("/v1/persons/p-alex1/anchors", json={"data_b64": _b64(WAV)})
+    a = client.get("/v1/persons/p-alex1/anchors").json()["anchors"][0]
+    r = client.delete(f"/v1/persons/p-alex1/anchors/{a['id']}")
+    assert r.json() == {"deleted": True, "file_removed": True}
+    assert list((settings.data_dir / "voice_anchors").iterdir()) == []
+    con = mdb.connect(settings.db_path)
+    rows = con.execute("SELECT kind, ref FROM erasures").fetchall()
+    con.close()
+    assert rows and rows[-1]["kind"] == "voice"
+    assert a["sha256"][:12] in rows[-1]["ref"]
+    assert client.delete(
+        f"/v1/persons/p-alex1/anchors/{a['id']}").status_code == 404
+
+
+def test_merge_repoints_everything_and_supersedes(client, settings):
+    # loser with an alias, a clip and a linked fact
+    client.post("/v1/ingest", json={
+        "source_app": "multi-model-chat", "conversation_id": "c1",
+        "title": "t", "messages": [{
+            "external_id": "g1", "speaker": "guest:sammy",
+            "content": "sammy said something worth keeping here",
+            "created_at": "2026-08-13T10:00:00+10:00"}]})
+    con = mdb.connect(settings.db_path)
+    mid = con.execute("SELECT id FROM messages").fetchone()["id"]
+    fid = ledger.add_fact(con, "Sammy rides a red bike.",
+                          client.app.state.settings, origin_agent="miner",
+                          source_app="multi-model-chat", conversation_id=1,
+                          source_message_id=mid)["id"]
+    con.close()
+    _mk(client, slug="p-loser", name="Sammy")
+    _mk(client, slug="p-winner", name="Sam")
+    client.post("/v1/persons/p-loser/anchors", json={"data_b64": _b64(WAV)})
+
+    r = client.post("/v1/persons/p-loser/merge", json={"into": "p-winner"})
+    assert r.json() == {"merged": "p-loser", "into": "p-winner"}
+    winner = [p for p in client.get("/v1/persons").json()["persons"]
+              if p["slug"] == "p-winner"][0]
+    assert winner["clip_count"] == 1
+    assert "Sammy" in [a["alias"] for a in winner["aliases"]]
+    loser = [p for p in client.get("/v1/persons").json()["persons"]
+             if p["slug"] == "p-loser"][0]
+    assert loser["merged_into"] is not None
+    con = mdb.connect(settings.db_path)
+    linked = con.execute("SELECT person_id FROM facts WHERE id=?",
+                         (fid,)).fetchone()["person_id"]
+    winner_id = con.execute("SELECT id FROM persons WHERE slug='p-winner'"
+                            ).fetchone()["id"]
+    con.close()
+    assert linked == winner_id
+    # merging with a forgotten side is refused (410: the route names
+    # the forgotten person before merge logic ever runs)
+    client.post("/v1/persons/p-winner/forget")
+    assert client.post("/v1/persons/p-loser/merge",
+                       json={"into": "p-winner"}).status_code == 410
+
+
+def test_admin_routes_are_owner_gated(client):
+    _mk(client)
+    bare = TestClient(client.app, base_url="http://127.0.0.1")
+    assert bare.patch("/v1/persons/p-alex1", json={
+        "display_name": "X Y"}).status_code in (401, 403)
+    assert bare.post("/v1/persons/p-alex1/anchors/1/move",
+                     json={"to": "p-b"}).status_code in (401, 403)
+    assert bare.delete("/v1/persons/p-alex1/anchors/1"
+                       ).status_code in (401, 403)
+    assert bare.post("/v1/persons/p-alex1/merge",
+                     json={"into": "p-b"}).status_code in (401, 403)

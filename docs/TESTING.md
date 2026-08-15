@@ -23,7 +23,11 @@ for review instead of vanishing, attachments are counted not cascaded,
 and every eraser journals a content-free `erasures` row - what was
 erased is gone, that it was erased is not.
 
-**Person records (#33).** Owner-set names survive client updates; an
+**Person records (#33).** The admin surface renames (owner-set, clients
+can't undo), merges (aliases, clips and fact links re-point; supersede
+not rewrite; refused on forgotten sides), moves and deletes single clips
+(moves collapse onto duplicates; deletes journal and unlink bytes) - all
+owner-gated, all in `test_person_records.py`. And the slice-1 base: Owner-set names survive client updates; an
 alias can never be reassigned to a different person; a model speaker
 label can never become a person; clips are content-addressed and
 owner-only on disk; sync includes forgotten marks; forget deletes the

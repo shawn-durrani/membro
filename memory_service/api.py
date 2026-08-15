@@ -1525,6 +1525,82 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
             raise HTTPException(410, "clip bytes missing on disk")
         return FileResponse(path, media_type="audio/wav")
 
+    class RenameBody(BaseModel):
+        display_name: str = Field(min_length=1, max_length=80)
+        relationship: str | None = None
+
+    @app.patch("/v1/persons/{slug}", dependencies=[Depends(_admin_auth)])
+    def rename_person(slug: str, body: RenameBody):
+        # The owner's rename (admin surface): sets the owner flag, so no
+        # client upsert can change the name again. Never creates
+        # (decision 2 - persons are born in capture apps only).
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            return persons.rename(c, person, body.display_name,
+                                  body.relationship)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        finally:
+            c.close()
+
+    class MoveBody(BaseModel):
+        to: str = Field(min_length=1, max_length=80)
+
+    @app.post("/v1/persons/{slug}/anchors/{anchor_id}/move",
+              dependencies=[Depends(_admin_auth)])
+    def move_anchor(slug: str, anchor_id: int, body: MoveBody):
+        # A human correction (made here, or made in crossband and replayed
+        # by its sync): this recording belongs to someone else. The bytes
+        # stay; the attribution changes - so a rebuild can never
+        # resurrect the mis-attribution.
+        c = con()
+        try:
+            person = _person_or_404(c, slug, allow_forgotten=True)
+            to_person = _person_or_404(c, body.to)
+            r = persons.move_clip(c, settings, person, anchor_id, to_person)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        finally:
+            c.close()
+        if not r.get("moved"):
+            raise HTTPException(404, r.get("reason", "no such clip"))
+        return r
+
+    @app.delete("/v1/persons/{slug}/anchors/{anchor_id}",
+                dependencies=[Depends(_admin_auth)])
+    def delete_anchor(slug: str, anchor_id: int):
+        # The clip eraser - human judgement that this audio should not
+        # exist under this person. Journalled like every eraser.
+        c = con()
+        try:
+            person = _person_or_404(c, slug, allow_forgotten=True)
+            r = persons.delete_clip(c, settings, person, anchor_id)
+        finally:
+            c.close()
+        if not r.get("deleted"):
+            raise HTTPException(404, r.get("reason", "no such clip"))
+        return r
+
+    class MergeBody(BaseModel):
+        into: str = Field(min_length=1, max_length=80)
+
+    @app.post("/v1/persons/{slug}/merge",
+              dependencies=[Depends(_admin_auth)])
+    def merge_person(slug: str, body: MergeBody):
+        # Fold {slug} into {into}: aliases, clips and fact links re-point;
+        # the loser row stays, marked merged_into (supersede, never
+        # rewrite). Crossband merges replay through here too.
+        c = con()
+        try:
+            loser = _person_or_404(c, slug)
+            winner = _person_or_404(c, body.into)
+            return persons.merge(c, settings, loser, winner)
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        finally:
+            c.close()
+
     @app.post("/v1/persons/{slug}/forget",
               dependencies=[Depends(_admin_auth)])
     def forget_person(slug: str):

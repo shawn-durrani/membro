@@ -661,6 +661,23 @@ decision: no server-side pruning).
 `GET /v1/persons/{slug}/anchors` and `.../{id}/file`: list and download,
 for rebuilding a lost client cache.
 
+`PATCH /v1/persons/{slug}`: the owner's rename (sets the owner flag, so
+no client upsert changes the name again) and relationship. Never creates.
+
+`POST /v1/persons/{slug}/anchors/{id}/move` (body `{"to": slug}`): a human
+correction - this recording belongs to someone else. Bytes stay,
+attribution changes; moving bytes the target already holds collapses to a
+delete of the mis-attributed row. Crossband replays its local moves
+through this, so a rebuild can never resurrect a corrected clip.
+
+`DELETE /v1/persons/{slug}/anchors/{id}`: delete one clip - journalled in
+`erasures`, bytes unlinked when no other row shares them. Crossband
+replays its local clip deletes through this.
+
+`POST /v1/persons/{slug}/merge` (body `{"into": slug}`): fold one person
+into another - aliases, clips and fact links re-point; the losing row
+stays, marked `merged_into`. Refused (410) when either side is forgotten.
+
 `POST /v1/persons/{slug}/forget`: the one-press forget. Deletes the
 audio from disk (one content-free `erasures` row), marks the person
 forgotten, and moves their approved facts back into review as one
