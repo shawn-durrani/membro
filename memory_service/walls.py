@@ -145,9 +145,21 @@ def drop_diagnostics() -> dict[str, int]:
         return dict(_DROP_COUNTS)
 
 
+# A capture position counts as a sentence start at the beginning of the
+# text or after terminal punctuation. Used by proper_nouns (#57): the miner
+# often opens a fact with a capitalised ordinary word ("Achieving...",
+# "Proposed fix..."), which is capitalisation-by-position, not a name.
+_SENT_START_RE = re.compile(r"(?:^|[.!?:;]\s+|\n\s*)[\"'(]*$")
+
+
+def _dehyphen(s: str) -> str:
+    return s.replace("-", "").replace("–", "")
+
+
 def proper_nouns(text: str, allowlist: set[str]) -> list[str]:
+    text = text or ""
     out = []
-    for m in _CAP_RE.finditer(text or ""):
+    for m in _CAP_RE.finditer(text):
         ph = m.group(0).strip().strip(".,;:!?'\"")
         low = ph.lower()
         if not ph or low in _STOPWORDS or low in allowlist:
@@ -155,20 +167,44 @@ def proper_nouns(text: str, allowlist: set[str]) -> list[str]:
         # multi-word capture made only of stopwords/allowed words ("The API")
         if all(t in _STOPWORDS or t in allowlist for t in low.split()):
             continue
+        # #57: a single word capitalised only because it starts a sentence is
+        # not an entity. It stays one when the same capitalised word recurs
+        # elsewhere in the fact (a real name used as an opener does).
+        if (" " not in ph and _SENT_START_RE.search(text[:m.start()])
+                and len(re.findall(rf"\b{re.escape(ph)}\b", text)) == 1):
+            continue
         out.append(ph)
     return out
+
+
+def _token_supported(low_tok: str, orig_tok: str, src: str) -> bool:
+    """One entity token supports grounding when found in the source. Tokens of
+    4+ characters keep the original loose substring match. Shorter tokens
+    qualify only when they look like hardware/acronym vocabulary (contain a
+    digit, or were written in capitals) and match on a word boundary (#57) —
+    'gb' must not ground off 'rugby'."""
+    if len(low_tok) >= 4:
+        return low_tok in src
+    if len(low_tok) >= 2 and (any(c.isdigit() for c in low_tok) or orig_tok.isupper()):
+        return re.search(rf"\b{re.escape(low_tok)}\b", src) is not None
+    return False
 
 
 def ungrounded_entities(fact: str, source_text: str, allowlist: set[str]) -> list[str]:
     """Proper nouns in `fact` with no support in `source_text`. Empty = grounded."""
     src = (source_text or "").lower()
+    src_dehyphened = _dehyphen(src)
     missing = []
     for ent in proper_nouns(fact, allowlist):
         low = ent.lower()
         if low in src:
             continue
-        toks = [t for t in re.split(r"[\s\-/.]+", low) if len(t) >= 4]
-        if toks and any(t in src for t in toks):
+        # #57: spelling normalisation — "Wi-Fi" grounds off "wifi" and the
+        # reverse, comparing hyphen-stripped forms of both sides.
+        if _dehyphen(low) in src_dehyphened:
+            continue
+        pairs = zip(re.split(r"[\s\-/.]+", low), re.split(r"[\s\-/.]+", ent))
+        if any(lt and _token_supported(lt, ot, src) for lt, ot in pairs):
             continue
         missing.append(ent)
     return missing
