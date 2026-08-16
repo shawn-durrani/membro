@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.2
+# Memory Service API: the HTTP contract, v1.3
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -10,6 +10,13 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- **1.3 (#55): messages on `/ingest` and saves on `POST /facts` may carry
+  `web_sources`**: the web domains a tool read in the round that produced
+  the message or save (a list of strings, max 20). Stored verbatim beside
+  the message. A fact born from a stamped message, or saved with a stamp,
+  is quarantined with a `web-derived:` reason naming the domains. A public
+  page must not write memory by phrasing a sentence well. The origin trust
+  gate outranks the stamp. Absent field = exactly the 1.2 behaviour.
 - **1.2 (#33): messages on `/ingest` may carry `speaker_identity`**:
   which person record the sending app believes spoke (`person` slug,
   `confidence` 0..1, `method`: introduced | voice-match | by-elimination
@@ -77,7 +84,7 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.2",
+  "contract_version": "1.3",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
   "capabilities": {"embeddings": true, "miner_model": "claude-haiku-4-5"},

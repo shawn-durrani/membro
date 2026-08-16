@@ -97,6 +97,11 @@ class IngestMessage(BaseModel):
     created_at: str  # ISO 8601
     # additive, contract 1.2 (#33): absent = exactly the 1.1 behaviour
     speaker_identity: SpeakerIdentity | None = None
+    # additive, contract 1.3 (#55): domains a web tool touched in the round
+    # that produced this message. A fact born from a stamped message is held
+    # for review - a public page must not write memory by phrasing a
+    # sentence well. Absent = exactly the 1.2 behaviour.
+    web_sources: list[str] = Field([], max_length=20)
     # additive, contract 1.0 (2026-07-11); per-message count capped so one
     # request can't balloon past what the per-file bound intended (security
     # pass 2026-07-11 — the trust boundary is local, the memory isn't infinite)
@@ -127,6 +132,10 @@ class FactBody(BaseModel):
     confidence: str = "high"
     origin_agent: str = "user"
     source_app: str | None = None
+    # additive, contract 1.3 (#55): non-empty = this save happened in a round
+    # that read the web, so the fact is held (the miner cannot be bypassed by
+    # an explicit save).
+    web_sources: list[str] = Field([], max_length=20)
 
 
 class FactPatch(BaseModel):
@@ -1048,6 +1057,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                      "content": m.content, "created_at": _ts(m.created_at),
                      "speaker_identity": (m.speaker_identity.model_dump()
                                           if m.speaker_identity else None),
+                     "web_sources": list(m.web_sources),
                      "attachments": [a.model_dump() for a in m.attachments]}
                     for m in body.messages]
             res = episodic.ingest(c, body.source_app, body.conversation_id,
@@ -1095,7 +1105,8 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                 c, body.content, settings, source="model" if
                 body.origin_agent != "user" else "user",
                 origin_agent=body.origin_agent, source_app=body.source_app,
-                event_date=_ts(body.event_date), confidence=body.confidence)
+                event_date=_ts(body.event_date), confidence=body.confidence,
+                web_sources=body.web_sources)
         except ValueError as e:
             raise HTTPException(422, str(e))
         finally:

@@ -106,11 +106,13 @@ def ingest(con, source_app: str, conversation_external_id: str,
     ingested = skipped = attached = 0
     for m in messages:
         identity = m.get("speaker_identity")
+        webs = m.get("web_sources") or []
         cur = con.execute(
             "INSERT OR IGNORE INTO messages(conversation_id, external_id, speaker, "
-            "content, created_at, speaker_identity) VALUES(?,?,?,?,?,?)",
+            "content, created_at, speaker_identity, web_sources) VALUES(?,?,?,?,?,?,?)",
             (conv_id, m["external_id"], m["speaker"], m["content"], m["created_at"],
-             json.dumps(identity) if identity else ""))
+             json.dumps(identity) if identity else "",
+             json.dumps(webs) if webs else ""))
         if cur.rowcount:
             ingested += 1
         else:

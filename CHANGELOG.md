@@ -5,6 +5,15 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- A fact learnt from a web page is held for review (#55, contract 1.3).
+  Messages on ingest and explicit saves may carry `web_sources`, the
+  domains a web tool read in the round that produced them. A fact born
+  from a stamped turn, or saved with a stamp, quarantines with a
+  `web-derived:` reason naming the domains, and the review queue groups
+  these holds under "Learnt from a web page" with the usual per-group
+  bulk actions. Older clients that never send the field keep exactly
+  the 1.2 behaviour.
+
 - The wire knows who spoke (#33, final slice; contract 1.2). A message
   arriving on ingest may carry the sending app's structured belief -
   which person record, how confident, and how it knows. Facts mined
