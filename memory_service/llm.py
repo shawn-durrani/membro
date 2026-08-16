@@ -61,14 +61,22 @@ def _check_openai_key(model: str, settings) -> None:
 
 
 def utility_complete(prompt: str, settings, max_tokens: int = 1000,
-                     model: str | None = None) -> str:
+                     model: str | None = None,
+                     thinking_budget: int | None = None) -> str:
+    """One text completion. `thinking_budget` (#58) buys the claude branch
+    extended thinking (minimum 1024, and it must stay under max_tokens);
+    the compatible branch ignores it — local servers have no such knob."""
     model = model or settings.miner_model
     if model.startswith("claude"):
         if not os.environ.get("ANTHROPIC_API_KEY"):
             raise MissingKeyError(f"utility model {model} needs ANTHROPIC_API_KEY")
+        extra = {}
+        if thinking_budget:
+            budget = max(1024, min(thinking_budget, max_tokens - 1))
+            extra["thinking"] = {"type": "enabled", "budget_tokens": budget}
         resp = _client("anthropic").messages.create(
             model=model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}])
+            messages=[{"role": "user", "content": prompt}], **extra)
         return "".join(b.text for b in resp.content if b.type == "text").strip()
     _check_openai_key(model, settings)
     resp = _client("openai", settings).chat.completions.create(

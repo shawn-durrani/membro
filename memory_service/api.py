@@ -69,7 +69,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, auth, db, embeddings, episodic, jobs, ledger, mining, passkeys, persons, recall, summary, viz, walls
+from . import access, auth, db, embeddings, episodic, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -357,6 +357,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.backup_scheduler_stop = db.start_backup_scheduler(settings)
     app.router.on_shutdown.append(app.state.backup_scheduler_stop.set)
+    # The judge pass (#58): startup + hourly while enabled; off by default.
+    app.state.judge_scheduler_stop = judge.start_scheduler(settings)
+    app.router.on_shutdown.append(app.state.judge_scheduler_stop.set)
     # Warm the integrity verdict at startup (#79): the one place the full
     # quick_check scan runs synchronously, so no live health probe — and
     # therefore no chat round awaiting one — ever pays for it.
