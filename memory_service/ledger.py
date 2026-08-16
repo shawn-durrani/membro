@@ -54,8 +54,8 @@ def _embed_now(db_path, fact_id: int, content: str, settings) -> None:
 
 def _spawn_embed(settings, fact_id: int, content: str) -> None:
     from . import embeddings
-    if not embeddings.available():
-        return  # keyless: recall degrades to keyword-only anyway
+    if not embeddings.available(settings):
+        return  # no provider: recall degrades to keyword-only anyway
     threading.Thread(target=_embed_now, name=f"embed-{fact_id}", daemon=True,
                      args=(settings.db_path, fact_id, content, settings)).start()
 
