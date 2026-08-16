@@ -42,6 +42,12 @@ class Settings(BaseModel):
     # round) and rebuilds are infrequent — a stronger model is worth it here
     # while the cheap miner keeps the high-volume extraction work.
     summary_model: str = "claude-sonnet-5"
+    # OpenAI-compatible endpoint for every non-claude model name (#59):
+    # Ollama, MLX, LM Studio, or OpenAI itself. Empty = the SDK default
+    # (api.openai.com). With a base URL set, no API key is required.
+    # Point it at an always-on server: mining depends on it, and a server
+    # tied to another app's lifecycle makes mining depend on that app.
+    llm_base_url: str = ""
     embedding_model: str = "text-embedding-3-small"
     memory_summary_words: int = 2000
     # (`summary_emergent_topics` lived here until 2026-07-26 (#13). Emergent

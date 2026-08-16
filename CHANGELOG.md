@@ -5,6 +5,12 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Local models are a first-class choice for the utility layer (#59).
+  A new `llm_base_url` setting points every non-claude model name at an
+  OpenAI-compatible server (Ollama, MLX, LM Studio); with it set, no API
+  key is required for that branch. Defaults are unchanged, cloud key
+  checks still fail loudly, and a dead local endpoint fails loudly too.
+
 - The grounding wall stops holding facts for three mechanical reasons
   (#57). A word capitalised only because it starts a sentence is no
   longer read as a name. "Wi-Fi" now grounds off "wifi" and short
