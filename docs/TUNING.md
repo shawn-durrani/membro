@@ -1,10 +1,10 @@
 # Tuning: every knob, what it does, and why you'd turn it
 
-This service works out of the box with no tuning at all. But memory is
-personal, and the defaults are best guesses rather than laws; this page lists
-everything you can change, in plain English, with the reasoning behind each
-default. It is written to be pasted at an AI assistant ("help me set this up
-for my situation") or followed unaided.
+This service works out of the box with no tuning at all. Memory is personal
+though, and the defaults are best guesses rather than laws. Every setting you
+can change is listed here with the reasoning behind its default. Paste this
+page at an AI assistant ("help me set this up for my situation") or follow it
+unaided.
 
 ## How to change a setting
 
@@ -53,15 +53,13 @@ biography. The admin page shows actual words next to budget.
 stronger model than the fact miner. Any Anthropic (`claude-*`) or OpenAI
 model name works; the needed API key must be set.
 
-**The profile's headings are not a setting** (they used to be). The profile
-keeps a fixed spine (Identity, Preferences, Relationships & People at the
-top; Goals & Active Threads, Recent Changes at the bottom) and the model
-names the two to five middle sections from what your facts actually cluster
-around ("Pottery", "The garden build"…). Topics appear when they earn space
-and dissolve as they fade; why the spine is fixed is in
-[MEMORY_DESIGN.md](MEMORY_DESIGN.md). This ran behind a `summary_emergent_topics`
-flag from 2026-07-09 and graduated on 2026-07-26, so there is no fixed-headings
-mode any more; an old value left in your config is simply ignored.
+**The profile's headings are not a setting.** The profile keeps a fixed spine
+(Identity, Preferences, Relationships & People at the top; Goals & Active
+Threads, Recent Changes at the bottom). The model names the two to five middle
+sections from what your facts actually cluster around ("Pottery", "The garden
+build"…). Topics appear when they earn space and dissolve as they fade. Why
+the spine is fixed is in [MEMORY_DESIGN.md](MEMORY_DESIGN.md). A
+`summary_emergent_topics` value left in your config is ignored.
 
 **Importance and permanence.** The miner scores the facts it extracts
 from conversations 1–9: how much a fact matters to understanding you
@@ -118,7 +116,7 @@ you can watch them act on your real data. One consequence worth knowing
 before you go looking for a knob: a recall can come back with fewer
 facts than the limit asked for. Cards that clear neither the similarity
 floor nor a word from the query never enter the ranking, and
-near-duplicates collapse after it; returning fewer honest cards is
+near-duplicates collapse after it; returning fewer accurate cards is
 preferred to padding an answer with noise. If live use convinces you one
 of these constants is wrong, that's a bug report we want.
 
@@ -142,12 +140,14 @@ Set `mirror_dir` to a folder inside iCloud Drive/Dropbox/OneDrive and every
 snapshot is copied off-machine automatically. This is strongly recommended,
 because the database holds your accumulated memory.
 
-**`auth_token`** is one secret with three jobs: (1) proof that you're the
-owner when you set or reset your admin password, (2) the
-`Authorization: Bearer` credential for machine callers (MCP servers
-such as the optional `membro-admin`, or curl), and (3) the thing that
-lets the service be served beyond localhost at all: with no configured
-value it refuses to bind a non-loopback host. Leaving it unset does
+**`auth_token`** is one secret with three jobs:
+
+1. Proof that you're the owner when you set or reset your admin password.
+2. The `Authorization: Bearer` credential for machine callers: MCP servers
+   such as the optional `membro-admin`, or curl.
+3. The thing that lets the service be served beyond localhost at all. With
+   no configured value it refuses to bind a non-loopback host.
+ Leaving it unset does
 **not** mean no secret exists: the service mints a fresh random one at
 every start and prints it to the terminal that ran `./start.sh`. Set a
 stable value in `.env` or `config.local.json` if you register the
@@ -155,7 +155,9 @@ stable value in `.env` or `config.local.json` if you register the
 secret changing on every restart. An auto-minted token still only works
 locally; remote serving needs a configured one.
 
-**Logging in.** The exact-row parts of the ledger always require an
+### Logging in
+
+The exact-row parts of the ledger always require an
 owner credential, even on loopback, so another process sharing
 127.0.0.1 can't read or edit those. That covers raw facts, the review
 queue, every action on a single fact (edit, supersede, approve,
@@ -183,19 +185,21 @@ use:
 
 Your password is stored only as a salted scrypt verifier, never in a
 reversible form, and never handed back to the browser. The endpoints are
-in [API.md](API.md), the threat model and its honest limits in
+in [API.md](API.md), the threat model and its limits in
 [SECURITY.md](../SECURITY.md), and the first-run walkthrough in
 [README.md](../README.md).
 
-**Remote access over your tailnet.** `MEMORY_TAILSCALE_SERVE=1`
+### Remote access over your tailnet
+
+`MEMORY_TAILSCALE_SERVE=1`
 in `.env` makes `start.sh` run `scripts/tailscale-serve.sh` at every startup,
 which maps this loopback service onto its own HTTPS port on your OWN
 Tailscale tailnet (`MEMORY_TAILSCALE_PORT`, default `8443`) via `tailscale
 serve`; never `tailscale funnel`, never a public port (see SECURITY.md's
 trust boundary). It uses a dedicated port rather than a path under the
-tailnet root on purpose: the admin UI links absolute paths (`/math`,
+tailnet root on purpose. The admin UI links absolute paths (`/math`,
 `/v1/…`), which under a `/membro` prefix would resolve to the root and hit
-whatever else is served there; on a machine also serving the chat client,
+whatever else is served there. On a machine also serving the chat client,
 that is a different application entirely. To actually sign in from a browser
 you must ALSO name that hostname in `MEMORY_TRUSTED_HOSTS`, or the request
 is refused by design.
@@ -221,5 +225,5 @@ check, changing nothing); it's idempotent and safe to repeat.
   review. No trust setting bypasses it.
 - **The episodic record**: ingested messages are immutable.
 
-These are the invariants the rest of the system's honesty depends on
+These are the invariants the rest of the system depends on
 (tested in `tests/test_invariants.py`).

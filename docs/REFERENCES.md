@@ -1,9 +1,10 @@
 # References
 
-The memory design implements mechanisms from published research. Credit where it's
-due, and honesty about what we verified: findings below are marked **implemented**,
-**planned**, or **refuted** (claims our own adversarial verification pass could not
-support; we use the mechanism but not the claimed numbers).
+The memory design implements mechanisms from published research. Credit where it is
+due, and what was verified: findings below are marked **implemented**,
+**planned**, or **refuted**. Refuted means an adversarial verification pass
+here could not support the claim, so the mechanism is used but the published
+numbers are not.
 
 ## Implemented
 
@@ -24,8 +25,7 @@ support; we use the mechanism but not the claimed numbers).
 - **Recency × importance summary selection** (`weighting.py`): facts are scored
   `importance × exp(−age/half_life)` on the fact's true **event_date**, so
   bulk-imported old facts sort as old whatever their insertion order.
-  *Generative Agents (recency · importance; poignancy scoring; we drop the
-  relevance term, since a query-less summary fold has no query)*
+  *Generative Agents (recency · importance; poignancy scoring; the relevance term is dropped, since a query-less summary fold has no query)*
   ([arXiv 2304.03442](https://ar5iv.labs.arxiv.org/html/2304.03442)); decay form
   from *MemoryBank* `R = e^(−t/S)`.
 - **LLM-assigned 1–9 importance at extraction** (10 is owner-only; see the
@@ -33,7 +33,7 @@ support; we use the mechanism but not the claimed numbers).
   caveat). *Generative Agents.*
 - **Importance-adaptive decay**: half-life stretches ~4× from importance 1 to
   9 (22.5d → 82.5d), so life-defining facts outlive mundane ones without
-  hiding history. Above the stretch sits a **permanence tier of our own**:
+  hiding history. Above the stretch sits a **permanence tier added here**:
   importance 10 is owner-only and pinned, with an infinite half-life and an
   unconditional place in the profile's durable pool, exempt from its 200-slot
   competition. Over a years-long horizon every finite multiplier reaches zero,
@@ -82,11 +82,11 @@ support; we use the mechanism but not the claimed numbers).
 - *WMR formalisation* (Frontiers in Psychology)
   ([PMC12092450](https://pmc.ncbi.nlm.nih.gov/articles/PMC12092450/))
 
-## Refuted in our verification (mechanisms kept, numbers rejected)
+## Refuted in verification here (mechanisms kept, numbers rejected)
 
 - "Selective forgetting improves long-term recall (FadeMem beats Mem0/MemGPT on
   LoCoMo, 82% retention)": failed 0–3 in adversarial review; single vendor
-  simulation. We use FadeMem's *decay/frequency mechanisms*, not its benchmarks.
+  simulation. FadeMem's *decay and frequency mechanisms* are used; its benchmarks are not.
 - "MemoryBank ties decay to access/importance, dropping low-importance old items":
   overstated versus the primary text (1–2).
 - "Full retrievable history beats a lossy summary (32%→92%)": only partially

@@ -15,30 +15,33 @@ messages, attachments, or the access log; tests grep the source for
 forbidden statements as well as exercising behaviour. Supersession,
 quarantine, and dismissal round-trip reversibly. Summary regenerations
 append to a restorable history. The only deletes anywhere are the three
-human erasers on the admin surface (fact, file, message - the message
-one is #45, closing crossband#106's loop): `test_message_erase.py`
-proves the erase is owner-gated and single-row, search and health stay
-honest afterwards, live facts mined from an erased message resurface
-for review instead of vanishing, attachments are counted not cascaded,
-and every eraser journals a content-free `erasures` row - what was
-erased is gone, that it was erased is not.
+human erasers on the admin surface: fact, file, and message.
+`test_message_erase.py` pins the message one. The erase is owner-gated
+and single-row; search and health stay accurate afterwards; live facts
+mined from an erased message resurface for review instead of vanishing;
+attachments are counted, not cascaded. Every eraser journals a
+content-free `erasures` row, so what was erased is gone and that it was
+erased is not.
 
-**Person records (#33).** The wire identity (contract 1.2,
-`test_identity_wire.py`): `speaker_identity` stores verbatim and absent
-means 1.1 behaviour exactly; facts bind per the owner's policy
-(introduced/owner-correction always, voice-match at 0.8+, weaker never);
-merged slugs resolve to their winner, forgotten slugs bind nothing, and
-binding never changes whether a fact is held. Admin surface and base: The admin surface renames (owner-set, clients
-can't undo), merges (aliases, clips and fact links re-point; supersede
-not rewrite; refused on forgotten sides), moves and deletes single clips
-(moves collapse onto duplicates; deletes journal and unlink bytes) - all
-owner-gated, all in `test_person_records.py`. And the slice-1 base: Owner-set names survive client updates; an
-alias can never be reassigned to a different person; a model speaker
-label can never become a person; clips are content-addressed and
-owner-only on disk; sync includes forgotten marks; forget deletes the
-audio (journalled content-free), moves the person's approved facts back
-into review as one group and leaves held facts alone; every route
-refuses callers without the owner token (`test_person_records.py`).
+**Person records.** Owner-set names survive client updates. An alias can
+never be reassigned to a different person, and a model speaker label can
+never become a person. Clips are content-addressed and owner-only on disk,
+and sync includes forgotten marks. Forget deletes the audio (journalled
+content-free), moves the person's approved facts back into review as one
+group, and leaves held facts alone.
+
+The admin surface is pinned the same way, all of it owner-gated. A rename is
+owner-set and clients cannot undo it. A merge re-points aliases, clips and
+fact links, supersedes rather than rewrites, and is refused when either side
+is forgotten. Moving a clip collapses it onto a duplicate; deleting one
+journals the erasure and unlinks the bytes. Every route refuses callers
+without the owner token (`test_person_records.py`).
+
+**Wire identity (contract 1.2).** `speaker_identity` stores verbatim, and an
+absent field means 1.1 behaviour exactly. Facts bind per the owner's policy:
+introduced and owner-correction always, voice-match at 0.8+, weaker never.
+Merged slugs resolve to their winner, forgotten slugs bind nothing, and
+binding never changes whether a fact is held (`test_identity_wire.py`).
 
 **Extraction walls.** Ungrounded names quarantine. Ungrounded or
 relative dates never mint an event date; a missing year comes from the

@@ -5,46 +5,18 @@ Versioned; breaking changes bump the major version. Clients check `contract_vers
 at handshake and refuse a major mismatch. The same contract-test suite runs in this
 repo's CI (against the real service) and in each client's CI (against the stub).
 
+## Contract rules
+
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
-- **1.2 (#33): messages on `/ingest` may carry `speaker_identity`** -
+- **1.2 (#33): messages on `/ingest` may carry `speaker_identity`**:
   which person record the sending app believes spoke (`person` slug,
   `confidence` 0..1, `method`: introduced | voice-match | by-elimination
   | owner-correction). Stored verbatim beside the message. A fact born
   from an identified message links to that person when the identity is
-  strong (introduced/owner-correction always; voice-match at 0.8+; weaker
-  never auto-binds). Absent field = exactly the 1.1 behaviour.
-- **1.1: some endpoints require the owner credential ALWAYS, even on
-  loopback.** This is a *separate, stricter* check from the loopback-vs-token
-  rule above. Sixteen routes carry that always-on check, and these are
-  all of them:
-  - `GET /facts`, `GET /review`, and every verb on one existing fact by id:
-    `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
-    `/facts/{id}/dismiss`, `DELETE /facts/{id}`
-  - the two bulk ledger verbs: `POST /facts/quarantine`,
-    `POST /review/dismiss-all`
-  - `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
-  - all four attachment routes: `GET /attachments`,
-    `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
-    `DELETE /attachments/{id}`
-
-  No other `/v1` route carries it. Two things sit outside that count
-  without contradicting it: `GET /` is not on the list yet still varies by
-  credential (an unauthenticated caller gets the locked page rather than
-  the admin UI, and no 401), and the loopback-vs-token rule above is a
-  separate gate that governs the whole surface.
-
-  Every other `/v1` route answers an unauthenticated loopback caller,
-  governed only by the loopback-vs-token rule: `/health`,
-  `/disposable-identity`, `/ingest`, `/distill`, `POST /facts` to create,
-  `/recall`, `GET /summary`, **`POST /summary/regenerate` (which rebuilds
-  the live profile) and all three `/summary/versions*` routes (including
-  the one that returns a stored profile in full and the one that restores
-  it over the live profile)**, `POST /backup`, and every `/viz/*` route.
-  See "Owner admin token" below, and "Open on loopback, and what that
-  means" at the end of it for the four a reader is most likely to expect
-  gated.
+  strong: introduced and owner-correction always, voice-match at 0.8+,
+  weaker never auto-binds. Absent field = exactly the 1.1 behaviour.
 - All bodies JSON. Errors the service raises itself use one envelope:
   `{"error": {"code": "...", "message": "..."}}` with conventional HTTP
   status. Two classes come straight from the web framework and keep its
@@ -57,6 +29,47 @@ repo's CI (against the real service) and in each client's CI (against the stub).
   `error` 422.
 - Async operations return `202 {"job_id": "..."}`; poll `GET /jobs/{id}`
   (which requires the owner credential; see "Maintenance").
+
+### Always gated, even on loopback
+
+**1.1: some endpoints require the owner credential ALWAYS, even on
+loopback.** This is a *separate, stricter* check from the loopback-vs-token
+rule above. Sixteen routes carry that always-on check, and these are all of
+them:
+
+- `GET /facts`, `GET /review`, and every verb on one existing fact by id:
+  `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
+  `/facts/{id}/dismiss`, `DELETE /facts/{id}`
+- the two bulk ledger verbs: `POST /facts/quarantine`,
+  `POST /review/dismiss-all`
+- `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
+- all four attachment routes: `GET /attachments`,
+  `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
+  `DELETE /attachments/{id}`
+
+No other `/v1` route carries it. Two things sit outside that count without
+contradicting it. `GET /` is not on the list yet still varies by credential:
+an unauthenticated caller gets the locked page rather than the admin UI, and
+no 401. And the loopback-vs-token rule above is a separate gate that governs
+the whole surface.
+
+### Open routes
+
+Every other `/v1` route answers an unauthenticated loopback caller, governed
+only by the loopback-vs-token rule:
+
+- `/health`, `/disposable-identity`, `/backup`
+- `/ingest`, `/distill`, `POST /facts` to create
+- `/recall`, `GET /summary`
+- **`POST /summary/regenerate`**, which rebuilds the live profile
+- **all three `/summary/versions*` routes**, including the one that returns
+  a stored profile in full and the one that restores it over the live
+  profile
+- every `/viz/*` route
+
+The last two bullets are the ones a reader is most likely to expect gated.
+See "Owner admin token" below, and "Open on loopback, and what that means"
+at the end of it.
 
 ## Handshake
 
@@ -85,14 +98,15 @@ startup; `scripts/rebuild_fts.py` does the same for a live instance without a
 restart. A client seeing `fts_in_sync: false` should treat search results as
 unreliable until it flips back, not as an empty archive.
 `status`, `contract_version`, `db` and `capabilities` are contractual.
-`detail` is NOT: it repeats the entire internal health dict (sqlite version,
+`detail` is NOT. It carries the whole internal health dict for the admin
+page's health panel, and may change without a contract bump: sqlite version,
 journal mode, integrity, size, a facts breakdown of
 total/current/superseded/quarantined, message and conversation counts, an
-attachments block, last backup, backups kept, and an in-memory
-`dropped_by_reason` count of extraction-wall drops since the process started,
-e.g. `{"system-meta": 3, "builder-process": 11}`, reset on restart and never a
-record of *what* was dropped) for the admin page's health panel, and may
-change without a contract bump. Clients should read `db`, never `detail`.
+attachments block, last backup, and backups kept. It also carries
+`dropped_by_reason`, an in-memory count of extraction-wall drops since the
+process started (e.g. `{"system-meta": 3, "builder-process": 11}`). That
+count resets on restart and is never a record of *what* was dropped.
+Clients should read `db`, never `detail`.
 
 ## Owner admin token
 
@@ -115,8 +129,9 @@ ids/text/status, read the review queue, or search the raw transcripts with no
 credential at all; that would bypass the point of the opt-in admin MCP
 capability entirely.
 
-Three rules survive from earlier revisions of this design, and all are
-test-enforced:
+### Three rules, all test-enforced
+
+These survive from earlier revisions of this design:
 
 - **Unauthenticated pages never contain credentials.** `GET /` serves the
   real admin UI only to a caller who is ALREADY authenticated (a valid
@@ -126,12 +141,12 @@ test-enforced:
   or on first run for a recovery secret plus a new password (see "Owner
   password login" below); the admin token is never accepted there.
 - **Sessions are opaque server-side ids.** `POST /login` mints a fresh,
-  random, high-entropy session id (`secrets.token_urlsafe(32)`, never derived
-  from or equal to any client-supplied value, so there is no session
-  fixation) and records its expiry **server-side**, in
-  `app.state.admin_sessions` (in-memory; a restart clears it, so every
-  browser must re-authenticate after one, which is deliberate and keeps
-  sessions out of the ledger/DB entirely). The cookie carries ONLY that
+  random, high-entropy session id (`secrets.token_urlsafe(32)`) and records
+  its expiry **server-side**, in `app.state.admin_sessions`. The id is never
+  derived from or equal to any client-supplied value, so there is no session
+  fixation. That store is in-memory, so a restart clears it and every browser
+  re-authenticates: deliberate, and it keeps sessions out of the ledger and
+  the database entirely. The cookie carries ONLY that
   opaque id. A copy of the cookie is therefore a bounded, revocable
   capability: it expires (`app.state.admin_session_ttl`, 24h by default),
   and `POST /logout` deletes it from the server-side store, which
@@ -148,7 +163,9 @@ test-enforced:
   route, including the summary-version and `/viz/*` routes described under
   "Open on loopback, and what that means" at the end of this section.
 
-**Getting the token in the first place is always out-of-band, never HTTP:**
+### Getting the token
+
+Always out-of-band, never over HTTP:
 - If `MEMORY_AUTH_TOKEN` is configured (`.env` / `config.local.json` /
   environment), that's the token: **stable across restarts**, which is what a
   persistently-registered MCP client needs. The owner already knows it (they
@@ -159,7 +176,9 @@ test-enforced:
   session sharing the machine's filesystem/network has no route to another
   process's live terminal output.
 
-**Owner password login.** The everyday browser login is a durable
+### Owner password login
+
+The everyday browser login is a durable
 **password**, not the admin token, so an owner does not have to hunt the
 terminal for a token after every restart. The admin token keeps two roles: it
 is still the `Authorization: Bearer` credential (MCP/curl), and it is the
@@ -189,7 +208,9 @@ longer accepted as the everyday login.
   same recovery-gated proof, allowed at any time, replacing the verifier.
 - `POST /logout` revokes the session server-side and clears the cookie.
 
-**Passkey login (#27).** With a passkey enrolled, the lock screen offers it
+### Passkey login
+
+With a passkey enrolled, the lock screen offers it
 first and the password moves one click behind it; a successful assertion
 mints exactly the same opaque session as a password login. The password and
 recovery secret are unchanged. A passkey is bound to the web origin it was
@@ -204,7 +225,7 @@ origin (`127.0.0.1`) can never hold one.
 - `POST /webauthn/login/options` and `POST /webauthn/login` (lock-screen
   surface): challenge out, signed assertion in, verified against the
   enrolled public key with user verification (Touch ID / Face ID) required.
-  The options response discloses no credential ids — credentials are
+  The options response discloses no credential ids. Credentials are
   enrolled as discoverable, so the browser finds its own.
 - `GET /webauthn/credentials` and `DELETE /webauthn/credentials/{id}`
   (unlocked session or bearer): list and remove enrolled passkeys. Removal
@@ -213,7 +234,8 @@ origin (`127.0.0.1`) can never hold one.
 These endpoints are the browser admin UI surface (`include_in_schema=False`),
 not part of the versioned `/v1` contract, so `contract_version` is unchanged.
 
-**Runtime sequence for the opt-in admin MCP server**
+### Runtime sequence for the opt-in admin MCP server
+
 (`memory_service.mcp_admin_server`):
 1. Configure a stable token: put `MEMORY_AUTH_TOKEN=<random value>` in `.env`
    (or `config.local.json`).
@@ -273,7 +295,7 @@ discovered:
 These are the code's behaviour as it stands, recorded here so the document
 does not promise a gate the service does not implement.
 
-## Episodic record (the tapes)
+## Episodic record
 
 `POST /ingest`: append transcript messages (idempotent on `(source_app, external_id)`).
 ```json
@@ -292,8 +314,10 @@ later ingest of the same conversation, so a chat renamed in the client catches
 up here. It is the title `/search` hits carry back and the admin pages show;
 a client that never sends one leaves every conversation blank.
 
-`speaker` guest classes (additive, 2026-08-08, #31): beside `user` (the
-owner) and a bare model slug (`claude`), a message may carry `guest:<name>`
+### Guest speaker classes
+
+Additive, 2026-08-08. Beside `user` (the owner) and a bare model slug
+(`claude`), a message's `speaker` may carry `guest:<name>`
 for another, named human in the session (a multi-human voice session in
 room mode), or `guest:unknown` for a human turn whose voice diarization
 could not attribute confidently. `source_app` handling and conversation
@@ -320,10 +344,12 @@ pass:
   null) rather than pinned to whichever turn ended the mining window. In a
   guest-present window such a fact is still held for review, unchanged.
   When the miner supplies a missing binding on the corrective retry, that
-  answer is now checked against the turn it names — a turn sharing none of
+  answer is now checked against the turn it names: a turn sharing none of
   the fact's wording, or one no more plausible than a guest's turn in the
   same window, is refused and the fact stays held. A retry's guess about
   who spoke can no longer promote a guest's sentence into owner canon.
+
+### Attachments on ingest
 
 `attachments` (additive, 2026-07-11) is optional, per message. Files are part
 of the episodic record: bytes stored whole (content-addressed under
@@ -339,11 +365,15 @@ Limits: ≤5000 messages per call (more is a 413), ≤20 attachments per message
 history: storage itself is uncapped by design, so send a long backlog in
 batches rather than one giant POST.
 
+### Distill
+
 `POST /distill`: run the reflection pass (mining + walls) over un-mined ingested
 content for a conversation. Async.
 ```json
 {"source_app": "multi-model-chat", "conversation_id": "chat-123"}
 ```
+
+### Verbatim search
 
 `POST /search`: verbatim FTS over the episodic record. **Requires the owner
 credential (`Authorization: Bearer` or the admin session cookie), even on
@@ -359,7 +389,7 @@ conversation's title as last ingested (empty string if the client never sent
 one); `content` is an FTS snippet with `>>match<<` markers, not the whole
 message.
 
-## Ledger (the cards)
+## Ledger
 
 `POST /facts`: save one fact.
 ```json
@@ -390,6 +420,8 @@ proposing a revision), POST it with a non-`user` `origin_agent` (the authoring
 model's slug) and no trusted `source_app`; it lands in `GET /facts?status=quarantined`
 for the owner to `approve` or `dismiss`.
 
+### Reading the ledger
+
 `GET /facts?status=valid|superseded|quarantined|all&q=...&limit=...`: list/filter.
 **Requires the owner admin token, even on loopback** (see "Owner admin token" above).
 `status` defaults to `valid`; `q` is a substring match on content; `limit`
@@ -413,6 +445,8 @@ since 2026-07-11, `importance`; the human outranks the miner on how a fact ages.
 with a `detail` 422, not clamped**, so send a value in range rather than
 relying on the endpoint to fold it back. **Requires the owner admin token,
 even on loopback.**
+
+### Changing a fact's state
 
 `POST /facts/{id}/supersede`: `{"successor_id": 2}`; temporal validity, never delete.
 **Requires the owner admin token, even on loopback.**
@@ -443,12 +477,14 @@ messages); human-initiated only, never automated. Every erasure appends a
 content-free row (kind, refs, when - never content) to the `erasures` journal
 (#45). **Requires the owner admin token, even on loopback.**
 
+### The review queue
+
 `GET /review`: held-for-review queue. **Requires the owner admin token, even
 on loopback.**
 
 Each row is the whole fact row plus `source` (additive, 2026-08-12, contract
 version unchanged): the turn the fact was mined from, so the first question a
-reviewer has — who said this — is answered without leaving the queue.
+reviewer has, who said this, is answered without leaving the queue.
 ```json
 "source": {"message_id": 812, "speaker": "guest:Sam", "speaker_class": "guest",
            "created_at": 1754616000.0, "excerpt": "I hate coriander…",
@@ -467,7 +503,7 @@ clears a whole cause without ever sweeping rows the owner has not seen.
 `source` is `null` whenever the fact names no source message: an external
 (`mcp:*`) write, a fact saved by hand, or a mined fact that could not be tied
 to a single turn (see the guest-speaker notes above). It is never filled in
-with a nearby turn — "Sam said this" and "no one knows who said this" are
+with a nearby turn. "Sam said this" and "no one knows who said this" are
 different decisions, and a queue that blurs them is worse than one that stays
 silent. `excerpt` is the first 400 characters of the message's own content
 (attachment text is not included); `truncated` says whether more exists.
@@ -517,6 +553,8 @@ The MCP adapter can render its `[SUPERSEDED …]` flag because it calls
 `recall.recall()` in-process and sees the whole row; an HTTP caller that
 needs lifecycle state must use the owner-gated `GET /facts` instead.
 
+### Summary
+
 `GET /summary` → `{"summary": "...", "generated_at": "...", "source_fact_ids": [..],
 "word_count": 1980, "word_budget": 2000, "provenance": [{"id": 12,
 "origin_agent": "user", "source": "user", "tag": "direct"}, ...]}`
@@ -528,15 +566,19 @@ pass, never truncation.)
 summary (same set as `source_fact_ids`), carrying that fact's **raw**
 `origin_agent` and `source` columns plus a mechanically-derived `tag`; this
 is how a client checks per-claim origin *without* trusting unlabelled prose
-for attribution. `tag` is one of: `direct` (`origin_agent == "user"`; the
-owner saved it themselves), `mined` (`source == "chat"`; the miner distilled
-it from a multi-turn conversation, and **no single turn or speaker is
-recorded**, so the summary prose must never attribute a mined claim to "the
-user" or any named participant), or, for anything else, the raw
-`origin_agent` verbatim (a participant's own slug, an approved `mcp:<client>`
-write, etc.); this repo deliberately does not flatten that remainder into an
-invented category like "curated", since that would claim more certainty
-about authorship than the record supports. The prose itself is instructed
+for attribution. `tag` is one of:
+
+- `direct` (`origin_agent == "user"`): the owner saved it themselves.
+- `mined` (`source == "chat"`): the miner distilled it from a multi-turn
+  conversation. **No single turn or speaker is recorded**, so the summary
+  prose must never attribute a mined claim to "the user" or any named
+  participant.
+- anything else: the raw `origin_agent` verbatim, such as a participant's
+  own slug or an approved `mcp:<client>` write.
+
+That remainder is deliberately not flattened into an invented category like
+"curated", which would claim more certainty about authorship than the record
+supports. The prose itself is instructed
 the same way (mention provenance only when material, never invent a speaker
 for a `mined` or unrecognised-tag entry) but `provenance` is the
 mechanically-checkable source of truth; read it instead of parsing the
@@ -561,12 +603,16 @@ can start an open async operation but cannot poll its result.
 `result` is the only place an async operation's output lands, and it stays
 `null` until `status` is `ok`; its shape depends on `kind`. A distill
 returns mining counts: `{"added", "quarantined"}` always, plus up to three
-only-when-nonzero keys: `deduped` (a re-mine was collapsed),
-`refused_supersede` (a proposal was refused because the new fact's event
-date is more than a day older than its target's; old claims file as dated
-history and never retire newer truth), and `deferred_supersede`
-(a held-for-review fact proposed a replacement; quarantine can't alter
-canon, so the proposal waits for human review). Or, if another
+only-when-nonzero keys:
+
+- `deduped`: a re-mine was collapsed.
+- `refused_supersede`: a proposal was refused because the new fact's event
+  date is more than a day older than its target's. Old claims file as dated
+  history and never retire newer truth.
+- `deferred_supersede`: a held-for-review fact proposed a replacement.
+  Quarantine cannot alter canon, so the proposal waits for human review.
+
+Or, if another
 distill of the same conversation was already in flight, `{"added": 0,
 "quarantined": 0, "skipped_locked": true}` and nothing was mined. Read
 the extra keys with a default rather than indexing them; on the ordinary
@@ -601,12 +647,15 @@ The invariant is a claim about the viz endpoints alone. The attachment and
 summary-version endpoints in this same section deliberately DO return
 content, because showing you your own files and profile text is their whole
 job. Note the difference in who may ask: the attachment routes require the
-owner credential, the summary-version routes do not (see "Open on loopback").
+owner credential, the summary-version routes do not (see "Open on loopback, and what
+that means").
 
 `GET /` (admin page) · `GET /math` (the Mathematics page).
 All four attachment routes below require the owner credential, on loopback
 too, like the exact-row fact routes (2026-07-25). They return fact content,
 message bodies and document text, so a loopback-only rule was never enough.
+
+### Attachments
 
 `GET /v1/attachments`: every stored file with its conversation context
 (`limit` defaults to 200, maximum 1000).
@@ -619,6 +668,8 @@ from that conversation.
 human-initiated via the danger zone, the only delete path; content-addressed
 bytes are unlinked only when no other row references them. Journals to
 `erasures` like every eraser.
+
+### Messages
 
 `GET /v1/messages/resolve?source_app=&conversation=&message=`: maps a
 producer's ref (how crossband names a message: source app, conversation
@@ -693,6 +744,9 @@ Anchor routes answer `410 gone` afterwards; the record itself stays
 listed so syncing apps learn to delete their copies.
 The three summary-version routes below, unlike the attachment routes above,
 are **NOT** gated: they answer an unauthenticated loopback caller.
+
+### Summary versions
+
 `GET /v1/summary/versions`: every generated profile, newest first (metadata
 only; append-only history, so regeneration never destroys a version).
 `GET /v1/summary/versions/{id}`: one version with its full text. Open on
@@ -700,6 +754,9 @@ loopback, so any local process can read any stored profile in full.
 `POST /v1/summary/versions/{id}/restore`: make that version current again by
 APPENDING a new version row (`restored_from` set); history is never rewritten.
 Open on loopback, so any local process can change which profile is live.
+
+### Visualisation routes
+
 `GET /v1/viz/decay`: every live card's (age, importance, score) + formula constants.
 `GET /v1/viz/embeddings`: cached 3D PCA of up to the newest 2,500 embedded
 cards (`SAMPLE_CAP` in `viz.py`; the projection's Gram matrix costs O(n²)
@@ -715,24 +772,32 @@ single scene 2026-07-20; all additive). **Self-sufficient**: returns
 `{"status": "computing"}` and kicks off the one-time PCA projection build itself
 when cold (no separate `/embeddings` call needed), then serves the scene. Geometry
 only, showing **alive** facts (non-superseded, non-quarantined) as they are now:
-`nodes` (id, **3D** coords `x,y,z`, importance, freshness score, cluster index),
-`clouds` (biomes from deterministic **k-means on the 3D coords**, bounded count
-~sqrt(n/2) clamped to [6,14]; each carries a 3D centroid `cx,cy,cz`, the 6 unique
-covariance entries `cov=[xx,yy,zz,xy,xz,yz]` (so the client renders a translucent
-volumetric ellipsoid via Σ₂=JΣJᵀ rather than a flat hull), a `spread` radius, mean
-`freshness`, density `size`, and a palette INDEX that only distinguishes a biome
-from its neighbours, never a fixed topic→colour map),
+
+- `nodes`: id, **3D** coords `x,y,z`, importance, freshness score, cluster
+  index.
+- `clouds`: biomes from deterministic **k-means on the 3D coords**, bounded
+  count ~sqrt(n/2) clamped to [6,14]. Each carries a 3D centroid `cx,cy,cz`,
+  the 6 unique covariance entries `cov=[xx,yy,zz,xy,xz,yz]`, a `spread`
+  radius, mean `freshness`, density `size`, and a palette index. The
+  covariance entries let the client render a translucent volumetric
+  ellipsoid via Σ₂=JΣJᵀ rather than a flat hull. The palette index only
+  distinguishes a biome from its neighbours; it is never a fixed
+  topic→colour map.
 `edges` (co-occurrence: facts recalled together in the access log, weighted),
 `sediment` (per current fact, the ids/dates/importances of the facts it
 superseded), `summary_ids` (current summary membership, for the dot ring),
 `sampled` (true when the 2,500-card projection cap bit; see
 `/v1/viz/embeddings` above), and `notes` naming any layer the current ledger
-can't yet fill. (The admin UI now drives "The life of your memory" entirely
+can't yet fill. The admin UI now drives "The life of your memory" entirely
 from this endpoint; `/v1/viz/embeddings` above is retained but no longer the
-UI's source.)
+UI's source.
+
+### Recall trace and the access log
+
 `POST /v1/viz/recall_trace`: `{"query", "limit"}` → the recall pipeline,
-instrumented: per-card score components and fate (kept / collapsed / over / dim),
-plus lifecycle + dup edges so the client can replay the answer as of any past time.
+instrumented. Per-card score components and fate (kept / collapsed / over /
+dim), plus lifecycle and dup edges, so the client can replay the answer as of
+any past time.
 Kept in lockstep with `/v1/recall` by test. `limit` is silently clamped to 20
 because the endpoint exists to draw a diagram rather than to export data.
 `GET /v1/viz/recalls?after=<ts>`: lookup events from the persistent access log:
@@ -787,12 +852,13 @@ consuming model must be able to see the age without a second call.
 
 `memory_service/mcp_admin_server.py` is a **second** MCP server, not part of the
 four tools above and not registered by default. It exists for a session doing
-ledger *remediation* (e.g. confirming a suspected mis-mined fact) that needs exact
-rows, not semantic recall: `search_facts(query, status)` and `review_queue(query)`,
-thin GET-only wrappers over `GET /v1/facts` and `GET /v1/review` above, which,
-as of 1.1, are genuinely token-gated server-side (see "Owner admin token"), so
-this wrapper's own token requirement is enforced by the API itself rather than
-being merely a client-side convention. Differences from the four model-facing
+ledger *remediation*, such as confirming a suspected mis-mined fact, which
+needs exact rows rather than semantic recall. Two tools:
+`search_facts(query, status)` and `review_queue(query)`, thin GET-only
+wrappers over `GET /v1/facts` and `GET /v1/review` above. As of 1.1 both are
+genuinely token-gated server-side (see "Owner admin token"), so this
+wrapper's token requirement is enforced by the API rather than being a
+client-side convention. Differences from the four model-facing
 tools:
 - Requires `Authorization: Bearer <MEMORY_AUTH_TOKEN>` matching the running
   service's own admin token, even against loopback (unlike the base API's

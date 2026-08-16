@@ -18,10 +18,10 @@ Meet "Sam." Here's a three-step poisoning, none of it done on purpose by the use
 
 2. **The model launders the fiction into a claim.** Later Sam asks a model *"what do
    you know about me?"* The model, summarising loosely, writes *"Sam is based in
-   Metropolis."* The note-taker mines that assistant summary and files a card:
+   Metropolis."* The miner reads that assistant summary and files a card:
    *Sam lives in Metropolis.*
 
-3. **The lie multiplies.** The note-taker is shown the current ledger (it has to be;
+3. **The lie multiplies.** The miner is shown the current ledger (it has to be;
    that's how it de-dupes and detects supersessions). Now *Metropolis* looks
    canonical, so it gets restated and reinforced, stamped onto home-renovation chats,
    scheduling chats, chats that never mentioned any city at all.
@@ -66,19 +66,19 @@ summary, flagged low-confidence), never silently trusted. A human clears the que
 
 4. **System-meta (a drop rather than a quarantine)**: a "fact" about this memory
    system's own machinery or the AI tooling itself ("the memory ledger quarantined
-   100 facts", "the grounding wall over-flagged", "PID 4321") is not biography about
-   the user at all, so there is nothing to review; quarantining it only floods the
-   queue when a conversation happens to be *about the memory system*, a failure mode
-   this project hit in practice. Such lines are never extracted. The filter is
+   100 facts", "the grounding wall over-flagged", "PID 4321") is not biography
+   about the user at all, so there is nothing to review. Quarantining it only
+   floods the queue when a conversation happens to be *about the memory system*,
+   a failure mode this project hit in practice. Such lines are never extracted. The filter is
    deliberately narrow: it matches system/AI-tooling *mechanics* vocabulary only,
    never generic verbs ("deployed", "committed") or product names a real
    career/project fact might carry; those stay eligible and are judged by the three
    quarantine walls, so at worst they land in review, never silently dropped. The
    verbatim message always survives in the episodic record, so nothing is lost.
 
-## Why the note-taker still sees the ledger
+## Why the miner still sees the ledger
 
-It would be tempting to "fix" contamination by hiding the ledger from the note-taker.
+It would be tempting to "fix" contamination by hiding the ledger from the miner.
 That breaks de-duplication and supersession detection: the miner could no longer tell
 "already known" from "new," or "this updates that." The ledger stays visible; the
 walls make the *write* safe instead. This trade-off is deliberate.
@@ -114,13 +114,11 @@ walls make the *write* safe instead. This trade-off is deliberate.
   this, only proper nouns were checked, so a fact could carry a resolved date
   nobody wrote and still read as high-confidence.
 - **A card's source turn is recorded only when it is real.** A mined card
-  points at one message only when the extractor actually named that message,
-  and when the extractor has to be re-asked for a binding it omitted, the turn
-  it names must share the card's own wording — and must be at least as
-  plausible a source as any other speaker's turn in the same window. A card
-  nothing could be tied to is stored *unbound*, and the review queue says so,
-  rather than being attributed to whichever message happened to end the mining
-  window. Wrong provenance is quieter than a wrong fact and harder to unpick:
+  points at one message only when the extractor actually named that message.
+  When the extractor has to be re-asked for a binding it omitted, the turn it
+  names must share the card's own wording, and must be at least as plausible
+  a source as any other speaker's turn in the same window. A card
+  nothing could be tied to is stored *unbound*, and the review queue says so. Wrong provenance is quieter than a wrong fact and harder to unpick:
   it makes a guest's sentence, or a synthesis of several turns, read like
   something the owner said.
 - **A re-mine can't duplicate a card that's still current.** Two mining passes over
@@ -131,7 +129,9 @@ walls make the *write* safe instead. This trade-off is deliberate.
   like five confirmations. The match is on exact wording, which is what that
   crash-retry case needs; a reworded re-mine is a different problem (see below).
 
-**Supersession direction is enforced.** The miner may propose that a new
+### Supersession direction is enforced
+
+The miner may propose that a new
 fact retires a listed one, but two guards bound what a proposal can actually do.
 A fact whose grounded event date is more than a day older than its target's
 cannot supersede it, so mining imported or re-mined history files old claims
@@ -141,7 +141,7 @@ deferred, and today surfaces as a count in the distill result, for the human
 pass to apply or ignore. Both guards bind the automated path only; the owner's
 supersede action in review stays unrestricted.
 
-**Honest limitations (tracked in the public issues):**
+### Limitations (tracked in the public issues)
 - The walls are high-recall *detection* rather than perfect prevention: they flag
   for review (~12% false-positive on genuinely valid facts in the original tuning);
   they don't hard-reject. A stricter semantic gate is planned.
