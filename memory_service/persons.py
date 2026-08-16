@@ -95,6 +95,30 @@ def out(con, person) -> dict:
             "aliases": aliases, "clip_count": clips}
 
 
+def grounding_names(con) -> set[str]:
+    """Lowercased names, aliases, and their word tokens for every active
+    person — the personal half of the grounding allowlist (#57). The miner
+    may call a person by any name membro itself holds for them ("Alex"
+    spoken, "Alexandra" written), and the wall must not read that as an
+    invented entity. Personal nouns never live in code or committed config;
+    this reads them from the same table the People page manages."""
+    rows = con.execute(
+        "SELECT p.display_name AS n FROM persons p "
+        "WHERE p.merged_into IS NULL AND p.forgotten_at IS NULL "
+        "UNION "
+        "SELECT a.alias AS n FROM person_aliases a "
+        "JOIN persons p ON p.id = a.person_id "
+        "WHERE p.merged_into IS NULL AND p.forgotten_at IS NULL").fetchall()
+    names: set[str] = set()
+    for r in rows:
+        name = (r["n"] or "").strip().lower()
+        if not name:
+            continue
+        names.add(name)
+        names.update(t for t in name.split() if len(t) >= 2)
+    return names
+
+
 def model_label_collision(con, name: str, source_app: str = "") -> bool:
     """The participant boundary's server-side backstop (#65/#77): has this
     name ever been seen as a MODEL speaker label? A person may never be

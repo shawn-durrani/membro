@@ -173,3 +173,71 @@ def test_lexical_support_measures_wording_not_who_spoke():
     fact = "Alex's wife Sam dislikes coriander."
     assert walls.lexical_support(fact, "I hate coriander.", {"alex"}) == 1
     assert walls.lexical_support(fact, "Sam dislikes coriander.", {"alex"}) == 2
+
+
+# --- #57: the three mechanical false-positive shapes ---
+
+def test_sentence_initial_word_is_not_an_entity():
+    src = "the fan swap and drive choice make the unit quieter in practice"
+    fact = "Achieving the quiet-operation spec requires a fan swap."
+    assert walls.check(fact, src, set()) == []
+
+
+def test_sentence_initial_name_that_recurs_stays_an_entity():
+    fact = "Zorblatt shipped on Friday. The team praised Zorblatt."
+    assert "Zorblatt" in walls.proper_nouns(fact, set())
+
+
+def test_hyphen_spelling_grounds_both_ways():
+    assert walls.ungrounded_entities(
+        "The Wi-Fi setup", "the wifi kept dropping all week", set()) == []
+    assert walls.ungrounded_entities(
+        "The WiFi setup", "the wi-fi kept dropping all week", set()) == []
+
+
+def test_short_hardware_tokens_ground_on_word_boundary():
+    src = "the m2 max macbook has plenty of memory"
+    assert walls.ungrounded_entities(
+        "Alex's 64GB M2 Max Mac runs models locally", src, set()) == []
+
+
+def test_acronym_tokens_ground_but_never_by_substring():
+    assert walls.ungrounded_entities(
+        "The ARM NAS is slow", "an arm-based nas from 2012", set()) == []
+    # 'GB' must not ground off 'rugby'
+    assert walls.ungrounded_entities(
+        "GB Storage", "alex watched the rugby", set()) == ["GB Storage"]
+
+
+def test_genuinely_absent_entity_still_holds():
+    flags = walls.check("Alex added a PCIe GPU to the box.",
+                        "the box has room for expansion cards", set())
+    assert flags and "PCIe GPU" in flags[0]
+
+
+def test_grounding_names_covers_names_aliases_and_tokens(con, settings):
+    from memory_service import persons
+    persons.upsert(con, settings, slug="p-t1",
+                   display_name="Alexandra Quill", aliases=["Lexi"])
+    names = persons.grounding_names(con)
+    assert {"alexandra quill", "alexandra", "quill", "lexi"} <= names
+
+
+def test_person_alias_suppresses_grounding_hold(con, settings):
+    from memory_service import persons
+    persons.upsert(con, settings, slug="p-t2",
+                   display_name="Alexandra", aliases=["Lexi"])
+    fact = "The projector arrives with Alexandra."
+    src = "Lexi: I will bring the projector"
+    assert walls.check(fact, src, set()) != []          # held without names
+    allow = persons.grounding_names(con)
+    assert walls.check(fact, src, allow) == []          # cleared with them
+
+
+def test_forgotten_person_names_leave_the_allowlist(con, settings):
+    from memory_service import persons
+    persons.upsert(con, settings, slug="p-t3",
+                   display_name="Marisol", aliases=["Mari"])
+    con.execute("UPDATE persons SET forgotten_at=1 WHERE slug='p-t3'")
+    con.commit()
+    assert "marisol" not in persons.grounding_names(con)
