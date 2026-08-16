@@ -15,7 +15,7 @@ import re
 import threading
 from datetime import datetime, timezone
 
-from . import captions, episodic, ledger, llm, recall, summary, walls
+from . import captions, episodic, ledger, llm, persons, recall, summary, walls
 
 # Per-conversation distill locks. A distill run reads the conversation's
 # `mined_upto` watermark once, then mines everything after it. Two runs for the
@@ -495,7 +495,9 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     )
     out = llm.utility_complete(prompt, settings, max_tokens=1000)
     valid_ids = {f["id"] for f in recent}
-    allow = {w.lower() for w in settings.grounding_allowlist} | {settings.user_name.lower()}
+    allow = ({w.lower() for w in settings.grounding_allowlist}
+             | {settings.user_name.lower()}
+             | persons.grounding_names(con))  # #57: names membro already holds
     # #35: in a guest-present window an unbound fact cannot be attributed to
     # the owner, so before judging anything, give the miner ONE batched
     # corrective retry for every fact whose src= is missing or names no real

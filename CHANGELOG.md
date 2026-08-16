@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- The grounding wall stops holding facts for three mechanical reasons
+  (#57). A word capitalised only because it starts a sentence is no
+  longer read as a name. "Wi-Fi" now grounds off "wifi" and short
+  hardware tokens ("M2", "GB", "ARM") ground on word boundaries. The
+  allowlist now includes every person name and alias membro already
+  holds, so a nickname in chat grounds the full name in a fact. An
+  entity genuinely absent from the source chat still holds.
+
 - A fact learnt from a web page is held for review (#55, contract 1.3).
   Messages on ingest and explicit saves may carry `web_sources`, the
   domains a web tool read in the round that produced them. A fact born
