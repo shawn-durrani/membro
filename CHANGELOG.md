@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- A judge can now prove a held fact innocent (#58, off by default).
+  With `judge_pass` on, a background sweep re-reads grounding holds and
+  clears one only when the model quotes a verbatim excerpt of the chat
+  that supports each flagged term, verified by the wall's own matching
+  rules. Persona-flagged chats judged "technical discussion" are only
+  relabelled into their own review group for one-click bulk clearing,
+  never approved. Any judge failure leaves a row exactly as it was.
+
 - Local models are a first-class choice for the utility layer (#59).
   A new `llm_base_url` setting points every non-claude model name at an
   OpenAI-compatible server (Ollama, MLX, LM Studio); with it set, no API

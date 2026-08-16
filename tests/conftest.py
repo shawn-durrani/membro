@@ -27,9 +27,10 @@ def fake_llm(monkeypatch):
     state = {"response": "NONE", "prompts": [], "models": [], "queue": [],
              "fail_when_empty": False}
 
-    def _fake(prompt, settings, max_tokens=1000, model=None):
+    def _fake(prompt, settings, max_tokens=1000, model=None, **kw):
         state["prompts"].append(prompt)
         state["models"].append(model)
+        state.setdefault("kwargs", []).append(kw)
         if state["queue"]:
             return state["queue"].pop(0)
         if state["fail_when_empty"]:

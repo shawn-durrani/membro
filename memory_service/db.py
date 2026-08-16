@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS facts(
   person_id INTEGER                            -- #33: the person record this fact links to
 );
 
+CREATE TABLE IF NOT EXISTS judge_attempts(
+  fact_id INTEGER PRIMARY KEY REFERENCES facts(id),
+  attempted_at REAL NOT NULL                   -- one judge look per row per day (#58)
+);
+
 CREATE TABLE IF NOT EXISTS conversations(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_app TEXT NOT NULL,

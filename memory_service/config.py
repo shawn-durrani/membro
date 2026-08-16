@@ -48,6 +48,12 @@ class Settings(BaseModel):
     # Point it at an always-on server: mining depends on it, and a server
     # tied to another app's lifecycle makes mining depend on that app.
     llm_base_url: str = ""
+    # The judge pass (#58): a flag-gated background sweep that clears a
+    # grounding hold only on a verified witness quote, and relabels the
+    # persona hold into its own bulk-review group. Off by default; every
+    # judge failure leaves a row exactly as it was.
+    judge_pass: bool = False
+    judge_model: str = ""  # empty = miner_model; routed by name like any other
     embedding_model: str = "text-embedding-3-small"
     memory_summary_words: int = 2000
     # (`summary_emergent_topics` lived here until 2026-07-26 (#13). Emergent
