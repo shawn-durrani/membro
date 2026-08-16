@@ -56,7 +56,10 @@ def recall(con, settings, query: str = "", limit: int = 10,
         sem, ev = 0.0, None
         if qunit is not None and e.get("embedding"):
             ev = embeddings.unpack(e["embedding"])
-            sem = embeddings.cosine_unit(qunit, ev)
+            if len(ev) != len(qunit):
+                ev = None  # stale space (#60): treat the vector as missing
+            else:
+                sem = embeddings.cosine_unit(qunit, ev)
         kw = sum(1 for w in words if w in e["content"].lower())
         score = (sem + 0.12 * min(kw, 3)
                  + (0.05 if not e.get("invalidated_at") else 0)

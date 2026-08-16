@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Embeddings can run locally too, and model changes are space-safe
+  (#60). `embedding_base_url` points memory search at any
+  OpenAI-compatible server, no key required. The active embedding model
+  is stamped beside the vectors; changing it drops every stored vector
+  atomically, re-embeds in the background, and serves keyword-only
+  search until the rebuild completes. Vectors from different models are
+  never compared, and a stale-dimension vector is ignored, not scored.
+
 - A judge can now prove a held fact innocent (#58, off by default).
   With `judge_pass` on, a background sweep re-reads grounding holds and
   clears one only when the model quotes a verbatim excerpt of the chat

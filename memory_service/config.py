@@ -55,6 +55,12 @@ class Settings(BaseModel):
     judge_pass: bool = False
     judge_model: str = ""  # empty = miner_model; routed by name like any other
     embedding_model: str = "text-embedding-3-small"
+    # OpenAI-compatible endpoint for embeddings (#60), independent of
+    # `llm_base_url` because chat serving and embedding serving are often
+    # different servers. Empty = the SDK default. Changing embedding_model
+    # drops every stored vector and re-embeds in the background; recall is
+    # keyword-only until that completes.
+    embedding_base_url: str = ""
     memory_summary_words: int = 2000
     # (`summary_emergent_topics` lived here until 2026-07-26 (#13). Emergent
     # middle sections graduated from experiment to simply how the profile is

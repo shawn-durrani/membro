@@ -199,7 +199,7 @@ def test_facts_embed_at_write_time(con, settings, monkeypatch):
     keyless/failure safety net."""
     import time
     from memory_service import embeddings, ledger
-    monkeypatch.setattr(embeddings, "available", lambda: True)
+    monkeypatch.setattr(embeddings, "available", lambda settings=None: True)
     monkeypatch.setattr(embeddings, "embed_texts",
                         lambda texts, settings: [[0.5] * 8 for _ in texts])
     f = ledger.add_fact(con, "Alex plays chess on Sundays.", settings)
@@ -214,7 +214,7 @@ def test_facts_embed_at_write_time(con, settings, monkeypatch):
 
 def test_write_embed_failure_defers_to_recall_path(con, settings, monkeypatch):
     from memory_service import embeddings, ledger
-    monkeypatch.setattr(embeddings, "available", lambda: True)
+    monkeypatch.setattr(embeddings, "available", lambda settings=None: True)
     def boom(texts, settings):
         raise RuntimeError("provider down")
     monkeypatch.setattr(embeddings, "embed_texts", boom)

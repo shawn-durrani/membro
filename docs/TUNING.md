@@ -98,6 +98,13 @@ down, mining fails loudly and retries later rather than losing anything.
 Each model setting routes on its own name, so a local miner can sit
 beside a cloud `summary_model`, or replace it too.
 
+**`embedding_base_url`** is the same choice for memory search, kept
+separate because chat serving and embedding serving are often different
+servers. Changing `embedding_model` is safe but not free: every stored
+vector is dropped and rebuilt in the background, and search runs on
+keywords alone until the rebuild finishes. Vectors from different models
+are never compared.
+
 **`trusted_apps`** is empty by default, so out of the box *nothing* is
 app-trusted: every write that isn't the literal `user` origin is quarantined
 for your review. Add your own client's app slug here only once you're

@@ -360,6 +360,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The judge pass (#58): startup + hourly while enabled; off by default.
     app.state.judge_scheduler_stop = judge.start_scheduler(settings)
     app.router.on_shutdown.append(app.state.judge_scheduler_stop.set)
+    # Embedding-space guard (#60): a changed embedding model drops every
+    # stored vector and refills in the background; never mixes spaces.
+    embeddings.start_reembed_if_needed(settings)
     # Warm the integrity verdict at startup (#79): the one place the full
     # quick_check scan runs synchronously, so no live health probe — and
     # therefore no chat round awaiting one — ever pays for it.
@@ -1029,7 +1032,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                     "size_bytes": h["size_bytes"], "integrity": h["integrity"],
                     "fts_in_sync": h["fts_in_sync"],
                     "last_backup_at": h["last_backup_at"]},
-            "capabilities": {"embeddings": embeddings.available(),
+            "capabilities": {"embeddings": embeddings.available(settings),
                               "miner_model": settings.miner_model},
             "detail": h,
         }

@@ -46,7 +46,7 @@ def semantic_ledger(con, settings, monkeypatch):
         "Alex is a weekend chess player (Fairhaven club)": [0.999, 0.04, 0.0],
         "Sam is training for a marathon in autumn": [0.0, 1.0, 0.0],
     }
-    monkeypatch.setattr(embeddings, "available", lambda: True)
+    monkeypatch.setattr(embeddings, "available", lambda settings=None: True)
     monkeypatch.setattr(embeddings, "embed_texts",
                         lambda texts, s: [vectors[t] for t in texts])
     for content in vectors:
