@@ -82,12 +82,21 @@ proposes; granting permanence is always your action.
 | Setting | Default | What it does |
 |---|---|---|
 | `miner_model` | `claude-haiku-4-5` | Cheap model that extracts facts from chats |
+| `llm_base_url` | *(empty)* | OpenAI-compatible server for non-claude model names |
 | `trusted_apps` | `[]` | Apps whose saves skip quarantine; empty means none |
 | `grounding_allowlist` | `[]` | Proper nouns the walls should never question |
 
 **`miner_model`** runs often (after every chat), so it defaults cheap. If
 mined facts feel off, a stronger model here helps, at real cost, since it
 reads whole conversations.
+
+**`llm_base_url`** points every non-claude model name at an
+OpenAI-compatible server, such as Ollama's `http://127.0.0.1:11434/v1`.
+With it set, no API key is needed and nothing leaves your machine for
+mining, captions, or summaries. Pick a server that is always on; if it is
+down, mining fails loudly and retries later rather than losing anything.
+Each model setting routes on its own name, so a local miner can sit
+beside a cloud `summary_model`, or replace it too.
 
 **`trusted_apps`** is empty by default, so out of the box *nothing* is
 app-trusted: every write that isn't the literal `user` origin is quarantined
