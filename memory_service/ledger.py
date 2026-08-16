@@ -84,9 +84,16 @@ def add_fact(con, content: str, settings, *, source: str = "user",
              importance: int | None = None, conversation_id: int | None = None,
              source_message_id: int | None = None,
              quarantine_reason: str | None = None,
+             web_sources: list[str] | None = None,
              dedupe_in_conversation: bool = False) -> dict:
     """Append one fact. Untrusted origins are quarantined at creation (the gate);
     a caller-supplied quarantine_reason (e.g. a wall flag) also quarantines.
+
+    `web_sources` (#55, contract 1.3): domains the authoring round read from
+    the web - passed explicitly by /v1/facts, and inherited automatically
+    from the source message's stamp on the mining path. Non-empty means the
+    fact is held with a `web-derived:` reason: a public page must not write
+    memory by phrasing a sentence well. The origin gate outranks it.
 
     `dedupe_in_conversation` is a NARROW write-time guard for the mining path
     (#36): when set, re-adding a fact whose normalized content already exists
@@ -126,9 +133,18 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     # voice-match at 0.8+, weaker never). Same hold rules either way:
     # the link changes what review can say, never whether a fact is held.
     person_id = None
+    webs = [str(w).strip().lower() for w in (web_sources or []) if str(w).strip()]
     if source_message_id is not None:
-        row = con.execute("SELECT speaker_identity FROM messages WHERE id=?",
-                          (source_message_id,)).fetchone()
+        row = con.execute("SELECT speaker_identity, web_sources FROM messages "
+                          "WHERE id=?", (source_message_id,)).fetchone()
+        if row and row["web_sources"]:
+            # #55: the mining path inherits the stamp from the turn itself,
+            # so the miner needs no knowledge of this rule.
+            try:
+                webs += [str(w).strip().lower()
+                         for w in json.loads(row["web_sources"]) if str(w).strip()]
+            except ValueError:
+                pass
         if row and row["speaker_identity"]:
             from . import persons as persons_mod
             try:
@@ -136,6 +152,10 @@ def add_fact(con, content: str, settings, *, source: str = "user",
                     con, json.loads(row["speaker_identity"]))
             except (ValueError, KeyError):
                 person_id = None
+    if reason is None and webs:
+        shown = ", ".join(sorted(set(webs))[:5])[:300]
+        reason = (f"web-derived: {shown} — a public page was read in this "
+                  "round; held for review before becoming canon")
     cur = con.execute(
         "INSERT INTO facts(content, source, origin_agent, conversation_id, "
         "source_message_id, created_at, event_date, confidence, importance, "

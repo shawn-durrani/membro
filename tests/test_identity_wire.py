@@ -128,5 +128,6 @@ def test_a_merged_slug_binds_to_the_winner_and_forgotten_binds_nothing(
     assert _fact_from(client, settings, "g2")["person_id"] is None
 
 
-def test_health_announces_contract_1_2(client):
-    assert client.get("/v1/health").json()["contract_version"] == "1.2"
+def test_health_announces_contract_1_3(client):
+    # 1.3 (#55) is additive over 1.2: web_sources on ingest and facts.
+    assert client.get("/v1/health").json()["contract_version"] == "1.3"

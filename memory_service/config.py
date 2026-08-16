@@ -53,7 +53,7 @@ class Settings(BaseModel):
     trusted_apps: list[str] = []  # register your own client app slugs; empty = no app-trusted writes
     grounding_allowlist: list[str] = []    # user-specific ubiquitous nouns, config not code
 
-    contract_version: str = "1.2"  # 1.2 (#33): speaker_identity on ingest
+    contract_version: str = "1.3"  # 1.3 (#55): web_sources on ingest + facts; 1.2 (#33): speaker_identity on ingest
 
     @property
     def db_path(self) -> Path:

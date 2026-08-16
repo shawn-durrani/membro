@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS messages(
   content TEXT NOT NULL,
   created_at REAL NOT NULL,
   speaker_identity TEXT NOT NULL DEFAULT '',  -- #33 contract 1.2: {person, confidence, method} json, or ''
+  web_sources TEXT NOT NULL DEFAULT '',       -- #55 contract 1.3: json list of web domains the turn drew on, or ''
   UNIQUE(conversation_id, external_id)
 );
 
@@ -232,6 +233,9 @@ def init(settings) -> None:
         mcols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
         if "speaker_identity" not in mcols:
             con.execute("ALTER TABLE messages ADD COLUMN speaker_identity "
+                        "TEXT NOT NULL DEFAULT ''")
+        if "web_sources" not in mcols:  # #55 additive, same pattern
+            con.execute("ALTER TABLE messages ADD COLUMN web_sources "
                         "TEXT NOT NULL DEFAULT ''")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
