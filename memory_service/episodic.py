@@ -147,10 +147,45 @@ def messages_after(con, conversation_id: int, after_id: int = 0) -> list[dict]:
         (conversation_id, after_id))]
 
 
+def _like_fallback(con, words, limit) -> list[dict]:
+    """The bounded non-FTS path: first word, substring match, newest first.
+    Serves FTS syntax edge cases and a drifted index alike."""
+    rows = con.execute(
+        "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
+        "substr(m.content, 1, 200) AS content "
+        "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
+        "WHERE m.content LIKE ? ORDER BY m.id DESC LIMIT ?",
+        (f"%{words[0]}%", limit))
+    return [dict(r) for r in rows]
+
+
+def _fts_index_drifted(con) -> bool:
+    """The detectable drift shape: messages_fts EMPTY while messages has
+    rows. An empty-but-valid index answers MATCH with zero rows without
+    raising, so it reads exactly like a genuine no-match. Probed via the
+    `_docsize` shadow table, same as db.fts_status — a read of the fts5
+    table itself reads THROUGH to the base table and would always look in
+    sync. Two O(1) existence probes, paid only when a query already came
+    back empty; an ordinary no-match on a healthy index costs the shadow
+    probe and stops. Partial drift (index non-empty but behind) is not
+    detectable per query; the startup repair (db.repair_fts via db.init)
+    owns that."""
+    try:
+        if con.execute("SELECT EXISTS(SELECT 1 FROM messages_fts_docsize)"
+                       ).fetchone()[0]:
+            return False
+    except Exception:
+        return False  # older/partial schema: nothing provable, no fallback
+    return bool(
+        con.execute("SELECT EXISTS(SELECT 1 FROM messages)").fetchone()[0])
+
+
 def search(con, query: str, limit: int = 20) -> list[dict]:
     """FTS5 over the whole record — messages AND attachment text; LIKE fallback
-    for FTS syntax edge cases. Attachment hits are labeled `file: <name>` in
-    the speaker slot so callers can render them without a schema change."""
+    for FTS syntax edge cases AND for a drifted-empty index, which answers
+    zero rows without raising and would otherwise read as a genuine
+    no-match. Attachment hits are labeled `file: <name>` in the speaker slot
+    so callers can render them without a schema change."""
     words = [w for w in (query or "").split() if w.strip()]
     if not words:
         return []
@@ -163,6 +198,12 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
             "JOIN conversations c ON c.id = m.conversation_id "
             "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?", (match, limit))
         hits = [dict(r) for r in rows]
+        if not hits and _fts_index_drifted(con):
+            log.warning(
+                "messages_fts is empty while messages has rows — index "
+                "drift; serving the bounded LIKE fallback (the startup "
+                "repair rebuilds the index on next restart)")
+            return _like_fallback(con, words, limit)
         if len(hits) < limit:
             arows = con.execute(
                 "SELECT 'file: ' || a.filename AS speaker, a.created_at, c.title, "
@@ -175,10 +216,4 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
             hits += [dict(r) for r in arows]
         return hits
     except Exception:
-        rows = con.execute(
-            "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
-            "substr(m.content, 1, 200) AS content "
-            "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
-            "WHERE m.content LIKE ? ORDER BY m.id DESC LIMIT ?",
-            (f"%{words[0]}%", limit))
-        return [dict(r) for r in rows]
+        return _like_fallback(con, words, limit)
