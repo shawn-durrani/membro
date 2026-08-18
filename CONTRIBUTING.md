@@ -25,6 +25,14 @@ what changed, and whoever comes next reconstructs the reasoning from
 the link. Branch from `main`, never off another open PR: squash-merging
 the first would orphan the second.
 
+One caveat when reading code comments: issue numbers in code that
+predates the 2026-08-06 public release refer to a private tracker that
+did not come with the repo. Read them as design-history labels, not
+links; the reasoning around them stands alone. They are rewritten
+opportunistically when a file is touched (#8), and a number can also
+name a real issue here by coincidence - `git blame` settles which
+tracker a comment meant.
+
 ## Rules
 
 - Tests accompany behaviour changes.
