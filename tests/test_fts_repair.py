@@ -54,9 +54,11 @@ def test_repair_fts_fixes_deliberately_emptied_index(con, sample_conversation):
     assert status["messages_fts"]["fts_rows"] == 0
     assert status["messages_fts"]["in_sync"] is False
 
-    # This is the silent-failure symptom: no exception, just zero hits for
-    # content that is verifiably still in `messages`.
-    assert episodic.search(con, "Initech") == []
+    # The silent-failure symptom used to be zero hits with no exception.
+    # Since the query-path guard (#38), a drifted-EMPTY index falls back to
+    # the bounded LIKE path, so the content is still findable pre-repair.
+    drifted_hits = episodic.search(con, "Initech")
+    assert drifted_hits and any("Initech" in h["content"] for h in drifted_hits)
 
     result = db.repair_fts(con)
     assert result["repaired"] == ["messages_fts"]
@@ -139,3 +141,37 @@ def test_health_surfaces_fts_desync(settings):
     h = db.health(settings)
     assert h["fts_in_sync"] is False
     assert h["fts"]["messages_fts"]["in_sync"] is False
+
+
+def test_search_falls_back_when_the_index_is_empty_but_valid(
+        con, sample_conversation):
+    """#38: an empty-but-syntactically-valid index answers MATCH with zero
+    rows without raising, so the exception-only fallback never ran and drift
+    read as a genuine no-match. The query path now probes for exactly that
+    shape and serves the bounded LIKE fallback."""
+    con.execute("DROP TABLE messages_fts")
+    con.execute("CREATE VIRTUAL TABLE messages_fts USING fts5("
+                "content, content='messages', content_rowid='id')")
+    con.commit()
+    hits = episodic.search(con, "Initech")
+    assert hits and any("Initech" in h["content"] for h in hits)
+    # and a word genuinely absent from the record still finds nothing -
+    # the fallback is bounded, not a different answer
+    assert episodic.search(con, "Hooli") == []
+
+
+def test_healthy_no_match_never_falls_back(con, sample_conversation):
+    """An ordinary no-match on a HEALTHY index stays an honest empty result:
+    the drift probe sees a non-empty index and stops - no LIKE scan."""
+    assert db.fts_status(con)["messages_fts"]["in_sync"] is True
+    assert episodic.search(con, "Hooli") == []
+
+
+def test_empty_record_searches_empty(settings):
+    """A fresh, genuinely empty store: zero rows everywhere is not drift."""
+    db.init(settings)
+    con = db.connect(settings.db_path)
+    try:
+        assert episodic.search(con, "anything") == []
+    finally:
+        con.close()

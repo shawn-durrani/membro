@@ -5,6 +5,16 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Transcript search survives an emptied search index (#38). An
+  empty-but-valid FTS index answers every query with zero rows without
+  raising, so drift read as a genuine no-match and the old fallback (it
+  only fired on exceptions) never ran. When a query comes back empty,
+  the query path now checks the index's shadow table: an empty index
+  over a non-empty record serves the bounded substring fallback and
+  logs the drift. Healthy no-match searches pay one O(1) probe and
+  return an honest empty result; the startup repair still rebuilds the
+  index itself.
+
 - Embeddings can run locally too, and model changes are space-safe
   (#60). `embedding_base_url` points memory search at any
   OpenAI-compatible server, no key required. The active embedding model
