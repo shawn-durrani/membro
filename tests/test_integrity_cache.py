@@ -1,4 +1,4 @@
-"""The integrity verdict answers from cache, not from a live scan (#79).
+"""The integrity verdict answers from cache, not from a live scan.
 
 `PRAGMA quick_check` scans the whole database file; running it inside
 /v1/health put that scan on the chat client's round-critical path. These

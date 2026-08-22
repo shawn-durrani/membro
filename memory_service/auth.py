@@ -1,4 +1,4 @@
-"""Owner password — a durable, memory-hard verifier for the admin UI (#51 slice 1).
+"""Owner password — a durable, memory-hard verifier for the admin UI.
 
 Before this, the browser "login" accepted the process's admin token (the value
 printed to the terminal at startup, or `MEMORY_AUTH_TOKEN`). That token is
@@ -36,7 +36,7 @@ import secrets
 from . import db
 
 # The durable settings key holding the owner-password verifier JSON. Absent =
-# not yet enrolled (a fresh install, or one that predates #51 slice 1).
+# not yet enrolled (a fresh install, or one that predates the owner password).
 SETTING_KEY = "owner_password_verifier"
 
 # scrypt cost parameters. n MUST be a power of two; memory use is ~128*r*n

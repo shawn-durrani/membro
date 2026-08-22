@@ -1,4 +1,4 @@
-"""#110 — coarse fact provenance survives selection and reaches the summary,
+"""Coarse fact provenance survives selection and reaches the summary,
 both as a mechanically-derived prompt tag and as structured `/summary`
 metadata. Deliberately NOT true speaker attribution: a mined fact spans
 possibly several turns and has no single recorded speaker, so the one thing
@@ -13,7 +13,7 @@ from memory_service import ledger, mining, summary, weighting
 def test_selection_carries_origin_agent_and_source(con, settings):
     """weighting.select_for_summary must expose the raw columns, not just
     content/importance/event_date — the prompt renderer and the /summary
-    response both need them (#110)."""
+    response both need them."""
     direct = ledger.add_fact(con, "Alex prefers dark roast coffee.", settings)
     curated = ledger.add_fact(con, "Alex's assistant noted a new hobby.",
                               settings, origin_agent="gpt-5",
@@ -98,7 +98,7 @@ def test_participant_curated_fact_keeps_raw_origin_no_flattening(
 
 def test_summary_response_exposes_structured_provenance(con, settings, fake_llm):
     """Structured metadata (not prose) is the mechanically-checkable surface a
-    downstream consumer should actually rely on for attribution (#110)."""
+    downstream consumer should actually rely on for attribution."""
     direct = ledger.add_fact(con, "Alex prefers dark roast coffee.", settings)
     fake_llm["response"] = "## Preferences\n- coffee"
     summary.regenerate(con, settings)

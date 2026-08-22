@@ -21,7 +21,7 @@ from . import captions, episodic, ledger, llm, persons, recall, summary, walls
 # `mined_upto` watermark once, then mines everything after it. Two runs for the
 # SAME conversation overlapping in this process would both read the same
 # watermark and re-mine the same messages, multiplying facts (the amplifier in
-# #36). We serialize per conversation with a non-blocking guard: if a run is
+# the meta-conversation flood). We serialize per conversation with a non-blocking guard: if a run is
 # already in flight, the second returns immediately — the in-flight run advances
 # the watermark and covers those messages. In-process is sufficient: the service
 # is a single port-guarded instance and /v1/distill is its only caller.
@@ -43,14 +43,14 @@ _SUPERSEDES_RE = re.compile(r"supersedes\s*=\s*\[?\s*(\d+(?:\s*,\s*\d+)*)\s*\]?"
 _IMPORTANCE_RE = re.compile(r"importance\s*=\s*(\d{1,2})", re.I)
 _EVENT_RE = re.compile(r"event\s*=\s*(\d{4}-\d{2}-\d{2})", re.I)
 # The message this fact was derived from, as the [msg N] label the model echoes
-# back. It scopes event-date grounding to ONE turn's text (see #33) so a date
+# back. It scopes event-date grounding to ONE turn's text so a date
 # living elsewhere in the chunk can't ground a fact it has nothing to do with.
 _SRC_RE = re.compile(r"src\s*=\s*(\d+)", re.I)
 
 # Explicit calendar dates are recognised by `walls.explicit_dates` — ONE
 # definition, because the same question ("is this date literally in the text?")
 # gates two different things: the event date honoured below, and the temporal
-# wall that catches a date invented in a fact's prose (#38). We only ever honour
+# wall that catches a date invented in a fact's prose. We only ever honour
 # a model-supplied event date that is literally anchored in the source — never a
 # relative ("last Tuesday") or vague ("a couple weeks ago") phrase, and never a
 # date the model invented. Inventing a date is exactly the fabrication this
@@ -93,7 +93,7 @@ def _grounded_event_date(model_date: str | None, source_text: str,
 def _retry_importance(fact: str, settings) -> int | None:
     """Reissue ONE fact whose importance= tag the miner omitted or malformed,
     asking explicitly for the missing score before we fall back to quarantine
-    (#69). The first-pass omission rate is high enough (the smaller utility
+. The first-pass omission rate is high enough (the smaller utility
     model drops a required tag under the heavier event=/src= grammar) that
     quarantining on sight would flood the review queue; a single cheap re-ask
     recovers the common case where the fact itself was fine and only the tag
@@ -229,7 +229,7 @@ MSG_CHARS = 20_000      # a single pasted document is truncated for mining —
                         # the episodic record keeps it verbatim; only this
                         # pass reads a bounded view
 
-# #71: the supersede-candidate list used to be ONLY the 250 newest valid facts
+# The supersede-candidate list used to be ONLY the 250 newest valid facts
 # by insertion id (ledger.list_facts orders id DESC) — a structural blind
 # spot, not a tuning knob. A fact contradicted by new information but never
 # re-mentioned since simply aged out of the window and became permanently
@@ -252,7 +252,7 @@ def _msg_body(m: dict) -> str:
     message it traveled with — a pasted document's facts are as real as typed
     ones. The episodic record keeps every byte; this pass reads a bounded view.
     This is also the text a fact's event date is grounded against once the fact
-    is bound to its source message (#33)."""
+    is bound to its source message."""
     c = m["content"]
     for a in m.get("attachments") or []:
         if a.get("extracted_text"):
@@ -282,7 +282,7 @@ def _transcript(messages: list[dict], user_name: str) -> str:
     [msg N] label (N = 1-based position in this window). The label is what lets
     the extractor attribute each fact back to the single turn it came from: the
     model echoes it as src=N, and that binding is what scopes event-date
-    grounding to one message instead of the whole chunk (#33)."""
+    grounding to one message instead of the whole chunk."""
     return "\n\n".join(
         f"[msg {i}] {_speaker(m, user_name)}: {_msg_body(m)}"
         for i, m in enumerate(messages, start=1))
@@ -313,14 +313,14 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
     if not lock.acquire(blocking=False):
         # Another distill for THIS conversation is already running in-process;
         # letting this one proceed would re-mine the same messages and multiply
-        # facts (#36). Skip — the in-flight run covers these messages.
+        # facts. Skip — the in-flight run covers these messages.
         return {"added": 0, "quarantined": 0, "skipped_locked": True}
     try:
         conv = episodic.get_conversation(con, source_app, conversation_external_id)
         if not conv:
             raise LookupError("unknown conversation")
         added = quarantined = deduped = refused = deferred = 0
-        # Images first (#107): captions land in extracted_text, which the
+        # Images first: captions land in extracted_text, which the
         # attachment view below reads — so photo content mines exactly like a
         # pasted document's. Any caption failure skips that image and never
         # blocks the text mining that follows.
@@ -344,12 +344,12 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
             summary.regenerate(con, settings)
         result = {"added": added, "quarantined": quarantined}
         if deduped:
-            # Only surfaced when a re-mine was actually collapsed (#36) — keeps
+            # Only surfaced when a re-mine was actually collapsed — keeps
             # the common return shape unchanged for existing callers/tests.
             result["deduped"] = deduped
         if refused:
             # Same shape rule as deduped: present only when a backdated
-            # supersession was actually refused (#120).
+            # supersession was actually refused.
             result["refused_supersede"] = refused
         if deferred:
             result["deferred_supersede"] = deferred
@@ -385,7 +385,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     recent = ledger.list_facts(con, status="valid", limit=250)
     candidates = {f["id"]: f for f in recent}
     try:
-        # Reach beyond the recency window (#71): facts relevant to THIS
+        # Reach beyond the recency window: facts relevant to THIS
         # chunk's topics, however old, so a directly contradicted fact is
         # still offered as a supersede target. Merge, don't replace — the
         # recency window still gives the model everything freshly discussed,
@@ -430,7 +430,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "Not passing moods.\n"
         "The test is DURABILITY (still true in ~6 months), not topic — keep durable "
         "relationships and goals; drop transient feelings and chit-chat.\n"
-        "PROJECT / BUILDER CONVERSATIONS (#66) get a stricter two-level rule, "
+        "PROJECT / BUILDER CONVERSATIONS get a stricter two-level rule, "
         "because this ledger is biography, not an engineering log — the full "
         "transcript already exists, searchable, for anyone who needs the technical "
         "detail:\n"
@@ -541,19 +541,19 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
             # Self-reference to this memory system's machinery or the AI tooling
             # itself — not biography about the user, so it is never extracted
             # (dropping keeps the review queue from flooding when a conversation
-            # is ABOUT the memory system — #36). The verbatim message survives in
+            # is ABOUT the memory system). The verbatim message survives in
             # the episodic record, so nothing is actually lost.
             walls.record_drop("system-meta")
             continue
         if walls.is_builder_process(fact):
             # Ordinary engineering-process/execution chatter about building a
             # project — PR/issue/CI mechanics, implementation minutiae, transient
-            # UI styling (#66). Same reasoning as is_system_meta: not biography,
+            # UI styling. Same reasoning as is_system_meta: not biography,
             # nothing for a human to review, and the verbatim message still
             # survives in the episodic record.
             #
             # This is a keyword-matching BACKSTOP, not the primary defense — the
-            # live-evidence gap in #66's reopening showed deep technical/
+            # live-evidence gap in the engineering-chatter wall's reopening showed deep technical/
             # architecture reasoning (cache-invalidation analysis, root-causing)
             # trips no keyword here at all. The real fix is upstream, in the
             # extraction prompt itself: the model is asked not to propose that
@@ -571,7 +571,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # always in the profile) and only the owner may grant that — a batch
         # scoring hiccup must never be able to mint permanence.
         #
-        # importance is REQUIRED, never optional (#69). After the output grammar
+        # importance is REQUIRED, never optional. After the output grammar
         # gained event= and src= tags (2026-07-15), the utility model began
         # dropping the importance= tag under the heavier load, and this parser
         # accepted the omission and stored NULL. Summary selection reads NULL as
@@ -597,7 +597,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # the event date outright and fall back to conversation time. We never
         # ground against the latest turn's text as a consolation, because a date
         # that happens to sit in that turn could still borrow onto an unrelated
-        # fact — a narrower re-opening of the exact #33 hole.
+        # fact — a narrower re-opening of the exact date-borrowing hole.
         bound = idx_to_msg.get(int(src.group(1))) if src else None
         repair_refused = None
         if bound is None and line_no in src_repairs:
@@ -631,7 +631,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
             # support.
             source_message_id = None
         # The walls (grounding/source-trust/scope) still read the whole chunk:
-        # a fact may legitimately synthesise across turns, and #33 is about the
+        # a fact may legitimately synthesise across turns, and the date-borrowing fix is about the
         # event date only — narrowing the walls here would be scope creep.
         flags = walls.check(fact, source_text, allow)
         # #31: source-trust for WHO SPOKE. A fact bound to a guest's turn, an
@@ -665,7 +665,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         if speaker_flag:
             flags = flags + [speaker_flag]
         if importance is None:
-            # #69: still unscored AFTER the corrective retry — the backstop.
+            # Still unscored AFTER the corrective retry — the backstop.
             # Quarantine, don't silently trust.
             flags = flags + [
                 "importance: miner omitted or malformed importance= and did "
@@ -695,13 +695,13 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
                 if old_id not in valid_ids:
                     continue
                 if res["quarantined"]:
-                    # A held-for-review fact must not alter canon (#120): its
+                    # A held-for-review fact must not alter canon: its
                     # supersession intent is deferred to the human review pass
                     # (the queue's supersede action), never auto-applied from
                     # quarantine.
                     deferred += 1
                     continue
-                # An older claim never invalidates a newer one (#120). When
+                # An older claim never invalidates a newer one. When
                 # mining history (imported exports, late re-mines), this fact's
                 # grounded event date can precede the listed target's — the
                 # fact itself still lands above, event-dated and walled; only

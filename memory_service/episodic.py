@@ -76,7 +76,7 @@ def attachments_for_conversation(con, conversation_id: int) -> dict[str, list[di
     """message_external_id -> attachment rows (no bytes), for the mining view."""
     out: dict[str, list[dict]] = {}
     for r in con.execute(
-            # A machine caption (#107) stands in for extracted text when the
+            # A machine caption stands in for extracted text when the
             # attachment has none (images): the attachments row itself is never
             # updated, so the overlay happens here, at read time.
             "SELECT a.message_external_id, a.filename, a.mime, "

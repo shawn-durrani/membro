@@ -1,4 +1,4 @@
-"""Regression coverage for #66 on the direct MCP write path.
+"""Regression coverage for the engineering-chatter wall on the direct MCP write path.
 
 `save_memory` (mcp_server.py) is the loudest leak the issue names: an
 `mcp:*` origin is always quarantined by provenance regardless of content, so
@@ -47,7 +47,7 @@ def test_save_memory_drops_builder_process_noise_without_quarantining(con):
 def test_save_memory_still_quarantines_a_durable_outcome_or_preference(con):
     # Process/mechanics content is dropped; a real preference or project
     # outcome from the SAME untrusted origin still reaches review — the
-    # existing mcp:* provenance gate (#4) is untouched by this fix.
+    # existing mcp:* provenance gate is untouched by this fix.
     result = mcp_server.save_memory(
         "Alex decided to leave Initech and go freelance full-time.")
     assert "held for the user's review" in result

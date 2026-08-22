@@ -1,4 +1,4 @@
-"""Machine-generated image descriptions, so photos stop being invisible (#107).
+"""Machine-generated image descriptions, so photos stop being invisible.
 
 An image attachment stores its bytes but ``extract_text`` yields "" — so search,
 mining, and recall never see it, and a conversation held *about* photos leaves

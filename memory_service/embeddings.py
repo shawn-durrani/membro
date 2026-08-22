@@ -18,7 +18,7 @@ import os
 import struct
 import threading
 
-# Module-top import (#78): the lazy in-function import cost ~370ms on the
+# Module-top import: the lazy in-function import cost ~370ms on the
 # first recall of a process — importing is free of any key requirement, so
 # there is no reason to defer it into the request path.
 from openai import OpenAI
@@ -38,7 +38,7 @@ def available(settings=None) -> bool:
     return settings is not None and bool(_base_url(settings))
 
 
-# One client per process (#78): a fresh OpenAI() per call meant a new
+# One client per process: a fresh OpenAI() per call meant a new
 # TCP+TLS handshake to api.openai.com on EVERY recall — a large share of the
 # chat client's measured ~0.9s ambient-recall wait. The SDK client is
 # thread-safe and pools connections; ledger's embed threads share it too.
@@ -91,7 +91,7 @@ def cosine(a, b) -> float:
 
 
 def unit(vec):
-    """Unit-normalized copy of `vec`, or None for a zero vector (#78)."""
+    """Unit-normalized copy of `vec`, or None for a zero vector."""
     n = math.sqrt(math.sumprod(vec, vec))
     return [x / n for x in vec] if n else None
 
@@ -99,7 +99,7 @@ def unit(vec):
 def cosine_unit(u, b) -> float:
     """cosine(q, b) where `u` is the already-unit-normalized q. A recall
     scan compares ONE query against every fact; recomputing the query's own
-    norm per fact was ~a third of the scan (#78). Same result as cosine()
+    norm per fact was ~a third of the scan. Same result as cosine()
     up to float rounding."""
     nb = math.sqrt(math.sumprod(b, b))
     return math.sumprod(u, b) / nb if nb else 0.0

@@ -2,9 +2,9 @@
 resolve temporally conflicting status facts, and must never present a stale
 profile as if it were timeless.
 
-#22 — the summary prompt carries each entry's event_date (date-only) and an
+Prompt side — the summary prompt carries each entry's event_date (date-only) and an
 explicit latest-wins rule for conflicting current-state / active-thread status.
-#27 — the MCP memory_summary tool stamps its output with generated_at and warns
+Tool side — the MCP memory_summary tool stamps its output with generated_at and warns
 that time-sensitive status should be verified with recall.
 """
 
@@ -41,7 +41,7 @@ def test_prompt_carries_latest_wins_rule(con, settings, fake_llm):
 
 def test_mcp_summary_is_stamped_with_generated_at():
     """The MCP tool prepends a readable generated_at stamp and a verify-with-
-    recall warning ahead of the profile prose (#27)."""
+    recall warning ahead of the profile prose."""
     generated = datetime.datetime(2026, 5, 28, 10, 0, 0,
                                   tzinfo=datetime.timezone.utc).timestamp()
     out = _format_summary({"summary": "## Identity\n- profile body",

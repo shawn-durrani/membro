@@ -69,7 +69,7 @@ def test_emergent_topics_prompt_keeps_the_spine(con, settings, fake_llm):
     """The model names the middle sections; the stable→volatile spine
     (Identity … Recent Changes) stays fixed — that ordering is load-bearing.
 
-    Graduated from an experiment to the only behaviour on 2026-07-26 (#13), so
+    Graduated from an experiment to the only behaviour on 2026-07-26, so
     this is no longer "the default" — there is nothing else to be."""
     _seed(con, settings)
     fake_llm["response"] = "## Identity\n- x"

@@ -48,7 +48,7 @@ def test_4_untrusted_origin_always_quarantined(con, settings):
     assert not ledger.add_fact(con, "Alex runs marathons.", settings,
                                origin_agent="claude",
                                source_app="multi-model-chat")["quarantined"]
-    # #49: an mcp:* origin can NEVER launder itself into canon by declaring a
+    # An mcp:* origin can NEVER launder itself into canon by declaring a
     # trusted source_app — the write is gated, not the writer.
     assert ledger.add_fact(con, "Alex is secretly a spy.", settings,
                            origin_agent="mcp:claude-code",
@@ -72,7 +72,7 @@ def test_6_summary_claims_trace_to_source_facts(con, settings, fake_llm):
     assert s["summary"] == "## Preferences\n- woodworking"
     assert s["source_fact_ids"] == [a["id"]]
     assert s["generated_at"] is not None
-    # #110: each traced fact's RAW origin is exposed too, mechanically derived
+    # Each traced fact's RAW origin is exposed too, mechanically derived
     # (never a guessed speaker) — see tests/test_summary_provenance.py.
     assert s["provenance"] == [
         {"id": a["id"], "origin_agent": "user", "source": "user", "tag": "direct"}]

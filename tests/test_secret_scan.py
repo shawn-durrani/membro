@@ -122,7 +122,7 @@ def test_tree_scan_is_clean():
     assert rc == 0, f"a secret or identifier is in the committed tree:\n{out}"
 
 
-# ── a staged decorator line must never read as an email (#46 regression) ────
+# ── a staged decorator line must never read as an email ────
 def test_staged_decorator_line_is_not_flagged_as_email(tmp_path):
     """git diff prefixes every added line with a bare '+'. A module-level
     decorator like '@mcp.tool()' or '@pytest.fixture' sits flush against that
@@ -151,7 +151,7 @@ def test_files_path_prefix_is_not_scanned(tmp_path):
     """--files must scan file CONTENT only. A clean file that merely LIVES under
     a real-looking home path (/Users/<name>/…, /home/runner/… in CI) must pass —
     the caller's path is not the repo's content. A sibling mirror of this
-    scanner shipped with a path-prefix bug (#96) that failed every scan on a
+    scanner shipped with a path-prefix bug that failed every scan on a
     real machine; this pins membro against ever growing the same one."""
     home = tmp_path / "Users" / "realperson"
     home.mkdir(parents=True)
@@ -161,7 +161,7 @@ def test_files_path_prefix_is_not_scanned(tmp_path):
     assert rc == 0, f"file path leaked into scanned text:\n{out}"
 
 
-# ── the gate can detect, not just pass (#54) ─────────────────────────────────
+# ── the gate can detect, not just pass ─────────────────────────────────
 #
 # `test_tree_scan_is_clean` above asserts a clean tree scans clean — which is
 # EXACTLY what a --tree mode scanning zero bytes would also produce. Every other
@@ -229,7 +229,7 @@ def test_the_bare_invocation_trap_is_real_and_pinned(tmp_path):
 
 
 def test_the_documented_history_scan_reads_a_real_file(tmp_path):
-    """#54's second half: `--files` skips anything that isn't a regular file, so
+    """The history-scan doc fix, second half: `--files` skips anything that isn't a regular file, so
     PIPING a git log into it silently scans nothing. RELEASING.md now says to
     write the log to a file first — this proves that instruction works and that
     the piped form it warns against would not."""

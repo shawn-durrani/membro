@@ -236,7 +236,7 @@ def attach_live(con, data):
     return {**data, "summary_ids": ids, "now": db.now()}
 
 
-# ---- Memory landscape (issue #40): the playful "shape of me" lens ----------
+# ---- Memory landscape: the playful "shape of me" lens ----------
 # Same discipline as the rest of this module: geometry only — ids, coordinates,
 # cluster indices, freshness scores, edge weights, timestamps. No fact text ever
 # leaves the ledger here. Every layer below is built from data that actually
@@ -244,12 +244,12 @@ def attach_live(con, data):
 # the payload (`notes`) rather than inventing it.
 
 LANDSCAPE_MAX_EDGES = 120  # keep the co-occurrence web readable, never a hairball
-# Palette is INDICES only — the client picks hues. The contract (issue #40): a
+# Palette is INDICES only — the client picks hues. The contract: a
 # colour distinguishes a cloud from its NEIGHBOURS; it is never a stable
 # topic→colour mapping. Greedy graph-colouring guarantees adjacent clouds
 # differ while reusing a small set.
 LANDSCAPE_PALETTE_N = 8
-# Clustering: k-means on the actual 3D projected coordinates (issue-#43 redesign
+# Clustering: k-means on the actual 3D projected coordinates (the 3D redesign
 # — the landscape is a rotatable 3D "biome", not a flattened 2D map). Grid
 # connected-components collapsed dense data (thousands of points → 2 blobs); flat
 # 2D k-means then bait-and-switched the 3D Replay space into a flat map. k-means
@@ -384,7 +384,7 @@ def _neighbour_colours(centroids):
 
 def _cooccurrence_edges(con, alive_ids):
     """Weighted edges from the access log: facts RECALLED TOGETHER. This is the
-    honest reading of issue #40's 'memories that keep surfacing together in the
+    honest reading of the landscape brief's 'memories that keep surfacing together in the
     same conversations' — two facts co-occur each time one recall returned both.
     Sparse until recall history accrues; absent entirely on a fresh ledger, and
     the client says so rather than drawing a fake web."""
@@ -408,7 +408,7 @@ def _cooccurrence_edges(con, alive_ids):
 
 
 def _sediment(con, coord_ids):
-    """Supersession strata (issue #40, past tense): for each current fact, the
+    """Supersession strata (the landscape brief, past tense): for each current fact, the
     chain of older facts it buried. Geometry only — id, when it was retired,
     importance, depth. Reading the buried TEXT stays a deliberate opt-in in the
     admin ledger; the append-only invariant means every layer is still there."""
@@ -443,7 +443,7 @@ def _sediment(con, coord_ids):
 
 
 def landscape_data(con):
-    """The memory landscape (#40): clouds + freshness + co-occurrence web +
+    """The memory landscape: clouds + freshness + co-occurrence web +
     sediment, all from the CACHED projection so it's cheap to re-serve. Returns
     {"status": "computing"} when the projection isn't built yet — the client
     polls, same as /v1/viz/embeddings."""

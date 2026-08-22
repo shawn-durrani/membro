@@ -16,7 +16,7 @@ from memory_service.api import create_app
 
 
 def _client(settings):
-    # Owner-authenticated: /v1/search is gated (#125) and these tests
+    # Owner-authenticated: /v1/search is gated and these tests
     # exercise search recording, which is an owner action anyway.
     app = create_app(settings)
     return TestClient(app, base_url="http://127.0.0.1",

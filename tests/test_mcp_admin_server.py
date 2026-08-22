@@ -1,4 +1,4 @@
-"""The admin MCP adapter (#46) — read-only, authenticated, ids + status exact.
+"""The admin MCP adapter — read-only, authenticated, ids + status exact.
 
 Talks HTTP to the same FastAPI app as the rest of the suite (via Starlette's
 in-process TestClient — no real socket, no network, keyless), never opens the
@@ -17,7 +17,7 @@ from memory_service.api import create_app
 @pytest.fixture
 def wired(settings, fake_llm, monkeypatch):
     """Point the admin client at an in-process app instead of a real socket,
-    already carrying the SAME admin token the app itself minted (#46 v2:
+    already carrying the SAME admin token the app itself minted (admin-gate v2:
     GET /v1/facts and GET /v1/review now require it even on loopback) — the
     normal operating condition once a session is properly registered."""
     app = create_app(settings)
@@ -84,7 +84,7 @@ def test_no_mutate_tool_is_exposed():
 
 
 def test_unreachable_service_degrades_to_a_clear_error(monkeypatch):
-    """A sandboxed session with no route to the live service (the #46 incident)
+    """A sandboxed session with no route to the live service (the admin-gate incident)
     gets a readable error, not a crash or a raw traceback."""
     monkeypatch.setenv("MEMORY_AUTH_TOKEN", "s3cret")
     monkeypatch.setenv("MEMORY_API_URL", "http://127.0.0.1:1/v1")  # nothing listens

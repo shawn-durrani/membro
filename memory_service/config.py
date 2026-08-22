@@ -19,7 +19,7 @@ class Settings(BaseModel):
     port: int = 8901
     auth_token: str | None = None          # required to bind non-loopback
     # Hostnames where the BROWSER surface is admitted with the password/session
-    # flow as the gate — in practice one Tailscale tailnet name (#83). Empty
+    # flow as the gate — in practice one Tailscale tailnet name. Empty
     # (the default) keeps the strict loopback-or-bearer-token rule exactly as
     # it was: this can only ever widen access for an operator who opts in by
     # naming their own host. See api.py's trust middleware and SECURITY.md.
@@ -35,7 +35,7 @@ class Settings(BaseModel):
     # identity & models
     user_name: str = "User"
     miner_model: str = "claude-haiku-4-5"  # any lab's cheap model; routed by name
-    # Model for image captions (#107). Empty = use miner_model. Set this only
+    # Model for image captions. Empty = use miner_model. Set this only
     # if your miner is a text-only model: captions need a vision-capable one.
     caption_model: str = ""
     # The summary is the most-read artifact in the system (every model, every
@@ -62,7 +62,7 @@ class Settings(BaseModel):
     # keyword-only until that completes.
     embedding_base_url: str = ""
     memory_summary_words: int = 2000
-    # (`summary_emergent_topics` lived here until 2026-07-26 (#13). Emergent
+    # (`summary_emergent_topics` lived here until 2026-07-26. Emergent
     # middle sections graduated from experiment to simply how the profile is
     # written, so the knob is gone; an old value left in config.local.json is
     # ignored, like any unknown key. See summary.py for how to revert.)

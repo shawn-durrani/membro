@@ -9,12 +9,12 @@ The third, `is_system_meta`, is a DROP filter, not a quarantine: a "fact" that
 is about this memory system's own machinery or the AI tooling itself is not
 biography about the user at all, so there is nothing for a human to approve —
 holding it for review only floods the queue when a conversation happens to be
-ABOUT the memory system (the #36 failure mode). Such lines are never extracted.
+ABOUT the memory system (the meta-conversation failure mode). Such lines are never extracted.
 It is deliberately narrow — it matches system/AI-tooling *mechanics* vocabulary,
 never the generic words ("deployed", "the system", "committed") or product names
 a genuine career/project fact might legitimately carry.
 
-`is_builder_process` (#66) is a sibling DROP filter, same discipline, for a
+`is_builder_process` is a sibling DROP filter, same discipline, for a
 different flood: ordinary engineering/execution chatter about ANY project being
 built — PR/issue mechanics, code review and CI status, and transient UI
 styling/layout minutiae — none of which is durable biography about the user
@@ -74,7 +74,7 @@ _PERSONA_RE = re.compile(
 # generic verbs/nouns that appear in real user facts — "deployed", "committed
 # and push", "this app", "the system", "backfill", "memory service" — so a
 # career/project fact that merely mentions a product or a deploy is NOT dropped
-# and is judged by the grounding/source-trust walls like anything else (#36).
+# and is judged by the grounding/source-trust walls like anything else.
 #
 # The set is kept to terms with a near-zero false-positive rate on real
 # biography. Words that are common English or plausible in a work fact are
@@ -87,7 +87,7 @@ _SYSTEM_META_RE = re.compile(
     r"the extraction walls?|quarantin\w*|supersed\w*|the miner|mined?_upto|"
     r"consolidation (pass|sweep)|synthesis fact|PID \d)\b", re.I)
 
-# Builder-process / execution-chatter DROP vocabulary (#66) — engineering
+# Builder-process / execution-chatter DROP vocabulary — engineering
 # mechanics for ANY project being built, not specific to this memory system.
 # Same discipline as _SYSTEM_META_RE: near-zero false-positive rate on real
 # biography. Four clusters, each keyed to the issue's own examples:
@@ -210,11 +210,11 @@ def ungrounded_entities(fact: str, source_text: str, allowlist: set[str]) -> lis
     return missing
 
 
-# ── temporal grounding (#38) ─────────────────────────────────────────────────
+# ── temporal grounding ─────────────────────────────────────────────────
 #
 # Explicit calendar dates we recognise IN TEXT. One definition, two consumers:
 # mining grounds a model-supplied `event=` against it (a date is honoured only
-# when literally present — #30/#32/#33), and the temporal wall below uses it to
+# when literally present — the never-guess-dates rule), and the temporal wall below uses it to
 # catch a date asserted in the fact's PROSE that the source never wrote.
 _MONTHS = {
     "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
@@ -272,7 +272,7 @@ def explicit_dates(text: str) -> set:
 
 
 def ungrounded_temporal(fact: str, source_text: str) -> list[str]:
-    """Temporal claims in `fact` that `source_text` never makes (#38).
+    """Temporal claims in `fact` that `source_text` never makes.
 
     The grounding wall above checks proper nouns, so it never saw a date: a
     lower-case gloss like "the appointment is Saturday (tomorrow from the
@@ -432,14 +432,14 @@ def lexical_support(fact: str, source_text: str, allowlist: set[str]) -> int:
 def is_system_meta(fact: str) -> bool:
     """True when the 'fact' is about this memory system's own machinery or the
     AI tooling itself, not the user. Such lines are DROPPED at extraction (never
-    quarantined) — they are not biography and there is nothing to review (#36)."""
+    quarantined) — they are not biography and there is nothing to review."""
     return bool(_SYSTEM_META_RE.search(fact or ""))
 
 
 def is_builder_process(fact: str) -> bool:
     """True when the 'fact' is ordinary engineering/execution chatter about
     building a project — PR/issue mechanics, code review/CI status,
-    implementation minutiae, or transient UI styling/layout detail (#66). Such
+    implementation minutiae, or transient UI styling/layout detail. Such
     lines are DROPPED at extraction (never quarantined), same as
     `is_system_meta`: they aren't biography about the user, so there is
     nothing for a human to approve. Deliberately narrow — it does not match a
@@ -457,7 +457,7 @@ def in_scope(fact: str) -> bool:
 def check(fact: str, source_text: str, allowlist: set[str]) -> list[str]:
     """The three QUARANTINE walls (grounding, temporal grounding, source-trust).
     Returns flag descriptions; empty list = clean. System/meta scope is handled
-    separately by is_system_meta, which DROPS rather than quarantines (#36)."""
+    separately by is_system_meta, which DROPS rather than quarantines."""
     flags = []
     missing = ungrounded_entities(fact, source_text, allowlist)
     if missing:

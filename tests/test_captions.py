@@ -1,4 +1,4 @@
-"""Image captions at distill time (#107): photos stop being invisible to memory.
+"""Image captions at distill time: photos stop being invisible to memory.
 
 All keyless: the vision call is injected or monkeypatched, never real.
 """
@@ -110,7 +110,7 @@ def test_one_bad_image_does_not_stop_the_rest(con, settings):
 
 
 def test_distill_mines_facts_from_the_caption(con, settings, fake_llm, monkeypatch):
-    """The end-to-end point of #107: photo content becomes ledger content."""
+    """The end-to-end point of photo captions: photo content becomes ledger content."""
     conv = _ingest_photo_chat(con, settings)
     monkeypatch.setattr(
         "memory_service.captions.llm.utility_vision",
@@ -153,7 +153,7 @@ def test_caption_prompt_carries_no_animal_or_species_examples():
 
 
 def test_caption_prompt_forbids_species_and_brand_guessing():
-    """The grounding rules are the point of #107 — pin them."""
+    """The grounding rules are the point of the caption work — pin them."""
     for required in ("literally visible", "Do NOT identify", "species",
                      "generic terms"):
         assert required in captions._PROMPT

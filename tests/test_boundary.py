@@ -45,7 +45,7 @@ def test_read_limits_are_bounded(settings):
     app = create_app(settings)
     c = TestClient(app, base_url="http://127.0.0.1")
     assert c.post("/v1/recall", json={"query": "x", "limit": 99999}).status_code == 422
-    # #46 v2 / #125: /v1/facts and /v1/search require the owner admin token
+    # Admin gate + transcript gating: /v1/facts and /v1/search require the owner admin token
     # even on loopback — send it so these assertions still test the LIMIT
     # bound, not the (separately tested) auth gate.
     auth = {"Authorization": f"Bearer {app.state.admin_token}"}
@@ -55,9 +55,9 @@ def test_read_limits_are_bounded(settings):
 
 
 def test_post_facts_quarantines_model_origin(settings):
-    """#49: a model-origin write over POST /v1/facts must land in review, not
+    """A model-origin write over POST /v1/facts must land in review, not
     canon — the HTTP route inherits the write gate, and this pins it so the
-    boundary can't silently regress (the live-service symptom that opened #49).
+    boundary can't silently regress (the live-service symptom that exposed the hole).
     A plain 'user' write, and an mcp:* origin that names a trusted source_app,
     are both exercised to prove the gate keys on the write, not a claimed app."""
     client = TestClient(create_app(settings), base_url="http://127.0.0.1")
@@ -95,12 +95,12 @@ def test_memory_port_env_reaches_the_app(monkeypatch):
     assert load_settings().port == 8916
 
 
-# ---------- trusted hosts: the browser surface over a tailnet (#83) ----------
+# ---------- trusted hosts: the browser surface over a tailnet ----------
 #
 # WHY this exists: a browser cannot attach an Authorization header to a
 # navigation, so the token rule above made the owner's own phone — over the
 # one sanctioned non-loopback path — unable to reach even the lock screen,
-# leaving #51's password gate unreachable from the device it exists for.
+# leaving the owner password gate unreachable from the device it exists for.
 # These tests pin the narrow widening: the LOGIN surface and an
 # already-authenticated session, never anonymous access to fact data.
 

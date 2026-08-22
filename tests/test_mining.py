@@ -22,7 +22,7 @@ def test_distill_mines_and_grounds(con, settings, sample_conversation, fake_llm)
 
 
 def test_distill_supersedes_listed_entry(con, settings, sample_conversation, fake_llm):
-    # Target is event-dated BEFORE the superseding conversation — the #120
+    # Target is event-dated BEFORE the superseding conversation — the backdating
     # guard refuses the reverse direction.
     old = ledger.add_fact(con, "Alex works at Globex.", settings,
                           event_date=1690000000.0)
@@ -32,13 +32,13 @@ def test_distill_supersedes_listed_entry(con, settings, sample_conversation, fak
 
 
 def test_supersede_reaches_beyond_recency_window(con, settings, fake_llm):
-    """#71: the candidate list the miner sees was ONLY the 250 newest valid
+    """The candidate list the miner sees was ONLY the 250 newest valid
     facts by insertion id, so a target older than that window could never be
     offered for supersession no matter how directly a new fact contradicted
     it. Push the target out of that window with 260 unrelated filler facts,
     then confirm a directly-contradicting new fact still supersedes it."""
     old = ledger.add_fact(con, "Alex works at Globex as a systems architect.",
-                          settings, event_date=1690000000.0)  # predates the chat (#120)
+                          settings, event_date=1690000000.0)  # predates the chat
     for i in range(260):  # older by content but each insert pushes `old`
         ledger.add_fact(con, f"Filler fact number {i} about something unrelated.",
                         settings)
@@ -57,7 +57,7 @@ def test_supersede_reaches_beyond_recency_window(con, settings, fake_llm):
 
 
 def test_supersede_survives_many_intervening_mined_facts(con, settings, fake_llm):
-    """#71 regression: a fact mined first, then directly contradicted by a
+    """Recency-window regression: a fact mined first, then directly contradicted by a
     fact mined much later, is still superseded — independent of how many
     other facts were inserted in between (not just a fixed-N stopgap)."""
     from memory_service import episodic
@@ -108,7 +108,7 @@ def test_unknown_conversation_raises(con, settings):
         mining.distill(con, settings, "multi-model-chat", "nope")
 
 
-# --- Dating by real-world event time (#30) --------------------------------
+# --- Dating by real-world event time --------------------------------
 # A fact defaults to the conversation timestamp, EXCEPT when the source text
 # states an explicit calendar date — then it is back-dated to that day. A
 # relative/vague phrase, or a date the model invents, is never honoured.
@@ -174,14 +174,14 @@ def test_hallucinated_date_not_grounded_is_ignored(con, settings, fake_llm):
     assert fact["event_date"] == 1700000060.0          # invented date ignored
 
 
-# --- Binding a fact to its source message before grounding (#33) ----------
-# #32 grounded the model's event= against the WHOLE mined chunk, so a date
+# --- Binding a fact to its source message before grounding ----------
+# Grounding used to read the model's event= against the WHOLE mined chunk, so a date
 # mentioned in any message could ground a fact extracted from a different one.
 # Now the extractor tags each fact with src=<N> (a [msg N] label). A VALID
 # binding is a hard prerequisite for honouring event=: grounding then reads
 # only that one message's text. If src is missing OR invalid, the proposed
 # event date is rejected outright and the fact falls back to conversation time
-# — never grounded against the latest turn — so the #30/#32 "never guess" holds.
+# — never grounded against the latest turn — so the "never guess a date" rule holds.
 
 
 def _ingest_many(con, msgs, conv_id="chat-m"):
@@ -193,7 +193,7 @@ def _ingest_many(con, msgs, conv_id="chat-m"):
 
 
 def test_date_in_other_message_is_rejected(con, settings, fake_llm):
-    # The exact #33 hole: June 30 is stated in msg 1, but the fact is bound to
+    # The exact date-borrowing hole: June 30 is stated in msg 1, but the fact is bound to
     # msg 2 (which says nothing about a date). The date must NOT ground it even
     # though it is literally present elsewhere in the chunk.
     _ingest_many(con, [
@@ -277,7 +277,7 @@ def test_grounded_event_date_helper():
 
 
 def test_invented_relative_gloss_is_held_for_review(con, settings, fake_llm):
-    """#38 end-to-end: the source states a relative schedule; the miner resolves
+    """Invented-relative-date, end to end: the source states a relative schedule; the miner resolves
     it to the wrong day and states that resolution as fact. The event_date was
     already safe (a relative phrase can never ground one), but the fact's PROSE
     asserted a schedule nobody stated — and no wall looked at prose dates, so it
@@ -309,7 +309,7 @@ def test_source_qualifier_kept_verbatim_passes_clean(con, settings, fake_llm):
     assert fact["event_date"] == 1700000060.0   # conversation time, not resolved
 
 
-# --- importance is REQUIRED: retry once, then quarantine (#69) -------------
+# --- importance is REQUIRED: retry once, then quarantine -------------
 # The miner (a smaller utility model) began dropping the importance= tag after
 # the output grammar grew event= and src= (2026-07-15). The parser used to
 # store the omission as NULL, which summary selection reads as a neutral 5 — so
@@ -386,7 +386,7 @@ def test_malformed_importance_quarantined_when_retry_also_fails(
 
 
 def test_backdated_fact_cannot_supersede_newer(con, settings, fake_llm):
-    """#120: mining old history (imported exports, late re-mines) must never
+    """Backdating guard: mining old history (imported exports, late re-mines) must never
     invalidate a newer fact. The old-dated fact still lands, event-dated to
     its conversation; only the supersession is refused."""
     from memory_service import episodic
@@ -409,7 +409,7 @@ def test_backdated_fact_cannot_supersede_newer(con, settings, fake_llm):
 
 
 def test_quarantined_fact_defers_supersession(con, settings, fake_llm):
-    """#120: an untrusted-origin mined fact is quarantined by the write gate —
+    """Backdating guard: an untrusted-origin mined fact is quarantined by the write gate —
     and a held-for-review fact must not alter canon. Its supersession is
     deferred (surfaced in the result), never auto-applied."""
     from memory_service import episodic

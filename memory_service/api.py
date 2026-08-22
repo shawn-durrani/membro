@@ -7,20 +7,20 @@ which journals a content-free tombstone in `erasures` (#45).
 
 Exact-row endpoints (GET /facts, GET /review, and every verb that reads or
 writes ONE existing fact by id — PATCH, supersede, approve, dismiss, DELETE)
-require the owner admin token ALWAYS, even on loopback (#46 v2/v3) — see
+require the owner admin token ALWAYS, even on loopback (admin-gate v2/v3) — see
 `_admin_auth` below. That is a stricter, separate check from the
 DNS-rebinding/non-loopback middleware further down, which still governs the
 rest of the surface unchanged.
 
 The admin UI authenticates via a `POST /login` + httpOnly session-cookie flow
-(#46 v3), not a token embedded in the page: v2 served the real admin token to
+(admin-gate v3), not a token embedded in the page: v2 served the real admin token to
 ANY unauthenticated `GET /`, which was the same bypass one hop removed — any
 loopback caller could fetch the page, read the token, then call the gated
 endpoints. `GET /` now serves the real UI ONLY once the browser already holds
 a valid session cookie; otherwise it gets a locked page with nothing to leak.
 
 The session cookie holds an OPAQUE, high-entropy, server-side session id —
-NOT the admin bearer token itself (#46 v4). v3 set `mm_admin` to the real
+NOT the admin bearer token itself (admin-gate v4). v3 set `mm_admin` to the real
 token; `HttpOnly` stopped page JS from reading it, but any same-origin request
 still carried a reusable, non-expiring, non-revocable credential — a copied
 cookie was forever equivalent to the real token, and "logout" could only ever
@@ -30,7 +30,7 @@ random id server-side, logout pops it (true revocation), and every check
 rejects an expired id. The MCP admin server keeps using the real bearer token
 directly (`Authorization` header) — untouched by any of this.
 
-OWNER PASSWORD (#51 slice 1): the everyday browser login is now a durable
+OWNER PASSWORD: the everyday browser login is now a durable
 PASSWORD, not the process's admin token. `POST /login` checks the password
 against a memory-hard scrypt verifier (see `auth.py`) persisted in the durable
 store, so it survives restarts — no more hunting the terminal for a token after
@@ -151,7 +151,7 @@ class SupersedeBody(BaseModel):
 
 class QuarantineBody(BaseModel):
     # reason is REQUIRED and non-empty: a fact pulled out of canon has to say
-    # why, or the review queue is a pile of rows nobody can adjudicate (#72).
+    # why, or the review queue is a pile of rows nobody can adjudicate.
     ids: list[int]
     reason: str = Field(min_length=1)
 
@@ -168,7 +168,7 @@ class WebAuthnFinishBody(BaseModel):
 class RecallBody(BaseModel):
     query: str = ""
     # 50, not 500: recall is a retrieval aid, and an unbounded top-N over an
-    # empty query is a whole-ledger export primitive (#56). Nothing legitimate
+    # empty query is a whole-ledger export primitive. Nothing legitimate
     # asks for hundreds of facts in one reach.
     limit: int = Field(10, ge=1, le=50)
     include_superseded: bool = False
@@ -180,7 +180,7 @@ class RecallBody(BaseModel):
 # The exact recall projection the contract documents (docs/API.md "POST /recall").
 # recall.recall() returns whole ledger rows because internal callers want them;
 # the HTTP surface must not, since /recall answers unauthenticated loopback
-# callers by design. Add a field here only by amending the contract too (#56).
+# callers by design. Add a field here only by amending the contract too.
 RECALL_FIELDS = ("id", "content", "event_date", "confidence",
                  "origin_agent", "score")
 
@@ -257,7 +257,7 @@ def _ts(iso: str | None) -> float | None:
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # The ONLY paths a browser may reach unauthenticated on a trusted (tailnet)
-# host: the lock screen and the flows that mint a session (#83). Everything
+# host: the lock screen and the flows that mint a session. Everything
 # else there needs the bearer token or a live admin session, so no anonymous
 # tailnet caller ever reaches fact data. `/enroll` and `/reset` still demand
 # the recovery secret in their own bodies — they are listed here because a
@@ -270,7 +270,7 @@ LOGIN_SURFACE = {"/", "/login", "/logout", "/enroll", "/reset",
                  "/webauthn/login/options", "/webauthn/login"}
 
 
-# Benchmark disposability sentinel (#90 slice 3). A THROWAWAY data dir that the
+# Benchmark disposability sentinel. A THROWAWAY data dir that the
 # benchmark harness provisions carries this file, holding a fresh random token
 # the harness itself wrote. `GET /v1/disposable-identity` reads it from the data
 # dir THIS instance actually serves and echoes the token back, so developer
@@ -363,33 +363,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Embedding-space guard (#60): a changed embedding model drops every
     # stored vector and refills in the background; never mixes spaces.
     embeddings.start_reembed_if_needed(settings)
-    # Warm the integrity verdict at startup (#79): the one place the full
+    # Warm the integrity verdict at startup: the one place the full
     # quick_check scan runs synchronously, so no live health probe — and
     # therefore no chat round awaiting one — ever pays for it.
     db.integrity_verdict(settings)
 
-    # The owner admin token for EXACT-ROW endpoints (#46 v2): if MEMORY_AUTH_TOKEN
+    # The owner admin token for EXACT-ROW endpoints (admin-gate v2): if MEMORY_AUTH_TOKEN
     # is configured, that's the token — a stable value across restarts, which is
     # what a persistently-registered MCP session needs. Otherwise a fresh random
     # token is minted for this process's lifetime. This is the ONLY credential
     # the MCP admin server / curl ever uses (Authorization: Bearer, unchanged by
     # everything below). Restart-to-rotate is deliberate.
     #
-    # #51 slice 1 gives it a SECOND job and takes one away: it is no longer the
+    # The password-login slice gives it a SECOND job and takes one away: it is no longer the
     # everyday browser-login secret (that's now the durable owner password), but
     # it IS the out-of-band RECOVERY SECRET that gates first-run enrollment and
     # password reset (POST /enroll, POST /reset). Same value, narrower everyday
     # role: proof-of-owner for setting a password, never the password itself.
     app.state.admin_token = settings.auth_token or secrets.token_urlsafe(32)
 
-    # Server-side session store for the BROWSER path (#46 v4): sid -> expiry
+    # Server-side session store for the BROWSER path (admin-gate v4): sid -> expiry
     # (unix epoch). The cookie holds only this opaque, random sid — never the
     # admin token — so a copied cookie is a revocable, expiring capability, not
     # a standing credential equivalent to the token itself. In-memory and
     # per-process on purpose: a restart is a fresh, empty store, so every
     # browser session must re-authenticate (matches the token's own restart
     # behavior when unconfigured, and keeps this out of the ledger entirely —
-    # no schema, no persistence, nothing for #46's "no ledger mutation" scope
+    # no schema, no persistence, nothing for the admin-gate work's "no ledger mutation" scope
     # to touch).
     app.state.admin_sessions = {}
     # Exposed on app.state (not just a closure local) so tests can inspect/
@@ -452,10 +452,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     #    Authorization: Bearer <MEMORY_AUTH_TOKEN>. No token configured means
     #    strictly loopback, no exceptions.
     #
-    # 3. TRUSTED HOSTS (#83): a browser cannot attach an Authorization header
+    # 3. TRUSTED HOSTS: a browser cannot attach an Authorization header
     #    to a navigation, so rule 2 alone made the owner's own phone — over
     #    the tailnet, the one sanctioned non-loopback path — unable to reach
-    #    even the lock screen, leaving #51's password gate unreachable from
+    #    even the lock screen, leaving the owner password gate unreachable from
     #    the device it exists for. A host the operator explicitly names in
     #    `trusted_hosts` therefore admits the BROWSER surface, with the
     #    password/session flow as the gate: a live admin session passes, and
@@ -518,7 +518,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _session_ok(request.cookies.get(ADMIN_COOKIE, ""))
 
     def _admin_auth(request: Request):
-        """The stricter, ALWAYS-enforced gate for exact-row endpoints (#46 v2):
+        """The stricter, ALWAYS-enforced gate for exact-row endpoints (admin-gate v2):
         list/read raw facts, the review queue, and every verb on one existing
         fact by id (edit, supersede, approve, dismiss, delete). Loopback earns
         NO exception here — that's precisely the bypass this closes.
@@ -528,13 +528,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
           the real owner-configured/minted token directly. Unaffected by
           anything below.
         - The `mm_admin` session cookie — an OPAQUE, random, server-tracked
-          session id (#46 v4), not the token itself, set only by POST /login
+          session id (admin-gate v4), not the token itself, set only by POST /login
           after the owner supplies the token. A copied cookie is therefore a
           bounded, revocable capability (expires; dies instantly on logout),
           never a standing equivalent of the real credential.
         A sandboxed process reaching the API directly, with no token and no
         valid session, is refused regardless of host — including for `GET /`
-        itself, which hands out neither (#46 v3: embedding the token in the
+        itself, which hands out neither (admin-gate v3: embedding the token in the
         page for every caller was the same bypass one hop removed)."""
         if not _admin_ok(request):
             raise HTTPException(401, "owner token required for exact fact/review "
@@ -564,7 +564,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Deliberately minimal and dependency-free: no token, no verifier, no
         # ledger data, nothing but a form. Shown to any caller that hasn't
         # authenticated — including a sandboxed process making a bare GET / —
-        # so there is NOTHING here for #46 v3's bypass to read. The recovery
+        # so there is NOTHING here for the admin-gate v3 bypass to read. The recovery
         # secret and the password verifier NEVER appear in this HTML (#51),
         # and neither does anything about a passkey beyond "one exists for
         # this origin" (#27) — no credential id, no public key.
@@ -594,7 +594,7 @@ small{color:#a1a1aa}
 <p>This page holds your durable memory — exact facts, review queue, edit/delete.</p>
 """
         if not enrolled:
-            # First run (or an install predating #51): no password exists yet.
+            # First run (or an install predating the owner password): no password exists yet.
             # Setting one requires the RECOVERY SECRET — the token printed to
             # the terminal at startup, or your MEMORY_AUTH_TOKEN. That proof
             # stops any other process on this machine from enrolling itself in.
@@ -696,7 +696,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     def _mint_session_redirect():
         # Mint a FRESH random session id (never derived from any client-supplied
         # value — closes session fixation), record its expiry server-side, set
-        # ONLY that opaque id as an httpOnly, SameSite=Strict cookie (#46 v4:
+        # ONLY that opaque id as an httpOnly, SameSite=Strict cookie (admin-gate v4:
         # the cookie is not the bearer token), and redirect to `/` so nothing
         # sensitive lingers in the address bar or history.
         sid = secrets.token_urlsafe(32)
@@ -762,7 +762,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     @app.post("/login", include_in_schema=False)
     def login(password: str = Form(...)):
         # The everyday owner login: the durable PASSWORD, checked against the
-        # scrypt verifier (#51). The admin token is deliberately NOT accepted
+        # scrypt verifier. The admin token is deliberately NOT accepted
         # here — it is the recovery secret for enroll/reset, never the everyday
         # login. Before enrollment there is nothing to check against, so login
         # simply fails and the locked page offers the enrollment form. A wrong
@@ -801,7 +801,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     def logout(request: Request):
         # TRUE server-side revocation: the sid is deleted from the store, so
         # this exact instant invalidates every copy of the cookie anywhere —
-        # not just the browser that clicked Log out (#46 v4; v3's cookie WAS
+        # not just the browser that clicked Log out (admin-gate v4; v3's cookie WAS
         # the token, so "logout" could only ever clear one browser's copy,
         # never revoke a cookie an attacker had already captured).
         sid = request.cookies.get(ADMIN_COOKIE, "")
@@ -1015,7 +1015,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     @app.get("/v1/health")
     def health():
         h = db.health(settings)
-        # Aggregate, in-memory drop-by-reason counts (#66) — an operational
+        # Aggregate, in-memory drop-by-reason counts — an operational
         # signal only ("is the builder-process filter firing a lot?"), never a
         # record of what was dropped. Lives in `detail`, which is explicitly
         # documented as non-contractual and may change without a version bump.
@@ -1039,7 +1039,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.get("/v1/disposable-identity")
     def disposable_identity():
-        # Benchmark disposability probe (#90 slice 3). Read-only, loopback-safe,
+        # Benchmark disposability probe. Read-only, loopback-safe,
         # and content-free: it reflects ONLY the benchmark token found in the
         # data dir this instance serves — never the auth token, an API key, the
         # data-dir path, or any ledger content — and it never creates the
@@ -1087,9 +1087,9 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.post("/v1/search", dependencies=[Depends(_admin_auth)])
     def search(body: SearchBody):
-        # Owner-gated (#125): verbatim transcript snippets are a wider
+        # Owner-gated: verbatim transcript snippets are a wider
         # projection than /v1/recall, which was deliberately narrowed to
-        # RECALL_FIELDS under #56. Recall stays the open chat-loop surface;
+        # RECALL_FIELDS. Recall stays the open chat-loop surface;
         # search is a human/admin surface. The MCP search tool reads the
         # database directly and is unaffected.
         c = con()
@@ -1158,7 +1158,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     @app.post("/v1/facts/quarantine", dependencies=[Depends(_admin_auth)])
     def quarantine_facts(body: QuarantineBody):
         # The missing third treatment for a fact already accepted as canon
-        # (#72). DELETE is destructive; supersede asserts a replacement fact
+        #. DELETE is destructive; supersede asserts a replacement fact
         # that a malformed row doesn't have. This pulls the fact out of recall
         # and the summary, keeps it in the ledger, and files it for review with
         # a reason. Reversible with /approve. Unknown or already-quarantined
@@ -1238,7 +1238,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.post("/v1/review/dismiss-all", dependencies=[Depends(_admin_auth)])
     def dismiss_all_review():
-        # Bulk twin of /v1/facts/{id}/dismiss (#66): clears the whole review
+        # Bulk twin of /v1/facts/{id}/dismiss: clears the whole review
         # queue in one call, same non-destructive semantics — every affected
         # fact stays quarantined and in the ledger, just leaves the queue, and
         # any one of them is reversible with /approve. Meant for clearing a
@@ -1667,7 +1667,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # was handing back SELECT * — content_hash, conversation_id,
         # source_message_id, quarantine_reason and friends — to a caller that
         # needs none of them. /recall is deliberately open (every chat round
-        # uses it), so what it projects IS the security boundary (#56).
+        # uses it), so what it projects IS the security boundary.
         return {"facts": [_recall_out(f) for f in facts]}
 
     @app.get("/v1/summary")
@@ -1748,7 +1748,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.get("/v1/jobs/{job_id}", dependencies=[Depends(_admin_auth)])
     def job_status(job_id: str):
-        # Owner-gated (#125): a job result can embed whole fact rows (a
+        # Owner-gated: a job result can embed whole fact rows (a
         # consolidate run returns them), so reading jobs is exact-row
         # access. Callers that fire-and-forget /v1/distill are unaffected.
         job = jobs.get(job_id)
@@ -1831,7 +1831,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.get("/v1/viz/landscape")
     def viz_landscape():
-        # The one always-current 3D scene (#40). Geometry only; self-sufficient —
+        # The one always-current 3D scene. Geometry only; self-sufficient —
         # triggers the projection build when cold, then returns the biome data.
         pending = _projection_pending()
         if pending:
@@ -1866,10 +1866,10 @@ def main():
     app = create_app(settings)
     # The ONLY place the admin token is ever printed: this process's own
     # stdout (the owner's terminal that ran start.sh), never an HTTP response
-    # (#46 v3) and never a file. A sandboxed session sharing this machine's
+    # (admin-gate v3) and never a file. A sandboxed session sharing this machine's
     # filesystem/network has no route to a live terminal's stdout.
     #
-    # #51 slice 1: this value is the RECOVERY SECRET, not the everyday login.
+    # Since the password-login slice: this value is the RECOVERY SECRET, not the everyday login.
     # First run, it enrolls your durable password; after that you log in with
     # the password and only need this again to reset it (or for MCP/curl Bearer).
     kind = "configured MEMORY_AUTH_TOKEN" if settings.auth_token else "generated for this run — changes on restart"

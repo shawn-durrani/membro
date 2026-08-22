@@ -75,7 +75,7 @@ def test_math_page_served(settings):
     from memory_service.api import create_app
     app = create_app(settings)
     # /math itself carries no ledger content (geometry only) and needs no
-    # auth; the admin page it's linked FROM does (#46 v3), so authenticate
+    # auth; the admin page it's linked FROM does (admin-gate v3), so authenticate
     # for that one request.
     with TestClient(app, base_url="http://127.0.0.1") as client:
         r = client.get("/math")

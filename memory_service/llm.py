@@ -19,7 +19,7 @@ class MissingKeyError(RuntimeError):
     pass
 
 
-# One client per process per provider (#78, mirroring embeddings.py): a fresh
+# One client per process per provider (mirroring embeddings.py): a fresh
 # SDK client per call paid a new TLS handshake for every mining/summary call.
 # Both SDK clients are thread-safe; jobs threads share them. The key checks
 # below still run FIRST, so keyless behavior (loud MissingKeyError, no
