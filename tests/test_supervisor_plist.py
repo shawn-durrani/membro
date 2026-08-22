@@ -1,4 +1,4 @@
-"""The launchd supervisor (#111) is a placeholder template rendered by
+"""The launchd supervisor is a placeholder template rendered by
 ops/install-supervisor.sh at install time. These tests pin the things that make
 it safe and correct without needing macOS or launchd:
 
@@ -9,7 +9,7 @@ it safe and correct without needing macOS or launchd:
      self-restarting, run-at-load agent pointing at start.sh.
   3. It supervises MEMBRO, on Membro's port — a copy-paste of a sibling service's agent
      with its label or port left behind would fight that sibling for its port and
-     leave memory unsupervised, which is the exact failure #111 exists to end.
+     leave memory unsupervised, which is the exact failure the supervisor exists to end.
 
 Keyless and cross-platform: plistlib is stdlib, so this runs in CI on Linux
 where `plutil` does not exist.
@@ -59,7 +59,7 @@ def test_rendered_plist_is_valid_and_fully_substituted():
 
 
 def test_agent_restarts_itself_and_starts_at_login():
-    """The whole point of #111: a crash or a stray kill must not leave memory
+    """The whole point of the supervisor: a crash or a stray kill must not leave memory
     dark. KeepAlive restarts it; RunAtLoad brings it back after a reboot;
     ThrottleInterval stops a hard boot failure spinning."""
     p = plistlib.loads(_render().encode())

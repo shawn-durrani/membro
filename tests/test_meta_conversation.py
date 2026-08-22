@@ -1,5 +1,5 @@
-"""Regression tests for #36 — extraction walls flooding review on meta/system
-conversations, and overlapping distills multiplying facts — plus #66, the
+"""Regression tests for the meta-conversation flood — extraction walls flooding review on meta/system
+conversations, and overlapping distills multiplying facts — plus the
 sibling flood from ordinary builder-process chatter about ANY project.
 
 Four guarantees:
@@ -8,13 +8,13 @@ Four guarantees:
    genuine career fact in the same conversation is kept and not quarantined.
 2. A distill for a conversation already in flight is skipped, so overlapping
    runs cannot re-mine the same messages and multiply facts.
-3. (#66, first pass) A conversation full of PR/issue/CI mechanics and UI
+3. (First pass) A conversation full of PR/issue/CI mechanics and UI
    styling minutiae yields NO review flood either, while a durable career
    decision in the same conversation is kept and not quarantined.
-4. (#66, reopened) A conversation full of deep TECHNICAL reasoning/diagnosis —
+4. (Reopened) A conversation full of deep TECHNICAL reasoning/diagnosis —
    none of which trips the builder-process keyword regex — yields at most one
    project-thread fact and never surfaces the reasoning itself as a pending
-   (or valid) fact. This is the gap #67's regex-only fix left open: the fix is
+   (or valid) fact. This is the gap the first regex-only fix left open: the fix is
    the extraction prompt's positive two-level rule, not more keywords.
 """
 
@@ -75,7 +75,7 @@ def test_meta_lines_are_dropped_before_the_grounding_wall(con, settings, fake_ll
     assert ledger.list_facts(con, status="quarantined") == []
 
 
-# A realistic stretch of ordinary builder-process chatter (#66): PR/issue
+# A realistic stretch of ordinary builder-process chatter: PR/issue
 # mechanics, review/CI status, and transient UI styling minutiae, with one real
 # career decision dropped in the middle.
 _BUILDER_CHAT = [
@@ -200,7 +200,7 @@ def test_distill_skips_when_conversation_already_in_flight(con, settings,
                                                            sample_conversation, fake_llm):
     # Hold the per-conversation lock to simulate an in-flight distill; a second
     # distill must skip immediately and mine nothing — the guard that stops
-    # overlapping runs from multiplying facts (#36).
+    # overlapping runs from multiplying facts.
     fake_llm["response"] = "NEW importance=6: Alex works at Initech as a data engineer."
     lock = mining._conversation_lock("multi-model-chat", "chat-1")
     assert lock.acquire(blocking=False)
@@ -222,7 +222,7 @@ def test_re_mining_the_same_messages_does_not_duplicate_facts(con, settings,
     # The lock guards two runs OVERLAPPING in-process; it cannot guard a run that
     # added facts then died before advancing the watermark, so the next distill
     # re-mines the same messages. The conversation-scoped content_hash guard in
-    # add_fact collapses that re-mine instead of multiplying the fact (#36).
+    # add_fact collapses that re-mine instead of multiplying the fact.
     fake_llm["response"] = "NEW importance=6: Alex works at Initech as a data engineer."
     first = mining.distill(con, settings, "multi-model-chat", "chat-1", regenerate=False)
     assert first["added"] == 1

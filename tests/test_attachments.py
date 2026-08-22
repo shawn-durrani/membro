@@ -131,7 +131,7 @@ def test_browse_download_and_human_delete(settings):
     """The Files surface: list with conversation context, download the exact
     bytes, and the danger-zone delete — row, FTS entry, and (unshared) bytes."""
     app = create_app(settings)
-    # the attachment routes are owner-gated (#53): they expose exact fact
+    # the attachment routes are owner-gated: they expose exact fact
     # rows, message bodies and document text, so they need a credential
     # even on loopback — same rule as /v1/facts and /v1/review.
     auth = {"Authorization": f"Bearer {app.state.admin_token}"}
@@ -164,7 +164,7 @@ def test_preview_carries_content_and_provenance(settings, fake_llm):
     with, and the ledger facts mined from that conversation — no bare ids."""
     from memory_service import ledger
     app = create_app(settings)
-    # the attachment routes are owner-gated (#53): they expose exact fact
+    # the attachment routes are owner-gated: they expose exact fact
     # rows, message bodies and document text, so they need a credential
     # even on loopback — same rule as /v1/facts and /v1/review.
     auth = {"Authorization": f"Bearer {app.state.admin_token}"}
@@ -201,7 +201,7 @@ def test_delete_keeps_shared_bytes(settings):
     """Bytes are content-addressed: deleting one row must not take the file
     out from under another message carrying the same document."""
     app = create_app(settings)
-    # the attachment routes are owner-gated (#53): they expose exact fact
+    # the attachment routes are owner-gated: they expose exact fact
     # rows, message bodies and document text, so they need a credential
     # even on loopback — same rule as /v1/facts and /v1/review.
     auth = {"Authorization": f"Bearer {app.state.admin_token}"}

@@ -88,7 +88,7 @@ def save_memory(content: str, event_date: str = "") -> str:
     becoming part of their memory. Optionally pass event_date as YYYY-MM-DD when
     the fact is about a specific past/future date rather than today."""
     # Drop, don't quarantine, obvious system/AI-tooling or builder-process noise
-    # (#66) — mcp:* writes are quarantined by provenance regardless of content,
+    # — mcp:* writes are quarantined by provenance regardless of content,
     # so without this check even blatant process chatter ("merged PR #12, CI is
     # green") would land straight in the human review queue. Quarantine means
     # an uncertain, potentially durable fact about the user, never an audit
@@ -123,7 +123,7 @@ def save_memory(content: str, event_date: str = "") -> str:
 def _format_summary(s: dict) -> str:
     """Stamp the profile prose with when it was generated. A stale summary reads
     as authoritative, so the consumer is told the age and reminded to verify
-    time-sensitive / active-thread status with recall (see issue #27)."""
+    time-sensitive / active-thread status with recall."""
     if not s.get("summary"):
         return "No memory summary yet."
     ts = s.get("generated_at")

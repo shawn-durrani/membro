@@ -1,5 +1,5 @@
 """scripts/tailscale-serve.sh — the opt-in, tailnet-only remote-access route
-(#51 slice 2). Keyless and hermetic: no real Tailscale install is required or
+. Keyless and hermetic: no real Tailscale install is required or
 assumed. A fake `tailscale` CLI is planted on PATH so these tests exercise the
 script's own logic (locate → check signed-in → serve → verify → report),
 never a real network.
@@ -83,7 +83,7 @@ def test_script_exists():
 #    invoked the REAL binary. What makes this test file safe is that no bundle
 #    path is ever USED implicitly — mentioning one in help text is fine and
 #    now necessary, since on macOS that is exactly where the working CLI lives
-#    (#87). Same shape as the funnel test below: comments and warnings may
+#. Same shape as the funnel test below: comments and warnings may
 #    name it; nothing may resolve to it on its own.)
 def test_cli_is_never_resolved_implicitly_to_an_app_bundle():
     text = SCRIPT.read_text()
@@ -187,7 +187,7 @@ def test_defaults_are_port_8443_onto_local_8901(tmp_path):
     calls = log.read_text()
     assert "127.0.0.1:8901" in calls
     assert "--https=8443" in calls
-    # no path-mount flag layout is attempted at all any more (#82 review):
+    # no path-mount flag layout is attempted at all any more (the serve-flag review):
     # serving a whole origin on a port needs none, so the two-attempt
     # fallback and its version ambiguity are gone with it
     assert "--set-path" not in calls
@@ -239,12 +239,12 @@ def test_start_sh_never_blocks_on_tailscale_failure():
     )
 
 
-# ── an installed-but-off-PATH CLI is usable when named EXPLICITLY (#87) ──────
+# ── an installed-but-off-PATH CLI is usable when named EXPLICITLY ──────
 def test_memory_tailscale_bin_is_honoured_when_path_has_no_cli(tmp_path):
     """The macOS normal case: Tailscale is installed and working, its CLI just
     isn't on PATH. Naming it explicitly must work — while an EMPTY PATH with
     no env var still skips, so nothing is ever guessed (that guess is what
-    executed a developer's real CLI during #82's test run)."""
+    executed a developer's real CLI during the serve-flag review's test run)."""
     fake_dir = tmp_path / "elsewhere"
     fake_dir.mkdir()
     _make_fake_tailscale(fake_dir, signed_in=True, serve_ok=True,
@@ -262,7 +262,7 @@ def test_no_cli_and_no_env_var_still_skips_without_guessing(tmp_path):
     assert rc == 0
     assert "SKIPPED" in err
     # the skip message points at the real fix, and no longer claims the
-    # app-bundle CLI cannot serve (#87)
+    # app-bundle CLI cannot serve
     assert "MEMORY_TAILSCALE_BIN" in err
     assert "does not support" not in err
 

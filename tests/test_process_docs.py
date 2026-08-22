@@ -1,4 +1,4 @@
-"""The written process must say what we actually do (#114).
+"""The written process must say what we actually do.
 
 CONTRIBUTING.md and CLAUDE.md disagreed for months: one said work lands as
 "small complete commits", the other said it goes through a PR. The stale one
@@ -57,7 +57,7 @@ def test_claude_md_defers_rather_than_duplicating_the_process():
 
 
 def test_both_docs_agree_the_supervisor_owns_restarts():
-    """#111: a hand-start fails loudly while the old code keeps running, so
+    """Supervisor rule: a hand-start fails loudly while the old code keeps running, so
     'restart the service' has to name the supported command in both places."""
     for path in (CONTRIBUTING, CLAUDE):
         assert "launchctl kickstart" in path.read_text(), \

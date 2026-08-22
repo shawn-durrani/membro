@@ -1,4 +1,4 @@
-"""The owner admin token/session for exact-row endpoints (#46 v2/v3/v4).
+"""The owner admin token/session for exact-row endpoints (admin-gate v2/v3/v4).
 
 v2 gated `GET /v1/facts` / `GET /v1/review` (and every verb on one existing
 fact by id) behind an admin token required even on loopback — but embedded
@@ -43,7 +43,7 @@ def _client(app, token=None, base_url="http://127.0.0.1"):
     return TestClient(app, base_url=base_url, headers=headers)
 
 
-# #51 slice 1: the everyday browser login is now a durable PASSWORD, not the
+# Since the password-login slice: the everyday browser login is now a durable PASSWORD, not the
 # admin token. The admin token is the out-of-band RECOVERY SECRET that gates
 # first-run enrollment/reset. These helpers set a password once (recovery-gated)
 # so the login-flow tests below can then log in with it.
@@ -65,7 +65,7 @@ def _enroll(app, password=PASSWORD):
 @pytest.mark.parametrize("method,path,kw", [
     ("get", "/v1/facts", {}),
     ("get", "/v1/review", {}),
-    # #125: verbatim transcript search, job reads (a consolidate job's
+    # Transcript gating: verbatim transcript search, job reads (a consolidate job's
     # result embeds fact rows), and the consolidate trigger are all
     # exact-row surfaces too.
     ("post", "/v1/search", {"json": {"query": "x"}}),
@@ -107,9 +107,9 @@ def test_mutate_by_id_endpoints_require_the_token_too(tmp_path):
     assert stranger.post(f"/v1/facts/{fid}/approve").status_code == 401
     assert stranger.post(f"/v1/facts/{fid}/dismiss").status_code == 401
     assert stranger.delete(f"/v1/facts/{fid}").status_code == 401
-    assert stranger.post("/v1/review/dismiss-all").status_code == 401  # (#66)
+    assert stranger.post("/v1/review/dismiss-all").status_code == 401  #
     assert stranger.post("/v1/facts/quarantine",
-                         json={"ids": [fid], "reason": "x"}).status_code == 401  # (#72)
+                         json={"ids": [fid], "reason": "x"}).status_code == 401  #
 
     # the owner, with the right token, can do all of it
     assert owner.patch(f"/v1/facts/{fid}", json={"confidence": "low"}).status_code == 200
@@ -127,7 +127,7 @@ def test_create_and_general_endpoints_stay_open_on_loopback(tmp_path, fake_llm):
     assert c.get("/v1/health").status_code == 200
     assert c.post("/v1/facts", json={"content": "Alex bakes sourdough weekly."}).status_code == 200
     assert c.post("/v1/recall", json={"query": "sourdough"}).status_code == 200
-    # /v1/search moved to the gated list under #125 — recall stays the
+    # /v1/search moved to the gated list with transcript gating — recall stays the
     # open chat-loop surface; search returns verbatim transcripts.
     assert c.get("/v1/summary").status_code == 200
 
@@ -135,7 +135,7 @@ def test_create_and_general_endpoints_stay_open_on_loopback(tmp_path, fake_llm):
 def test_attachment_routes_require_the_owner_credential(tmp_path):
     """Attachments expose exact fact rows, the source message body and up to
     4000 chars of document text, plus a hard delete — so they need the owner
-    credential on loopback exactly like /v1/facts (#53).
+    credential on loopback exactly like /v1/facts.
 
     This closes a real bypass: a sandboxed process sharing 127.0.0.1 could read
     ledger content through /v1/attachments/{id}/preview while /v1/facts
@@ -161,7 +161,7 @@ def test_attachment_routes_require_the_owner_credential(tmp_path):
 
 def test_open_recall_projects_only_contract_fields(tmp_path, fake_llm):
     """/v1/recall is open by design — every chat round calls it — so WHAT IT
-    PROJECTS is the security boundary (#56). It must return only the fields
+    PROJECTS is the security boundary. It must return only the fields
     docs/API.md promises, never the whole ledger row: content_hash,
     conversation_id, source_message_id and the quarantine bookkeeping are
     internals, and handing them to any loopback caller made the gate on
@@ -185,7 +185,7 @@ def test_open_recall_projects_only_contract_fields(tmp_path, fake_llm):
 
 def test_recall_limit_is_bounded_against_whole_ledger_export(tmp_path, fake_llm):
     """An unbounded top-N over an empty query is an export primitive, not a
-    recall (#56): 500 was enough to dump a ledger in one unauthenticated call."""
+    recall: 500 was enough to dump a ledger in one unauthenticated call."""
     app = _app(tmp_path)
     c = _client(app, token=None)
     assert c.post("/v1/recall", json={"query": "", "limit": 500}).status_code == 422
@@ -205,7 +205,7 @@ def test_unconfigured_token_is_random_and_differs_per_process(tmp_path):
     assert len(app1.state.admin_token) >= 32
 
 
-# ── #46 v3: GET / must never hand a credential to an unauthenticated caller ─
+# ── admin-gate v3: GET / must never hand a credential to an unauthenticated caller ─
 def test_unauthenticated_root_serves_locked_page_with_no_credential(tmp_path):
     app = _app(tmp_path)
     c = _client(app, token=None)
@@ -251,7 +251,7 @@ def test_login_with_wrong_password_is_refused_and_sets_no_cookie(tmp_path):
 
 
 def test_admin_token_is_not_accepted_as_the_everyday_password(tmp_path):
-    """The recovery secret must NOT double as the everyday login (#51): even
+    """The recovery secret must NOT double as the everyday login: even
     the correct admin token, submitted to /login as a password, is refused."""
     app = _app(tmp_path)
     _enroll(app)
@@ -293,7 +293,7 @@ def test_locked_page_never_contains_the_recovery_secret_even_as_a_hint(tmp_path)
     assert "a-very-specific-owner-value" not in r.text
 
 
-# ── #46 v4: the cookie is an opaque session id, NOT the bearer token ────────
+# ── admin-gate v4: the cookie is an opaque session id, NOT the bearer token ────────
 def test_session_cookie_value_is_not_the_bearer_token(tmp_path):
     app = _app(tmp_path, auth_token="a-very-specific-owner-value")
     _enroll(app)

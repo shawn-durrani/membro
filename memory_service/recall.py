@@ -45,7 +45,7 @@ def recall(con, settings, query: str = "", limit: int = 10,
     except Exception:
         qvec = None
     # normalize the query ONCE — the scan compares it against every fact,
-    # and recomputing its norm per fact was ~a third of the scan (#78)
+    # and recomputing its norm per fact was ~a third of the scan
     qunit = embeddings.unit(qvec) if qvec is not None else None
     words = [w.lower() for w in query.split() if len(w) >= 3]
     now_ts = db.now()
@@ -75,7 +75,7 @@ def recall(con, settings, query: str = "", limit: int = 10,
         h = e.get("content_hash")
         if h and h in seen_hash:
             continue
-        # unpacked once in the scoring pass (#78); the fallback covers the
+        # unpacked once in the scoring pass; the fallback covers the
         # keyword-only path (no query vector), where facts may still carry
         # embeddings and paraphrase collapse must keep working
         ev = e.get("_vec")

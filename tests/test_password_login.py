@@ -1,4 +1,4 @@
-"""Owner-password enrollment / login / reset — #51 delivery slice 1.
+"""Owner-password enrollment / login / reset — the password-login delivery slice.
 
 The everyday admin login used to be the process's admin token: ephemeral by
 default (a fresh one every restart) and doubling as the MCP/curl bearer
@@ -15,7 +15,7 @@ restart. Slice 1 replaces it with a durable password:
   verifier ever appears in any unauthenticated response.
 - The MCP/curl Bearer path and exact-row gating are untouched.
 
-These are the slice-1 acceptance tests; #46's session mechanics live in
+These are the slice-1 acceptance tests; the admin-gate session mechanics live in
 test_admin_auth.py.
 """
 

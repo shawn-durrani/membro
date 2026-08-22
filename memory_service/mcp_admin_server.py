@@ -1,4 +1,4 @@
-"""MCP admin adapter — READ-ONLY, authenticated, owner-scoped (#46).
+"""MCP admin adapter — READ-ONLY, authenticated, owner-scoped.
 
 For a session that needs to confirm or remediate exact ledger rows (ids,
 approval/quarantine status, review-queue membership, event/source dates) —
@@ -20,7 +20,7 @@ not an addition to it:
   delete / save tool exists here, matching mcp_server.py's write-gate
   asymmetry: this surface can look, never touch.
 - ALWAYS sends a bearer token (MEMORY_AUTH_TOKEN), even against loopback — and
-  as of contract 1.1 (#46 v2) the service itself enforces this: `GET /v1/facts`
+  as of contract 1.1 (admin-gate v2) the service itself enforces this: `GET /v1/facts`
   and `GET /v1/review` require a matching owner admin token from ANY caller,
   loopback included, so this is no longer a client-side-only convention (v1
   of this module held itself to that bar voluntarily; a sandboxed process

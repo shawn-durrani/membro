@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS access_log(
 );
 CREATE INDEX IF NOT EXISTS idx_access_log_ts ON access_log(ts);
 
--- Machine-generated image descriptions (#107). Their OWN append-only table on
+-- Machine-generated image descriptions. Their OWN append-only table on
 -- purpose: the attachments row is part of the episodic record and no module
 -- may UPDATE it (tested) — new derived information gets appended alongside,
 -- never written into the original. PRIMARY KEY = one caption per attachment,
@@ -413,7 +413,7 @@ def start_backup_scheduler(settings) -> threading.Event:
     return stop
 
 
-# ---- integrity verdict cache (#79) ----
+# ---- integrity verdict cache ----
 #
 # `PRAGMA quick_check` scans the whole database file (hundreds of ms on a tens-of-MB file, growing
 # with it), and /v1/health used to run it inline — which put a file-integrity
@@ -505,7 +505,7 @@ def health(settings) -> dict:
         "journal_mode": journal,
         "integrity": integrity,
         # non-contractual (rides in /v1/health's `detail`): when the cached
-        # verdict was computed, so an operator can see its age (#79)
+        # verdict was computed, so an operator can see its age
         "integrity_checked_at": _integrity["checked_at"] or None,
         "size_bytes": settings.db_path.stat().st_size if settings.db_path.exists() else 0,
         "facts": dict(f),

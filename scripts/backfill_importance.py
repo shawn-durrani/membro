@@ -3,7 +3,7 @@
 Two populations land here: facts that predate extraction-time scoring (an
 imported legacy ledger) and — the reason this matters now — the several hundred facts the
 miner stored with NULL importance while it was silently dropping the
-importance= tag (#69). Both are invisible to summary selection in the same way:
+importance= tag. Both are invisible to summary selection in the same way:
 weighting reads a NULL as a neutral 5, so a genuinely important recent fact
 loses its profile slot to older facts carrying explicit high scores.
 
@@ -57,7 +57,7 @@ def parse_scores(out: str) -> dict[int, int]:
         m = _SCORE_RE.match(line)
         if m:
             # Cap at 9: importance 10 is owner-only PERMANENT — a batch scoring
-            # pass must never mint permanence (mirrors the miner's cap, #69).
+            # pass must never mint permanence (mirrors the miner's cap).
             scores[int(m.group(1))] = min(9, max(1, int(m.group(2))))
     return scores
 

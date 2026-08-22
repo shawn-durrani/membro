@@ -8,7 +8,7 @@ from memory_service.api import create_app
 
 @pytest.fixture
 def client(settings, fake_llm):
-    # #46 v2: GET /v1/facts, GET /v1/review, and the by-id verbs now require
+    # Admin-gate v2: GET /v1/facts, GET /v1/review, and the by-id verbs now require
     # the owner admin token even on loopback — carry it as a default header
     # so the rest of this contract suite is unaffected by the tightening.
     app = create_app(settings)
@@ -69,7 +69,7 @@ def test_approve_dismiss_delete_flow(client):
 
 
 def test_dismiss_all_review_over_http(client):
-    # Bulk twin of /facts/{id}/dismiss (#66): clears the whole queue in one
+    # Bulk twin of /facts/{id}/dismiss: clears the whole queue in one
     # call, non-destructively — nothing here bypasses the admin-token gate.
     ids = [client.post("/v1/facts", json={
         "content": f"Alex has a stray fact #{i}.", "origin_agent": "mcp:x"
@@ -91,7 +91,7 @@ def test_dismiss_all_review_over_http(client):
 
 
 def test_quarantine_accepted_facts_over_http(client):
-    # #72: the third treatment for a fact already accepted as canon — neither
+    # The third treatment for a fact already accepted as canon — neither
     # DELETE (destructive) nor supersede (asserts a replacement that doesn't
     # exist). Batch, with a required reason, skipping rather than failing.
     ids = [client.post("/v1/facts", json={
@@ -100,14 +100,14 @@ def test_quarantine_accepted_facts_over_http(client):
     assert client.get("/v1/review").json()["facts"] == []   # all canon, no queue
 
     r = client.post("/v1/facts/quarantine",
-                    json={"ids": ids, "reason": "malformed (#69 era)"})
+                    json={"ids": ids, "reason": "malformed (early-miner era)"})
     assert r.status_code == 200
     assert r.json() == {"quarantined": ids, "skipped": []}
 
     # Out of canon, into the queue, reason recorded — and nothing deleted.
     queued = client.get("/v1/review").json()["facts"]
     assert {f["id"] for f in queued} == set(ids)
-    assert all(f["quarantine_reason"] == "malformed (#69 era)" for f in queued)
+    assert all(f["quarantine_reason"] == "malformed (early-miner era)" for f in queued)
     assert client.post("/v1/recall", json={"query": "malformed"}).json()["facts"] == []
 
     # Re-run is a no-op; unknown ids skip rather than 404 the whole batch.
@@ -211,7 +211,7 @@ def test_recall_and_summary_endpoints(client, fake_llm):
     assert status["status"] == "ok"
     s = client.get("/v1/summary").json()
     assert s["summary"] == "## Goals\n- triathlon" and s["source_fact_ids"]
-    # #110: structured per-fact provenance, additive to contract 1.0 — a
+    # Structured per-fact provenance, additive to contract 1.0 — a
     # client checks THIS for attribution, never the free-form prose.
     assert s["provenance"] == [
         {"id": s["source_fact_ids"][0], "origin_agent": "user",

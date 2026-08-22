@@ -70,7 +70,7 @@ def select_for_summary(con, now: float | None = None) -> tuple[list[dict], list[
     now = now or db.now()
     # origin_agent + source travel through selection so the summary prompt (and
     # the /summary response's structured provenance) can carry each fact's real
-    # recorded origin — #110: coarse provenance, never a guessed speaker.
+    # recorded origin — coarse provenance, never a guessed speaker.
     rows = [dict(r) for r in con.execute(
         "SELECT id, content, importance, event_date, created_at, content_hash, "
         "embedding, origin_agent, source FROM facts "
@@ -91,7 +91,7 @@ def select_for_summary(con, now: float | None = None) -> tuple[list[dict], list[
     # Settle the durable pool BEFORE choosing the active one, so the active pool
     # competes over everything durable did not actually take.
     #
-    # Issue #55: this used to exclude all 250 over-selected CANDIDATES from the
+    # This used to exclude all 250 over-selected CANDIDATES from the
     # active pool while folding only 200 of them back, so the ~50 the margin
     # trimmed landed in NEITHER pool — a silent hole running from ~200 valid
     # facts to ~550, a range a mature ledger reaches quickly. The margin exists

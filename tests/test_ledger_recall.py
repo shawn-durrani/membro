@@ -11,7 +11,7 @@ def test_add_rejects_trivial_content(con, settings):
 
 
 def test_parse_id_query_only_fires_on_the_hash_form():
-    # `#` is what disambiguates (#74): a bare number is a legitimate thing to
+    # `#` is what disambiguates: a bare number is a legitimate thing to
     # search the TEXT for, so reading it as an id would break content search.
     assert ledger.parse_id_query("#12") == [12]
     assert ledger.parse_id_query(" #12, 34  56 ") == [12, 34, 56]
@@ -22,7 +22,7 @@ def test_parse_id_query_only_fires_on_the_hash_form():
 
 
 def test_ledger_id_query_looks_up_ids_not_text(con, settings):
-    # #74: the ledger search matches content, so "1990" finds facts whose TEXT
+    # The ledger search matches content, so "1990" finds facts whose TEXT
     # says 1990 — not fact id 1990. `#` switches it to an id lookup, so a list
     # of ids handed over by a diagnostic can be acted on directly.
     decoy = ledger.add_fact(con, "Alex bought the house in 1990.", settings)
@@ -42,7 +42,7 @@ def test_ledger_id_query_looks_up_ids_not_text(con, settings):
 
 def test_ledger_id_query_is_never_trimmed_by_the_page_size(con, settings):
     # An explicit id list asks for exactly those rows; trimming it to the page
-    # size would read as "those ids don't exist" — a silent wrong answer (#74).
+    # size would read as "those ids don't exist" — a silent wrong answer.
     ids = [ledger.add_fact(con, f"Alex owns record number {i} outright.",
                            settings)["id"] for i in range(5)]
     q = "#" + ",".join(str(i) for i in ids)
@@ -71,7 +71,7 @@ def test_review_queue_and_dismiss(con, settings):
 
 
 def test_dismiss_all_clears_the_whole_queue_non_destructively(con, settings):
-    # Bulk twin of dismiss (#66) — for clearing a backlog made stale by a
+    # Bulk twin of dismiss — for clearing a backlog made stale by a
     # filtering fix in one action. Same semantics as one-at-a-time dismiss:
     # every affected fact stays quarantined and in the ledger, only leaves the
     # review queue, and each remains reversible via approve.
@@ -102,7 +102,7 @@ def test_dismiss_all_clears_the_whole_queue_non_destructively(con, settings):
 
 
 def test_quarantine_many_pulls_accepted_facts_out_of_canon(con, settings):
-    # #72: a fact accepted as canon that later turns out to be malformed had
+    # A fact accepted as canon that later turns out to be malformed had
     # no non-destructive treatment — DELETE erases it, supersede asserts a
     # replacement that a garbage row doesn't have. quarantine_many is that
     # third option, and it's a batch because the real cases are batches.
@@ -195,7 +195,7 @@ def test_importance_is_owner_correctable(con, settings):
 
 def test_facts_embed_at_write_time(con, settings, monkeypatch):
     """The recall after a save must not pay the provider round-trip: writes
-    spawn a background embed (Fixes #8); the recall-path ensure stays as the
+    spawn a background embed; the recall-path ensure stays as the
     keyless/failure safety net."""
     import time
     from memory_service import embeddings, ledger

@@ -18,7 +18,7 @@ BUDGET_TOLERANCE = 1.2  # accept up to 20% over budget; beyond that, one rewrite
 
 
 def provenance_tag(fact: dict) -> str:
-    """Coarse, MECHANICALLY grounded provenance (#110) — never a guess at who
+    """Coarse, MECHANICALLY grounded provenance — never a guess at who
     specifically said something.
 
     - 'direct': origin_agent IS the literal 'user' sentinel (ledger.is_trusted
@@ -68,7 +68,7 @@ def get(con) -> dict:
         "summary": db.get_setting(con, "summary"),
         "generated_at": sources.get("generated_at"),
         "source_fact_ids": sources.get("fact_ids", []),
-        # Structured, per-fact provenance (#110) — a downstream consumer can
+        # Structured, per-fact provenance — a downstream consumer can
         # check who/what a claim traces back to WITHOUT trusting unlabelled
         # prose for attribution. Additive field: older summary_sources rows
         # (generated before this shipped) simply have none, so default empty
@@ -101,7 +101,7 @@ def regenerate(con, settings) -> str:
         # so the model can resolve temporal conflicts: when two entries disagree
         # about the same current-state or active-thread status, the later date
         # is the current one (see the latest-wins rule in the prompt).
-        # ...and its PROVENANCE tag (#110) — mechanically derived (see
+        # ...and its PROVENANCE tag — mechanically derived (see
         # provenance_tag), never a guessed speaker: 'direct' the owner said it
         # themselves, 'mined' it was distilled from conversation with no
         # recorded speaker, anything else is the raw origin_agent as written.
@@ -117,7 +117,7 @@ def regenerate(con, settings) -> str:
     # style) — see docs/REFERENCES.md.
     #
     # This shipped 2026-07-09 behind `summary_emergent_topics` as a reversible
-    # experiment and GRADUATED 2026-07-26 (#13): the flag is gone and this is
+    # experiment and GRADUATED 2026-07-26: the flag is gone and this is
     # simply how the profile is written. To revert, restore the fixed layout the
     # flag used to select:
     #     "under these markdown headings, including only sections that have
@@ -146,7 +146,7 @@ def regenerate(con, settings) -> str:
         "is the current one; state only that as current, and never assert an "
         "older, superseded status as if it still holds — mention it, if at all, "
         "only as past history. "
-        "PROVENANCE (#110 — read carefully, this is not optional): each entry's "
+        "PROVENANCE (read carefully, this is not optional): each entry's "
         "final bracket segment is its provenance tag. 'direct' means the owner "
         "stated it themselves. 'mined' means it was distilled from a "
         "multi-turn conversation — NO single speaker or turn is recorded for "
@@ -200,7 +200,7 @@ def regenerate(con, settings) -> str:
         except Exception:
             pass  # the verbose-but-complete draft is still a valid summary
     fact_ids = sorted(f["id"] for f in facts)
-    # Structured provenance (#110), persisted alongside fact_ids so a
+    # Structured provenance, persisted alongside fact_ids so a
     # downstream consumer can trace any claim back to what it actually traces
     # to — origin_agent and source kept RAW, never flattened into an invented
     # category — rather than trusting the prose tag alone.

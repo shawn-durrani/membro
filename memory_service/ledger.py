@@ -14,7 +14,7 @@ from . import db
 
 log = logging.getLogger("memory_service.ledger")
 
-# `#1990` / `#216, 1394 2039` — an id lookup rather than a content search (#74).
+# `#1990` / `#216, 1394 2039` — an id lookup rather than a content search.
 # The `#` is what disambiguates: a bare `1990` is a legitimate thing to search
 # the TEXT for (a year, a figure), and silently reading it as an id would make
 # content search unpredictable.
@@ -96,7 +96,7 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     memory by phrasing a sentence well. The origin gate outranks it.
 
     `dedupe_in_conversation` is a NARROW write-time guard for the mining path
-    (#36): when set, re-adding a fact whose normalized content already exists
+: when set, re-adding a fact whose normalized content already exists
     (non-superseded) for the SAME conversation is a no-op returning the existing
     row. It stops a re-run that re-mines the same messages from multiplying facts
     — the case the in-process distill lock cannot cover (a crash/restart between
@@ -184,7 +184,7 @@ def list_facts(con, status: str = "valid", query: str | None = None,
         params.extend(ids)
         # An explicit id list is a request for exactly those rows, so it must
         # never be silently trimmed by the page size — the caller would think
-        # the missing ids simply don't exist (#74).
+        # the missing ids simply don't exist.
         limit = max(limit, len(ids))
     elif query:
         where.append("content LIKE ?")
@@ -250,7 +250,7 @@ def quarantine(con, fact_id: int, reason: str) -> bool:
 
 
 def quarantine_many(con, fact_ids, reason: str) -> dict:
-    """Bulk `quarantine`, for facts ALREADY accepted as canon (#72).
+    """Bulk `quarantine`, for facts ALREADY accepted as canon.
 
     `quarantine` above is reached only at ingest, by the wall. Nothing could
     quarantine a fact that had already been accepted — leaving `DELETE`
@@ -306,7 +306,7 @@ def dismiss_all(con) -> int:
     reviewed-and-kept-out in one action. Exact same semantics as one-at-a-time
     dismiss (quarantined, non-destructive, reversible via `approve`) — just
     applied to the whole queue at once, for clearing a backlog made stale by a
-    filtering fix (#66) without clicking through each row. Human-only (API/UI).
+    filtering fix without clicking through each row. Human-only (API/UI).
     Returns the number of facts moved out of the queue."""
     cur = con.execute(
         "UPDATE facts SET review_dismissed_at=? "

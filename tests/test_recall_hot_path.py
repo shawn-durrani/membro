@@ -1,4 +1,4 @@
-"""Recall hot-path mechanics (#78): same answers, less work per call.
+"""Recall hot-path mechanics: same answers, less work per call.
 
 The refactor changed WHERE the math runs (one client, one query
 normalization, one unpack per fact) and must not change a single ranking
@@ -71,7 +71,7 @@ def test_semantic_ranking_and_paraphrase_collapse_survive_the_refactor(
 def test_keyword_only_path_still_collapses_paraphrases(
         con, settings, semantic_ledger, monkeypatch):
     """No query vector (keyless): facts still carry embeddings, and the
-    paraphrase collapse must keep using them — the #78 fallback."""
+    paraphrase collapse must keep using them — the keyless fallback."""
     monkeypatch.setattr(embeddings, "embed_query", lambda q, s: None)
     got = recall.recall(con, settings, query="chess club", limit=5)
     contents = [f["content"] for f in got]

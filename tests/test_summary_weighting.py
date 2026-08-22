@@ -93,7 +93,7 @@ def test_paraphrase_collapse_in_selection(con):
 
 def test_miner_parses_importance(con, settings, fake_llm, sample_conversation):
     # A scored fact lands valid with its score; an UNSCORED fact that the miner
-    # fails to score even on the corrective retry (#69) is quarantined for
+    # fails to score even on the corrective retry is quarantined for
     # review, so weighting never has to read its missing score as a neutral 5.
     fake_llm["queue"] = [
         "NEW importance=8: Alex accepted a new role at Initech.\n"
@@ -203,7 +203,7 @@ def test_pinned_facts_always_reach_the_profile(con, settings):
 
 
 def test_no_card_falls_between_the_two_pools(con, settings):
-    """#55: the durable pool over-selects DURABLE_N × POOL_MARGIN (250)
+    """The durable pool over-selects DURABLE_N × POOL_MARGIN (250)
     candidates so paraphrase collapse can't starve it, then trims back to 200.
     The ~50 the margin trims MUST fall through to the active pool.
 

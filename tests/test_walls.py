@@ -35,7 +35,7 @@ def test_dossier_framing_flagged():
 
 
 def test_system_meta_is_a_drop_signal_not_a_quarantine_flag():
-    # #36: system self-reference is now a DROP signal (is_system_meta), and no
+    # System self-reference is now a DROP signal (is_system_meta), and no
     # longer a quarantine flag returned by check().
     meta = "The memory ledger quarantined the fact after the grounding wall fired."
     assert walls.is_system_meta(meta)
@@ -49,7 +49,7 @@ def test_scope_wall_passes_user_biography():
 
 
 def test_career_fact_with_product_or_deploy_is_not_dropped():
-    # #36: the narrowed filter targets system MECHANICS, not generic verbs or
+    # The narrowed filter targets system MECHANICS, not generic verbs or
     # product names — a real career/project fact must survive extraction.
     for fact in [
         "Alex deployed the payments service to production on Friday.",
@@ -61,7 +61,7 @@ def test_career_fact_with_product_or_deploy_is_not_dropped():
 
 
 def test_builder_process_noise_is_a_drop_signal():
-    # #66: engineering/execution chatter about building ANY project — PR/issue
+    # Engineering/execution chatter about building ANY project — PR/issue
     # mechanics, review/CI status, implementation minutiae, transient UI
     # styling — is a DROP signal, same discipline as is_system_meta.
     for fact in [
@@ -92,19 +92,19 @@ def test_acronyms_not_treated_as_proper_nouns():
     assert walls.proper_nouns("The API and SDK and MCP", set()) == []
 
 
-# ── temporal grounding (#38) ─────────────────────────────────────────────────
+# ── temporal grounding ─────────────────────────────────────────────────
 # The grounding wall above checks proper NOUNS, so it never saw a date. A fact
 # could therefore assert a schedule nobody stated — "Saturday (tomorrow from the
 # conversation date)" — and pass every wall at high confidence. The weekday was
 # real; the interval was invented. Broadly-correct biography, wrong near-term
-# planning, which is the recurring trust damage #38 describes.
+# planning, which is the recurring relative-date trust damage.
 
 SCHEDULE = ("Alex: the appointment is on Saturday, roughly nine days away, "
             "so I'll be back before the Initech offsite.")
 
 
 def test_invented_relative_gloss_is_quarantined():
-    # The #38 case exactly: the nearest Saturday is not the intended one, and
+    # The canonical case: the nearest Saturday is not the intended one, and
     # the miner resolved it anyway.
     flags = walls.check(
         "Alex's appointment is Saturday (tomorrow from the conversation date).",
