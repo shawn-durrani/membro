@@ -217,6 +217,10 @@ def test_lock_screen_offers_passkey_only_where_one_exists(tmp_path):
 
 
 def test_lock_screen_and_options_leak_no_credential_material(tmp_path):
+    """Narrowed since the sheet-scoping change (#70, owner call): the login
+    OPTIONS now deliberately name this app's credential ids, so the line
+    held here is what still matters - the lock PAGE discloses nothing, and
+    no surface ever carries key material."""
     app = _app(tmp_path)
     pk, _ = _enrol_passkey(_owner(app))
     anon = _client(app)
@@ -224,11 +228,10 @@ def test_lock_screen_and_options_leak_no_credential_material(tmp_path):
     options = anon.post("/webauthn/login/options",
                         headers={"Origin": LOCAL_ORIGIN}).json()
     cred_id = bytes_to_base64url(pk.cred_id)
-    for surface in (page, json.dumps(options)):
-        assert cred_id not in surface
-        assert "public_key" not in surface
-    # discoverable credentials: no allowCredentials disclosed at all
-    assert not options["publicKey"].get("allowCredentials")
+    assert cred_id not in page
+    surface = json.dumps(options)
+    assert "public_key" not in surface and "public_key" not in page
+    assert bytes_to_base64url(pk._cose_key()) not in surface
 
 
 def test_password_fallback_still_works_with_passkey_enrolled(tmp_path):
@@ -406,3 +409,17 @@ def test_registration_names_the_app_in_the_picker(tmp_path):
     user = o.json()["publicKey"]["user"]
     assert user["name"] == "membro owner"
     assert user["displayName"] == "membro owner"
+
+
+def test_login_sheet_offers_only_this_apps_keys(tmp_path):
+    """The fleet shares the localhost RP, so an empty allow-list meant every
+    app's sheet offered every app's passkey (#70). The gate now names
+    exactly its own enrolled ids - a deliberate owner-approved disclosure:
+    an id is a key handle, not a secret, and existence was already
+    disclosed by the no-passkey 400."""
+    c = _owner(_app(tmp_path))
+    pk, r = _enrol_passkey(c)
+    assert r.status_code == 200, r.text
+    o = c.post("/webauthn/login/options", headers={"Origin": LOCAL_ORIGIN})
+    allowed = o.json()["publicKey"]["allowCredentials"]
+    assert [a["id"] for a in allowed] == [bytes_to_base64url(pk.cred_id)]

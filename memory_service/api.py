@@ -906,11 +906,14 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
 
     @app.post("/webauthn/login/options", include_in_schema=False)
     def webauthn_login_options(request: Request):
-        # Anonymous by design (lock screen), so it discloses as little as the
-        # page itself: a challenge and the RP, never a credential id or key —
-        # allowCredentials stays empty and the browser offers whatever
-        # DISCOVERABLE credential it holds for this RP (resident keys are
-        # required at enrolment for exactly this).
+        # Anonymous by design (lock screen). The sheet is narrowed to THIS
+        # app's own keys: the fleet's apps share the localhost RP (ports
+        # don't count), and with an empty allowCredentials every app's
+        # sheet listed every app's passkey (#70). Naming our enrolled ids
+        # to an anonymous caller is a deliberate disclosure (owner call,
+        # 2026-08-23, reversing the earlier ids-stay-private posture): a
+        # credential id is a public key handle, not a secret, and this
+        # endpoint's 400 already said whether a passkey exists here.
         ctx = _webauthn_context(request)
         if ctx is None:
             raise HTTPException(400, "passkey unlock is not available on this "
@@ -918,13 +921,16 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         origin, rp = ctx
         c = con()
         try:
-            enrolled_here = bool(passkeys.credentials_for_rp(c, rp))
+            rows = passkeys.credentials_for_rp(c, rp)
         finally:
             c.close()
-        if not enrolled_here:
+        if not rows:
             raise HTTPException(400, "no passkey is enrolled for this origin")
         opts = webauthn_lib.generate_authentication_options(
             rp_id=rp,
+            allow_credentials=[
+                PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["id"]))
+                for r in rows],
             user_verification=UserVerificationRequirement.REQUIRED)
         cid = _webauthn_mint("login", opts.challenge, rp, origin)
         return {"cid": cid,
