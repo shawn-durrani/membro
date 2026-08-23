@@ -5,6 +5,13 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Your passkey now says whose it is (#68). The system account
+  picker lists every localhost app's passkey in one sheet, and
+  membro's row used to read as a bare "owner". New enrolments
+  register as "membro owner". An existing passkey keeps its old
+  label until re-enrolled: remove it in the admin Passkeys panel,
+  then enrol again.
+
 - Transcript search survives an emptied search index (#38). An
   empty-but-valid FTS index answers every query with zero rows without
   raising, so drift read as a genuine no-match and the old fallback (it

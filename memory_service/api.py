@@ -838,8 +838,13 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         finally:
             c.close()
         opts = webauthn_lib.generate_registration_options(
-            rp_id=rp, rp_name="membro", user_id=handle, user_name="owner",
-            user_display_name="Membro owner",
+            # "membro owner", not a bare "owner": the three fleet apps share
+            # the localhost RP (RP ids ignore ports), so the system account
+            # picker lists every app's passkey in one sheet and the user name
+            # is the only line it reliably shows (#68; crossband set the
+            # pattern).
+            rp_id=rp, rp_name="membro", user_id=handle,
+            user_name="membro owner", user_display_name="membro owner",
             # Platform authenticator with a discoverable credential and true
             # user verification: Touch ID / Face ID, resident on the device,
             # so login can offer "use a passkey" without disclosing
