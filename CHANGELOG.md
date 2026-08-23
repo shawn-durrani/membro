@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Other apps' passkeys no longer crowd membro's unlock sheet (#70).
+  The fleet's apps share the browser's localhost passkey scope, so the
+  sheet used to offer every app's key here. The gate now tells the
+  browser exactly which keys are membro's own. The trade, made
+  deliberately: the lock screen now names those key ids to anyone who
+  can reach it - an id is a serial number for the key, not a secret,
+  and it cannot unlock anything.
+
 - Your passkey now says whose it is (#68). The system account
   picker lists every localhost app's passkey in one sheet, and
   membro's row used to read as a bare "owner". New enrolments
