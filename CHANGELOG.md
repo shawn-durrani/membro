@@ -5,6 +5,12 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Person records now report when they last changed (#73). The sync
+  endpoint filters on that stamp, but the records themselves never
+  carried it, so a syncing app could not learn the newest stamp it had
+  seen and re-read every person on every pass. The field the API doc
+  already promised is now in the record.
+
 - Other apps' passkeys no longer crowd membro's unlock sheet (#70).
   The fleet's apps share the browser's localhost passkey scope, so the
   sheet used to offer every app's key here. The gate now tells the
