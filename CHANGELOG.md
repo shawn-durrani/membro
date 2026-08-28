@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- A crash loop can no longer destroy your restore points (#75). Every
+  startup snapshots the database before migrations, retention keeps the
+  newest 14 copies, and the service manager restarts a crashing app
+  every few seconds - so about two minutes of crash loop used to evict
+  every pre-crash snapshot at exactly the moment one was needed. A
+  snapshot byte-identical to the newest one is now discarded, so
+  restarts that change nothing keep the history intact.
+
 - Other apps' passkeys no longer crowd membro's unlock sheet (#70).
   The fleet's apps share the browser's localhost passkey scope, so the
   sheet used to offer every app's key here. The gate now tells the
