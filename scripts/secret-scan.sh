@@ -46,14 +46,15 @@ allow_ts='tail[Xx]{3,}|my-tailnet|<[a-z]+>|example'                       # real
 allow_home='^/(Users|home)/(you|USER|username|user|name|me|<[a-z]+>)$'    # only placeholder home names pass
 allow_email='@example\.(com|org|net)$|@users\.noreply\.github\.com$|^git@github\.com$|^noreply@|<[a-z]+>'
 
-# Paths whose CONTENT is exempt (this scanner, the hook, the fixtures that must
-# contain real-looking strings to be tested, and the version-pinned requirements).
+# Paths whose CONTENT is exempt (this scanner, the hook, and the fixtures
+# that must contain real-looking strings to be tested). requirements.txt was
+# listed here for lockfile noise it never actually contained; it is tracked,
+# it ships, and a published file must not be pre-exempt from every matcher.
 excludes=(
   ':(exclude)scripts/secret-scan.sh'
   ':(exclude).githooks/pre-commit'
   ':(exclude)tests/fixtures/identifiers/*'
   ':(exclude)tests/test_secret_scan.py'
-  ':(exclude)requirements.txt'
 )
 
 mode="staged"
