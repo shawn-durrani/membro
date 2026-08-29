@@ -125,6 +125,22 @@ def test_sync_since_returns_changes_with_forgotten_marks(client):
         "p-b": False, "p-alex1": True}
 
 
+def test_projection_carries_the_change_stamp_the_delta_needs(client):
+    """?since= filters on updated_at, so the projection must carry it - a
+    syncing app records the newest stamp it saw and passes it back as
+    since=. Without the field its watermark sat at zero forever and every
+    pass re-read everyone (the crossband person-sync watermark bug)."""
+    t0 = time.time()
+    time.sleep(0.02)
+    made = _mk(client)
+    assert made["updated_at"] > t0
+    got = client.get("/v1/persons").json()["persons"]
+    assert [p["updated_at"] for p in got] == [made["updated_at"]]
+    # the round trip the delta pull actually makes: newest stamp back in
+    assert client.get("/v1/persons", params={
+        "since": made["updated_at"]}).json()["persons"] == []
+
+
 def test_forget_runs_the_numbered_steps(client, settings):
     # a guest message, a fact mined from it, and a person with that alias
     client.post("/v1/ingest", json={

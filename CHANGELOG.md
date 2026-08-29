@@ -5,6 +5,12 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Person records now report when they last changed (#73). The sync
+  endpoint filters on that stamp, but the records themselves never
+  carried it, so a syncing app could not learn the newest stamp it had
+  seen and re-read every person on every pass. The field the API doc
+  already promised is now in the record.
+
 - A crash loop can no longer destroy your restore points (#75). Every
   startup snapshots the database before migrations, retention keeps the
   newest 14 copies, and the service manager restarts a crashing app

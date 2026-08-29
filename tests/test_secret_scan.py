@@ -267,3 +267,14 @@ def test_tree_scan_clean_against_real_denylist_when_present():
     real = REPO / ".secret-scan-local"
     code, out = run("--tree", local_list=str(real) if real.exists() else None)
     assert code == 0, out
+
+
+# ── published files are never pre-exempt ─────────────────────────────────────
+def test_requirements_txt_is_not_exempt():
+    """requirements.txt is tracked and ships, so it must face every matcher.
+    The exclusion existed for lockfile noise the file never contained, and
+    the pin-with-hash test above proves the matchers ignore that noise
+    anyway. A published file on the exclude list is a silent pre-exemption
+    for whatever lands in it later."""
+    text = (REPO / "scripts" / "secret-scan.sh").read_text()
+    assert ":(exclude)requirements.txt" not in text
