@@ -89,6 +89,12 @@ def out(con, person) -> dict:
             "name_owner_set": bool(person["name_owner_set"]),
             "relationship": person["relationship"],
             "created_at": person["created_at"],
+            # The change stamp the delta pull filters on. GET /v1/persons
+            # accepts ?since= against this column, but the projection never
+            # carried it - so a syncing app could not learn the newest stamp
+            # it saw, its watermark sat at zero forever, and every pass
+            # re-read everyone. Additive; absent meant exactly that bug.
+            "updated_at": person["updated_at"],
             "origin_client": person["origin_client"],
             "merged_into": person["merged_into"],
             "forgotten_at": person["forgotten_at"],
