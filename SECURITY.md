@@ -39,7 +39,9 @@ assertion is accepted only for `localhost` or a host listed in
 ## Open vs gated
 
 Gated even on loopback: everything reading or writing exact rows
-(facts, review, verbatim search, attachments, jobs, consolidate).
+(facts, review, verbatim search, attachments, jobs, consolidate). The
+MCP server honours the same rule: `search_history` works only when the
+token was passed at registration.
 
 Open on loopback: `/v1/recall` (six fields, max 50 rows),
 `/v1/summary` and its version list, `/v1/health`,

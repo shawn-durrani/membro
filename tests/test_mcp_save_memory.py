@@ -60,3 +60,38 @@ def test_save_memory_records_drop_diagnostics_by_reason():
     mcp_server.save_memory("Merged pull request #7 after CI went green.")
     after = walls.drop_diagnostics()
     assert after.get("builder-process", 0) == before.get("builder-process", 0) + 1
+
+
+# ---------- search_history honours the owner gate (#81) ----------
+
+def test_search_history_refuses_without_the_owner_token(con, settings,
+                                                        monkeypatch):
+    """The HTTP route requires the bearer; the MCP path used to require
+    nothing. With a token configured and none in the server's environment,
+    the tool refuses and touches nothing."""
+    monkeypatch.setattr(settings, "auth_token", "owner-tok")
+    monkeypatch.delenv("MEMORY_AUTH_TOKEN", raising=False)
+    called = []
+    monkeypatch.setattr(mcp_server.episodic, "search",
+                        lambda *a, **k: called.append(a) or [])
+    out = mcp_server.search_history("anything")
+    assert "owner-gated" in out and "recall_memory" in out
+    assert called == []
+
+
+def test_search_history_works_with_the_matching_token(con, settings,
+                                                      monkeypatch):
+    monkeypatch.setattr(settings, "auth_token", "owner-tok")
+    monkeypatch.setenv("MEMORY_AUTH_TOKEN", "owner-tok")
+    monkeypatch.setattr(mcp_server.episodic, "search", lambda *a, **k: [])
+    assert mcp_server.search_history("anything") == "No matching messages."
+
+
+def test_search_history_stays_open_with_no_token_configured(con, settings,
+                                                            monkeypatch):
+    """An install that never configured a token keeps its open posture,
+    matching the HTTP gate."""
+    monkeypatch.setattr(settings, "auth_token", None)
+    monkeypatch.delenv("MEMORY_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr(mcp_server.episodic, "search", lambda *a, **k: [])
+    assert mcp_server.search_history("anything") == "No matching messages."
