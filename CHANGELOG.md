@@ -5,6 +5,20 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+## v0.2.0 (2026-08-30)
+
+- Verbatim transcript search now needs the owner token on every path
+  (#81). The MCP server's search_history refuses when the server was
+  registered without MEMORY_AUTH_TOKEN, matching the HTTP gate; recall,
+  summary and save are unchanged. Re-register the server with the token
+  to keep search available to your own tools.
+
+- Two open PRs no longer conflict on the changelog (#79). Each change
+  now ships its entry as one file under `changelog.d/`, and a release
+  folds them into `CHANGELOG.md` newest first, above the entries already
+  sitting under Unreleased. A test fails any PR that edits Unreleased
+  directly and names the new home.
+
 - Person records now report when they last changed (#73). The sync
   endpoint filters on that stamp, but the records themselves never
   carried it, so a syncing app could not learn the newest stamp it had
