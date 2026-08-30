@@ -8,8 +8,12 @@ nothing external becomes canon without human review.
 Register with (the variables must be passed with -e so they reach the SERVER
 when it runs; a shell prefix before `claude mcp add` would only set them for
 the registration command itself):
-    claude mcp add -s user membro -e PYTHONPATH=<repo> -- \
+    claude mcp add -s user membro -e PYTHONPATH=<repo> \
+        -e MEMORY_AUTH_TOKEN=<the service's token> -- \
         <repo>/.venv/bin/python -m memory_service.mcp_server
+
+MEMORY_AUTH_TOKEN enables search_history (#81); without it the owner-gated
+verbatim search refuses while the other three tools work as ever.
 """
 
 import datetime
@@ -67,7 +71,13 @@ def recall_memory(query: str = "") -> str:
 @mcp.tool()
 def search_history(query: str) -> str:
     """Verbatim full-text search across every ingested message in the user's
-    conversation history."""
+    conversation history. Owner-gated like the HTTP route (#81): register the
+    server with -e MEMORY_AUTH_TOKEN=<the service's token> to enable it."""
+    if SETTINGS.auth_token and (
+            os.environ.get("MEMORY_AUTH_TOKEN") != SETTINGS.auth_token):
+        return ("Verbatim transcript search is owner-gated: this MCP server "
+                "was registered without the owner's MEMORY_AUTH_TOKEN, so "
+                "search_history is unavailable. recall_memory still works.")
     con = _con()
     try:
         hits = episodic.search(con, query)
