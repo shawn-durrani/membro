@@ -36,7 +36,11 @@ tracker a comment meant.
 ## Rules
 
 - Tests accompany behaviour changes.
-- User-visible changes get a line in `CHANGELOG.md` under Unreleased.
+- User-visible changes get one new file under `changelog.d/`, not an
+  edit to `CHANGELOG.md`. Name it `<issue>-<slug>.md` and write the
+  finished entry: one `- ` paragraph in the changelog's voice, with
+  continuation lines indented two spaces. Entries fold into the
+  changelog at release, so two open PRs never touch the same line.
 - No real personal data in any diff. Fixtures use the documented
   synthetic roster (see the PR template); any name outside it is a
   review question. Enable the leak scanner once per clone:
@@ -97,5 +101,6 @@ Before a tag, every box:
 - [ ] Screenshots and any demo database come from synthetic conversations
       only, including the sidebar: generated titles summarise whatever a
       chat actually discussed
-- [ ] `__version__` bumped, CHANGELOG entry dated, fresh `## Unreleased`
-      left above it
+- [ ] `python scripts/fold_changelog.py vX.Y.Z` run: `changelog.d/`
+      empty, the new section dated, Unreleased left empty above it
+- [ ] `__version__` bumped
