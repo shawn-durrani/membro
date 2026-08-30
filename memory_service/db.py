@@ -344,22 +344,50 @@ def set_setting(con, key: str, value: str) -> None:
 
 # ---------- backups ----------
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def backup(settings) -> Path | None:
     """One consistent online snapshot; local rotation + optional mirror folder.
-    Only completed static snapshots are mirrored — never the live WAL DB."""
+    Only completed static snapshots are mirrored — never the live WAL DB.
+
+    Content-deduped: a copy byte-identical to the newest snapshot is
+    discarded and the newest snapshot stands. The guard exists for the
+    crash loop: retention keeps the newest backup_keep copies by COUNT,
+    launchd restarts a crashing service every ~10 seconds, and init
+    snapshots pre-migration on every startup - so unguarded, backup_keep
+    restarts (about two minutes) evicted the entire pre-crash history at
+    exactly the moment it was needed. An identical copy protects nothing
+    the standing snapshot does not already protect."""
     if not settings.db_path.exists():
         return None
     bdir = settings.data_dir / "backups"
     bdir.mkdir(parents=True, exist_ok=True)
     dest = bdir / time.strftime("memory-%Y%m%d-%H%M%S.db")
+    tmp = bdir / f".{dest.name}.part"
     src = connect(settings.db_path)
     try:
-        dst = sqlite3.connect(dest)
+        dst = sqlite3.connect(tmp)
         with dst:
             src.backup(dst)
         dst.close()
     finally:
         src.close()
+    prev = sorted(bdir.glob("memory-*.db"))
+    if prev:
+        try:
+            identical = _file_sha256(tmp) == _file_sha256(prev[-1])
+        except OSError:
+            identical = False
+        if identical:
+            tmp.unlink(missing_ok=True)
+            return prev[-1]
+    tmp.replace(dest)
     _rotate(bdir, settings.backup_keep)
     if settings.mirror_dir:
         try:
