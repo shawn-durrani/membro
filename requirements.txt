@@ -1,7 +1,7 @@
 fastapi>=0.115
 uvicorn>=0.30
 pydantic>=2.13.4
-anthropic>=0.40
+anthropic>=1.2.0
 openai>=2.52.0
 # Capped at <2 deliberately: mcp 2.0 (published 2026-07-29) drops the
 # `mcp.server.fastmcp` module both MCP servers here import, so an uncapped
