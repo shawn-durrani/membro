@@ -7,7 +7,7 @@ openai>=2.52.0
 # `mcp.server.fastmcp` module both MCP servers here import, so an uncapped
 # floor turned CI red on code that had not changed. Migrating to 2.x is its
 # own reviewed change.
-mcp>=1.0,<2
+mcp>=2.1.1,<3
 pytest>=9.1.1
 httpx>=0.27
 pypdf
