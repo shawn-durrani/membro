@@ -15,4 +15,4 @@ pypdf
 # verification of authenticator responses; pulls in cryptography + cbor2.
 # Capped at <3 like mcp above: verification semantics are security-load-bearing,
 # so a major bump is its own reviewed change.
-webauthn>=2.2,<3
+webauthn>=3.0.0,<4
