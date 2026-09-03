@@ -254,6 +254,14 @@ def _ts(iso: str | None) -> float | None:
         raise HTTPException(422, f"bad date: {iso!r}")
 
 
+def _event_day(iso: str | None) -> float | None:
+    """`event_date` on the wire is a calendar day (contract 1.4, #84). A
+    bare date is that day; a full timestamp is the day it falls on in the
+    owner's local time. Either way the stored value is local midnight."""
+    ts = _ts(iso)
+    return None if ts is None else db.day_start(ts)
+
+
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # The ONLY paths a browser may reach unauthenticated on a trusted (tailnet)
@@ -1039,6 +1047,9 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         return {
             "status": "ok" if ok else "degraded",
             "contract_version": settings.contract_version,
+            # 1.4 (#84): where a phone's browser can open this service, so a
+            # client app links the eraser at an address that works.
+            "browser_origin": settings.reachable_browser_origin(),
             "db": {"facts": h["facts"]["total"], "messages": h["messages"],
                     "size_bytes": h["size_bytes"], "integrity": h["integrity"],
                     "fts_in_sync": h["fts_in_sync"],
@@ -1084,6 +1095,20 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         return {"ingested": res["ingested"], "skipped": res["skipped"],
                 "attached": res["attached"]}
 
+    @app.get("/v1/conversations/{source_app}/{conversation_id}/watermark")
+    def conversation_watermark(source_app: str, conversation_id: str):
+        # 1.4 (#84, workbench#68): content-free, open like /health. A client
+        # compares this with its own ingest watermark and winds back when
+        # a restore left this record behind. 404 when unknown here.
+        c = con()
+        try:
+            out = episodic.watermark(c, source_app, conversation_id)
+        finally:
+            c.close()
+        if out is None:
+            raise HTTPException(404, "no such conversation")
+        return out
+
     @app.post("/v1/distill", status_code=202)
     def distill(body: DistillBody):
         def _work():
@@ -1122,7 +1147,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                 c, body.content, settings, source="model" if
                 body.origin_agent != "user" else "user",
                 origin_agent=body.origin_agent, source_app=body.source_app,
-                event_date=_ts(body.event_date), confidence=body.confidence,
+                event_date=_event_day(body.event_date), confidence=body.confidence,
                 web_sources=body.web_sources)
         except ValueError as e:
             raise HTTPException(422, str(e))
@@ -1144,7 +1169,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         c = con()
         try:
             ok = ledger.update_fact(c, fact_id, content=body.content,
-                                    event_date=_ts(body.event_date),
+                                    event_date=_event_day(body.event_date),
                                     confidence=body.confidence,
                                     importance=body.importance,
                                     settings=settings)

@@ -71,11 +71,31 @@ class Settings(BaseModel):
     trusted_apps: list[str] = []  # register your own client app slugs; empty = no app-trusted writes
     grounding_allowlist: list[str] = []    # user-specific ubiquitous nouns, config not code
 
-    contract_version: str = "1.3"  # 1.3 (#55): web_sources on ingest + facts; 1.2 (#33): speaker_identity on ingest
+    # 1.4 (#84): web_sources on /search hits, browser_origin on /health, the
+    # per-conversation watermark route, event_date as a calendar day.
+    # 1.3 (#55): web_sources on ingest + facts. 1.2 (#33): speaker_identity.
+    contract_version: str = "1.4"
+    # The origin a browser on a phone can reach this service at, reported on
+    # /v1/health as `browser_origin` (contract 1.4) so a client app links the
+    # admin surface at an address that works instead of guessing a port.
+    # Empty (the default) derives it: https on `tailscale_port` at the first
+    # trusted host when the browser surface is admitted from a tailnet name,
+    # otherwise loopback on `port`.
+    browser_origin: str = ""
+    tailscale_port: int = 8443  # scripts/tailscale-serve.sh's default
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "memory.db"
+
+    def reachable_browser_origin(self) -> str:
+        """Where a browser can open this service: the operator's explicit
+        value, else the tailnet address when one is trusted, else loopback."""
+        if self.browser_origin.strip():
+            return self.browser_origin.strip().rstrip("/")
+        if self.trusted_hosts:
+            return f"https://{self.trusted_hosts[0]}:{self.tailscale_port}"
+        return f"http://127.0.0.1:{self.port}"
 
 
 def load_settings() -> Settings:
@@ -92,6 +112,10 @@ def load_settings() -> Settings:
         merged["trusted_hosts"] = [h.strip().lower()
                                    for h in os.environ["MEMORY_TRUSTED_HOSTS"].split(",")
                                    if h.strip()]
+    if os.environ.get("MEMORY_BROWSER_ORIGIN"):
+        merged["browser_origin"] = os.environ["MEMORY_BROWSER_ORIGIN"]
+    if os.environ.get("MEMORY_TAILSCALE_PORT"):
+        merged["tailscale_port"] = int(os.environ["MEMORY_TAILSCALE_PORT"])
     if os.environ.get("MEMORY_DATA_DIR"):
         merged["data_dir"] = os.environ["MEMORY_DATA_DIR"]
     if os.environ.get("MEMORY_MIRROR_DIR"):

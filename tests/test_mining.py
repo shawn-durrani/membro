@@ -1,6 +1,11 @@
 """The reflection pass — strict NEW: parsing, walls applied, watermark advances."""
 
-from memory_service import episodic, ledger, mining
+from memory_service import db, episodic, ledger, mining
+
+
+def _day(ts):
+    """event_date is a calendar day at local midnight (contract 1.4)."""
+    return db.day_start(ts)
 
 
 def test_distill_mines_and_grounds(con, settings, sample_conversation, fake_llm):
@@ -18,7 +23,7 @@ def test_distill_mines_and_grounds(con, settings, sample_conversation, fake_llm)
     clean = ledger.list_facts(con, status="valid")
     assert len(clean) == 1 and "Initech" in clean[0]["content"]
     assert clean[0]["origin_agent"] == "multi-model-chat"
-    assert clean[0]["event_date"] == 1700000060.0  # dated to the conversation
+    assert clean[0]["event_date"] == _day(1700000060.0)  # dated to the conversation
 
 
 def test_distill_supersedes_listed_entry(con, settings, sample_conversation, fake_llm):
@@ -116,7 +121,7 @@ from datetime import datetime, timezone
 
 
 def _epoch(y, m, d):
-    return datetime(y, m, d, tzinfo=timezone.utc).timestamp()
+    return datetime(y, m, d).timestamp()  # local midnight, the 1.4 anchor
 
 
 def _ingest_one(con, text, ts=1700000060.0):
@@ -153,7 +158,7 @@ def test_vague_retrospective_stays_at_conversation_time(con, settings, fake_llm)
     fake_llm["response"] = "NEW importance=3: The recruiter thread had cooled and gone quiet."
     mining.distill(con, settings, "multi-model-chat", "chat-d", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000060.0          # unchanged
+    assert fact["event_date"] == _day(1700000060.0)          # unchanged
 
 
 def test_live_present_tense_unchanged(con, settings, fake_llm):
@@ -161,7 +166,7 @@ def test_live_present_tense_unchanged(con, settings, fake_llm):
     fake_llm["response"] = "NEW importance=6: Alex is a data engineer at Initech."
     mining.distill(con, settings, "multi-model-chat", "chat-d", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000060.0
+    assert fact["event_date"] == _day(1700000060.0)
 
 
 def test_hallucinated_date_not_grounded_is_ignored(con, settings, fake_llm):
@@ -171,7 +176,7 @@ def test_hallucinated_date_not_grounded_is_ignored(con, settings, fake_llm):
     fake_llm["response"] = "NEW src=1 event=2023-10-01 importance=3: The recruiter thread had cooled."
     mining.distill(con, settings, "multi-model-chat", "chat-d", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000060.0          # invented date ignored
+    assert fact["event_date"] == _day(1700000060.0)          # invented date ignored
 
 
 # --- Binding a fact to its source message before grounding ----------
@@ -202,7 +207,7 @@ def test_date_in_other_message_is_rejected(con, settings, fake_llm):
     fake_llm["response"] = "NEW src=2 event=2023-06-30 importance=5: Alex's office move is sorted."
     mining.distill(con, settings, "multi-model-chat", "chat-m", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000100.0          # bound msg's time, not June 30
+    assert fact["event_date"] == _day(1700000100.0)          # bound msg's time, not June 30
 
 
 def test_date_in_bound_message_is_accepted(con, settings, fake_llm):
@@ -228,7 +233,7 @@ def test_invalid_src_falls_back_to_conversation_time(con, settings, fake_llm):
     fake_llm["response"] = "NEW src=99 event=2023-06-30 importance=5: The project kickoff is set for 2023-06-30."
     mining.distill(con, settings, "multi-model-chat", "chat-m", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000100.0          # conversation time, not June 30
+    assert fact["event_date"] == _day(1700000100.0)          # conversation time, not June 30
 
 
 def test_missing_src_falls_back_to_conversation_time(con, settings, fake_llm):
@@ -241,7 +246,7 @@ def test_missing_src_falls_back_to_conversation_time(con, settings, fake_llm):
     fake_llm["response"] = "NEW event=2023-06-30 importance=5: The project kickoff is set for 2023-06-30."
     mining.distill(con, settings, "multi-model-chat", "chat-m", regenerate=False)
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000100.0          # conversation time, not June 30
+    assert fact["event_date"] == _day(1700000100.0)          # conversation time, not June 30
 
 
 def test_bound_message_sets_source_message_id(con, settings, fake_llm):
@@ -306,7 +311,7 @@ def test_source_qualifier_kept_verbatim_passes_clean(con, settings, fake_llm):
                          regenerate=False)
     assert res["added"] == 1 and res["quarantined"] == 0
     fact = ledger.list_facts(con, status="valid")[0]
-    assert fact["event_date"] == 1700000060.0   # conversation time, not resolved
+    assert fact["event_date"] == _day(1700000060.0)   # conversation time, not resolved
 
 
 # --- importance is REQUIRED: retry once, then quarantine -------------
@@ -405,7 +410,7 @@ def test_backdated_fact_cannot_supersede_newer(con, settings, fake_llm):
     valid = ledger.list_facts(con, status="valid")
     assert any(f["id"] == current["id"] for f in valid)  # newer fact survives
     mined = [f for f in valid if "Globex" in f["content"]]
-    assert mined and mined[0]["event_date"] == 1700000100.0
+    assert mined and mined[0]["event_date"] == _day(1700000100.0)
 
 
 def test_quarantined_fact_defers_supersession(con, settings, fake_llm):
