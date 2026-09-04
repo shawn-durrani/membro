@@ -162,7 +162,8 @@ def add_fact(con, content: str, settings, *, source: str = "user",
         "content_hash, quarantined_at, quarantine_reason, person_id) "
         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (content, source, origin, conversation_id, source_message_id, ts,
-         event_date or ts, confidence, importance, db.content_hash(content),
+         event_date if event_date is not None else db.day_start(ts),
+         confidence, importance, db.content_hash(content),
          ts if reason else None, reason, person_id))
     con.commit()
     _spawn_embed(settings, cur.lastrowid, content)

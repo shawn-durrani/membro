@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.3
+# Memory Service API: the HTTP contract, v1.4
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -10,6 +10,12 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- **1.4 (#84): four additive fields for a client that reads memory
+  back.** `/search` hits carry `web_sources`. `/health` carries
+  `browser_origin`. `GET /conversations/{app}/{id}/watermark` reports the
+  highest message id held for one conversation. `event_date` is a
+  calendar day at the owner's local midnight, whichever writer set it.
+  A 1.3 client sees nothing new and keeps working.
 - **1.3 (#55): messages on `/ingest` and saves on `POST /facts` may carry
   `web_sources`**: the web domains a tool read in the round that produced
   the message or save (a list of strings, max 20). Stored verbatim beside
@@ -84,7 +90,8 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.3",
+  "contract_version": "1.4",
+  "browser_origin": "http://127.0.0.1:8901",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
   "capabilities": {"embeddings": true, "miner_model": "claude-haiku-4-5"},
@@ -104,7 +111,14 @@ without erroring. The service detects and repairs this automatically at
 startup; `scripts/rebuild_fts.py` does the same for a live instance without a
 restart. A client seeing `fts_in_sync: false` should treat search results as
 unreliable until it flips back, not as an empty archive.
-`status`, `contract_version`, `db` and `capabilities` are contractual.
+`browser_origin` (1.4) is the address a browser can open this service
+at: the `browser_origin` setting when the operator set one, else
+`https://<first trusted host>:<tailscale_port>` when the browser surface
+is admitted from a tailnet name, else loopback. A client app that links
+a person to the admin surface, such as the message eraser, uses this
+instead of guessing a host and port.
+`status`, `contract_version`, `browser_origin`, `db` and `capabilities`
+are contractual.
 `detail` is NOT. It carries the whole internal health dict for the admin
 page's health panel, and may change without a contract bump: sqlite version,
 journal mode, integrity, size, a facts breakdown of
@@ -390,11 +404,30 @@ as revealing as the exact-row ledger reads gated above.
 {"query": "...", "limit": 20}
 ```
 → `{"hits": [{"conversation_id": "...", "title": "...", "speaker": "...",
-              "content": "...", "created_at": "..."}]}`
+              "content": "...", "created_at": "...",
+              "web_sources": ["example.com"]}]}`
 `limit` defaults to 20, maximum 500 (422 outside 1–500). `title` is the
 conversation's title as last ingested (empty string if the client never sent
 one); `content` is an FTS snippet with `>>match<<` markers, not the whole
-message.
+message. `web_sources` (1.4) is the list stored with the message on
+ingest, empty for a turn that read no web page and for hits from files.
+A client that shows a hit to a model should mark a stamped hit as
+untrusted, the same way it marks a live fetch.
+
+### Ingest watermark
+
+`GET /conversations/{source_app}/{conversation_id}/watermark` (1.4). Open
+on loopback like `/health`; it carries ids and a count, never content.
+→ `{"highest_external_id": "412", "messages": 87}`
+`highest_external_id` is the largest message `external_id` this service
+holds for that conversation, compared numerically when every id is an
+integer string and as text otherwise, or `null` when none is held. A
+message the owner erased still counts: its id sits in the erasure
+journal, and a client that wound back past it would re-send the exact
+message just erased. 404 in the standard envelope when the conversation
+is unknown here. A client that keeps its own "ingested up to" mark
+compares the two on each handoff and winds its mark back when this
+service has less, which is what a restore from a snapshot leaves behind.
 
 ## Ledger
 
@@ -406,8 +439,12 @@ message.
 ```
 `content` is whitespace-collapsed first, then must be 8–10 000 characters;
 anything shorter or longer is a 422 ("nothing meaningful to save" / "fact too
-long"). `event_date` is optional: omit it and the fact is dated the moment it
-was saved, which is how invariant 5 holds (`event_date` is never null).
+long"). `event_date` is a calendar day (1.4): send `YYYY-MM-DD`, or a
+full timestamp and the service keeps only the day it falls on in the
+owner's local time. It is stored as that day's local midnight, so two
+facts about one day compare equal and recall breaks the tie on the save
+time. Omit it and the fact is dated to the day it was saved, which is
+how invariant 5 holds (`event_date` is never null).
 `source_app` is what the gate reads below; `confidence` defaults to `high`
 and `origin_agent` to `user`.
 

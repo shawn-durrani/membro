@@ -15,7 +15,7 @@ import re
 import threading
 from datetime import datetime, timezone
 
-from . import captions, episodic, ledger, llm, persons, recall, summary, walls
+from . import captions, db, episodic, ledger, llm, persons, recall, summary, walls
 
 # Per-conversation distill locks. A distill run reads the conversation's
 # `mined_upto` watermark once, then mines everything after it. Two runs for the
@@ -76,15 +76,16 @@ def _grounded_event_date(model_date: str | None, source_text: str,
         datetime(year, month, day)
     except ValueError:
         return None
-    ref_year = datetime.fromtimestamp(ref_ts, tz=timezone.utc).year
+    ref_year = datetime.fromtimestamp(ref_ts).year
     for mo, dy, yr in _explicit_dates(source_text):
         # Grounded when the day/month match; if the text names a year it must
         # match too, otherwise the model's year is discarded for the ref year.
         if mo == month and dy == day and (yr is None or yr == year):
             final_year = yr if yr is not None else ref_year
             try:
-                return datetime(final_year, mo, dy,
-                                tzinfo=timezone.utc).timestamp()
+                # A calendar day at the owner's local midnight (contract
+                # 1.4, workbench#63), the same anchor every writer uses.
+                return datetime(final_year, mo, dy).timestamp()
             except ValueError:
                 return None
     return None
@@ -616,11 +617,11 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
             conv_ts = bound["created_at"]
             event_date = _grounded_event_date(
                 event.group(1) if event else None,
-                _msg_body(bound), conv_ts) or conv_ts
+                _msg_body(bound), conv_ts) or db.day_start(conv_ts)
             source_message_id = bound["id"]
         else:
             conv_ts = new_msgs[-1]["created_at"]
-            event_date = conv_ts            # no binding → conversation time, full stop
+            event_date = db.day_start(conv_ts)  # no binding → the conversation's day, full stop
             # ...and NO source message. The window's last turn used to be
             # recorded here as a stand-in, which read downstream (the admin
             # page's "source message #N", any reviewer following the trail) as

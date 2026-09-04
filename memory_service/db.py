@@ -12,6 +12,7 @@ import re
 import shutil
 import sqlite3
 import threading
+import datetime
 import time
 from pathlib import Path
 
@@ -324,6 +325,15 @@ def repair_fts(con: sqlite3.Connection) -> dict:
 
 def now() -> float:
     return time.time()
+
+
+def day_start(ts: float) -> float:
+    """The owner's local midnight for the calendar day `ts` falls on.
+    `event_date` is a calendar day (contract 1.4, workbench#63): every
+    writer anchors it here, so two facts about the same day compare equal
+    and recall breaks the tie on `created_at`, the save time."""
+    d = datetime.datetime.fromtimestamp(ts)
+    return d.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 def content_hash(text: str) -> str:

@@ -67,7 +67,9 @@ def recall(con, settings, query: str = "", limit: int = 10,
         if sem > SEMANTIC_FLOOR or kw:
             e["_vec"] = ev  # reused by the dedup below; stripped in _out
             scored.append((score, e))
-    scored.sort(key=lambda x: -x[0])
+    # event_date is a calendar day (contract 1.4), so two facts about the
+    # same day score the same recency; the later save wins the tie.
+    scored.sort(key=lambda x: (-x[0], -(x[1].get("created_at") or 0)))
 
     # collapse exact (hash) + paraphrase (cosine) duplicates, keep highest-scored
     kept, kept_vecs, seen_hash = [], [], set()

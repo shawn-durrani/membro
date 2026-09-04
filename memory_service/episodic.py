@@ -16,6 +16,7 @@ import hashlib
 import io
 import logging
 import os
+import re
 
 from . import db
 
@@ -134,6 +135,39 @@ def ingest(con, source_app: str, conversation_external_id: str,
             "skipped": skipped, "attached": attached}
 
 
+_ERASED_REF = re.compile(r"\bref:(\S+)$")
+
+
+def watermark(con, source_app: str, conversation_external_id: str) -> dict | None:
+    """Contract 1.4 (#84, workbench#68): the highest message external_id this
+    service holds for one conversation, so a client can wind its own ingest
+    watermark back after a restore rolled this record back. None when the
+    conversation is unknown here. Erased messages count as held: their ids
+    stay in the erasure journal, and a client that re-sent them would undo
+    the owner's erasure. Compared numerically when every id is an integer
+    string, as text otherwise."""
+    conv = get_conversation(con, source_app, conversation_external_id)
+    if conv is None:
+        return None
+    ids = [r[0] for r in con.execute(
+        "SELECT external_id FROM messages WHERE conversation_id=?", (conv["id"],))]
+    held = len(ids)
+    prefix = f"conv:{source_app}/{conversation_external_id} "
+    for (ref,) in con.execute(
+            "SELECT ref FROM erasures WHERE kind='message' AND instr(ref, ?) > 0",
+            (prefix,)):
+        m = _ERASED_REF.search(ref)
+        if m:
+            ids.append(m.group(1))
+    if not ids:
+        return {"highest_external_id": None, "messages": 0}
+    if all(i.isdigit() for i in ids):
+        highest = max(ids, key=int)
+    else:
+        highest = max(ids)
+    return {"highest_external_id": highest, "messages": held}
+
+
 def get_conversation(con, source_app: str, external_id: str) -> dict | None:
     row = con.execute(
         "SELECT * FROM conversations WHERE source_app=? AND external_id=?",
@@ -152,11 +186,29 @@ def _like_fallback(con, words, limit) -> list[dict]:
     Serves FTS syntax edge cases and a drifted index alike."""
     rows = con.execute(
         "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
-        "substr(m.content, 1, 200) AS content "
+        "substr(m.content, 1, 200) AS content, m.web_sources "
         "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
         "WHERE m.content LIKE ? ORDER BY m.id DESC LIMIT ?",
         (f"%{words[0]}%", limit))
-    return [dict(r) for r in rows]
+    return _with_web_sources([dict(r) for r in rows])
+
+
+def _with_web_sources(hits: list[dict]) -> list[dict]:
+    """Contract 1.4 (#84): every hit carries `web_sources`, the domains the
+    authoring round read from, as a list (empty when the turn read no web
+    page, and for attachment hits). The stored column is json text or ''."""
+    for h in hits:
+        raw = h.get("web_sources") or ""
+        webs = []
+        if isinstance(raw, str) and raw:
+            try:
+                webs = [str(w) for w in json.loads(raw) if str(w).strip()]
+            except ValueError:
+                webs = []
+        elif isinstance(raw, list):
+            webs = [str(w) for w in raw]
+        h["web_sources"] = webs
+    return hits
 
 
 def _fts_index_drifted(con) -> bool:
@@ -193,7 +245,8 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
     try:
         rows = con.execute(
             "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
-            "snippet(messages_fts, 0, '>>', '<<', ' … ', 24) AS content "
+            "snippet(messages_fts, 0, '>>', '<<', ' … ', 24) AS content, "
+            "m.web_sources "
             "FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid "
             "JOIN conversations c ON c.id = m.conversation_id "
             "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?", (match, limit))
@@ -208,12 +261,13 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
             arows = con.execute(
                 "SELECT 'file: ' || a.filename AS speaker, a.created_at, c.title, "
                 "c.external_id conversation_id, "
-                "snippet(attachments_fts, 0, '>>', '<<', ' … ', 24) AS content "
+                "snippet(attachments_fts, 0, '>>', '<<', ' … ', 24) AS content, "
+                "'' AS web_sources "
                 "FROM attachments_fts JOIN attachments a ON a.id = attachments_fts.rowid "
                 "JOIN conversations c ON c.id = a.conversation_id "
                 "WHERE attachments_fts MATCH ? ORDER BY rank LIMIT ?",
                 (match, limit - len(hits)))
             hits += [dict(r) for r in arows]
-        return hits
+        return _with_web_sources(hits)
     except Exception:
         return _like_fallback(con, words, limit)
