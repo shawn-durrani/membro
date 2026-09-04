@@ -10,7 +10,7 @@ import logging
 import re
 import threading
 
-from . import db
+from . import db, walls
 
 log = logging.getLogger("memory_service.ledger")
 
@@ -85,6 +85,7 @@ def add_fact(con, content: str, settings, *, source: str = "user",
              source_message_id: int | None = None,
              quarantine_reason: str | None = None,
              web_sources: list[str] | None = None,
+             guest_speakers: list[str] | None = None,
              dedupe_in_conversation: bool = False) -> dict:
     """Append one fact. Untrusted origins are quarantined at creation (the gate);
     a caller-supplied quarantine_reason (e.g. a wall flag) also quarantines.
@@ -94,6 +95,15 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     from the source message's stamp on the mining path. Non-empty means the
     fact is held with a `web-derived:` reason: a public page must not write
     memory by phrasing a sentence well. The origin gate outranks it.
+
+    `guest_speakers` (#93, contract 1.5): the guests in the room when a model
+    saved this directly, as `/ingest` speaker-class values (`guest:<name>`,
+    `guest:unknown`). The mined path already holds a guest's words because
+    each message names its speaker; a direct save named nobody, so a guest's
+    claim relayed by a model reached canon unheld. Non-empty means the fact
+    is held with a `guest-present:` reason. The origin gate outranks it, and
+    when a web stamp is also present web-derived keeps the reason slot with
+    the guest clause appended, so the review class stays web-derived.
 
     `dedupe_in_conversation` is a NARROW write-time guard for the mining path
 : when set, re-adding a fact whose normalized content already exists
@@ -156,6 +166,20 @@ def add_fact(con, content: str, settings, *, source: str = "user",
         shown = ", ".join(sorted(set(webs))[:5])[:300]
         reason = (f"web-derived: {shown} — a public page was read in this "
                   "round; held for review before becoming canon")
+    guests = _guest_list(guest_speakers)
+    if guests:
+        who = _render_guests(guests)
+        verb = "was" if len(guests) == 1 else "were"
+        clause = (f"guest-present: {who} {verb} in the room when a model "
+                  "saved this; held for review before it becomes canon")
+        if reason is None:
+            reason = clause
+        elif reason.startswith("web-derived:"):
+            # Both stamps on one save: web-derived claimed the slot first,
+            # and reason_class() reads the first flag, so the queue keeps
+            # grouping it under the web page. The guest clause still rides
+            # the row for the reviewer.
+            reason = f"{reason}; {clause}"
     cur = con.execute(
         "INSERT INTO facts(content, source, origin_agent, conversation_id, "
         "source_message_id, created_at, event_date, confidence, importance, "
@@ -168,6 +192,32 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     con.commit()
     _spawn_embed(settings, cur.lastrowid, content)
     return {"id": cur.lastrowid, "quarantined": bool(reason)}
+
+
+def _guest_list(guest_speakers) -> list[str]:
+    """Normalise a `guest_speakers` stamp the way web_sources is: strip, drop
+    empties, dedupe, keep order. Anything that is not a guest class (a model
+    slug, `user`, an unknown prefix) is dropped rather than rejected: the
+    field is a presence stamp, and a client that sends the wrong shape has
+    not made a claim this ledger can hold on."""
+    out: list[str] = []
+    for g in guest_speakers or []:
+        g = str(g).strip()
+        if walls.speaker_class(g) not in ("guest", "guest-unknown"):
+            continue
+        if g not in out:
+            out.append(g)
+    return out
+
+
+def _render_guests(guests: list[str]) -> str:
+    """Plain English for the hold reason: names from `guest:<name>`, and
+    `guest:unknown` as an unidentified guest. Capped like the web-derived
+    reason (five entries, 300 characters) so one save cannot pad a row."""
+    names = [walls.guest_name(g) or "an unidentified guest" for g in guests[:5]]
+    if len(names) == 1:
+        return names[0][:300]
+    return (", ".join(names[:-1]) + " and " + names[-1])[:300]
 
 
 def list_facts(con, status: str = "valid", query: str | None = None,

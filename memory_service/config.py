@@ -71,10 +71,11 @@ class Settings(BaseModel):
     trusted_apps: list[str] = []  # register your own client app slugs; empty = no app-trusted writes
     grounding_allowlist: list[str] = []    # user-specific ubiquitous nouns, config not code
 
+    # 1.5 (#93): guest_speakers on POST /facts, held as guest-present.
     # 1.4 (#84): web_sources on /search hits, browser_origin on /health, the
     # per-conversation watermark route, event_date as a calendar day.
     # 1.3 (#55): web_sources on ingest + facts. 1.2 (#33): speaker_identity.
-    contract_version: str = "1.4"
+    contract_version: str = "1.5"
     # The origin a browser on a phone can reach this service at, reported on
     # /v1/health as `browser_origin` (contract 1.4) so a client app links the
     # admin surface at an address that works instead of guessing a port.

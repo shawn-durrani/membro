@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.4
+# Memory Service API: the HTTP contract, v1.5
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -10,6 +10,15 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- **1.5 (#93): saves on `POST /facts` may carry `guest_speakers`**: the
+  guests in the room when a model saved the fact, as the speaker-class
+  values `/ingest` already uses (`guest:<name>`, `guest:unknown`; a list of
+  strings, max 12). A stamped save is quarantined with a `guest-present:`
+  reason naming the guests. The mined path already holds a guest's words
+  because each message names its speaker; this closes the same wall over
+  the direct save. The origin trust gate outranks the stamp, and a save
+  carrying both stamps keeps its `web-derived:` reason with the guest
+  clause appended. Absent field = exactly the 1.4 behaviour.
 - **1.4 (#84): four additive fields for a client that reads memory
   back.** `/search` hits carry `web_sources`. `/health` carries
   `browser_origin`. `GET /conversations/{app}/{id}/watermark` reports the
@@ -90,7 +99,7 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.4",
+  "contract_version": "1.5",
   "browser_origin": "http://127.0.0.1:8901",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
@@ -435,7 +444,9 @@ service has less, which is what a restore from a snapshot leaves behind.
 ```json
 {"content": "...", "event_date": "2026-07-04", "confidence": "high|medium|low",
  "origin_agent": "user | <participant-slug> | mcp:<client>",
- "source_app": "<registered app>"}
+ "source_app": "<registered app>",
+ "web_sources": ["<domain>", "..."],
+ "guest_speakers": ["guest:<name>", "guest:unknown"]}
 ```
 `content` is whitespace-collapsed first, then must be 8–10 000 characters;
 anything shorter or longer is a 422 ("nothing meaningful to save" / "fact too
@@ -447,6 +458,22 @@ time. Omit it and the fact is dated to the day it was saved, which is
 how invariant 5 holds (`event_date` is never null).
 `source_app` is what the gate reads below; `confidence` defaults to `high`
 and `origin_agent` to `user`.
+
+`web_sources` (1.3) and `guest_speakers` (1.5) are optional stamps, both
+defaulting to empty. `web_sources` lists the web domains read in the
+round that produced the save (max 20). `guest_speakers` lists the guests
+in the room when a model made the save, as `/ingest` speaker values (max
+12): `guest:<name>` for one confidently identified human besides the
+owner, or `guest:unknown` for a human who could not be identified. Both
+are normalised the same way: entries are stripped, empties dropped,
+duplicates removed, order kept. A `guest_speakers` entry that is not a
+guest class (a model slug, `user`, an unknown prefix) is dropped, not
+rejected. A save carrying either stamp is held for review: `web-derived:`
+names the domains, `guest-present:` names the guests in plain English
+(`guest:unknown` reads as "an unidentified guest"; at most five are
+named). When both are present the reason keeps the `web-derived:` prefix
+and the guest clause follows after `; `. The origin gate below outranks
+both stamps.
 
 Gate (invariant 4; the gate applies to the write itself, whoever the writer
 is): a write reaches canon only if `origin_agent` is `user` **or** it
@@ -536,7 +563,8 @@ reviewer has, who said this, is answered without leaving the queue.
 ```
 Each row also carries `reason_class` (additive, 2026-08-14, #34): a stable
 token derived from the hold reason's prefix (`guest-attribution`,
-`speaker-trust`, `grounding`, `temporal`, `source-trust`, `importance`,
+`guest-present`, `speaker-trust`, `grounding`, `temporal`, `source-trust`,
+`source-trust-judged`, `source-deleted`, `importance`, `web-derived`,
 `external-write`, else `other`; a multi-flag reason classes by its first
 flag). The admin page groups the queue by it, and
 `POST /facts/bulk-approve` / `POST /facts/bulk-dismiss` (owner credential,

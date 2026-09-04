@@ -136,6 +136,12 @@ class FactBody(BaseModel):
     # that read the web, so the fact is held (the miner cannot be bypassed by
     # an explicit save).
     web_sources: list[str] = Field([], max_length=20)
+    # additive, contract 1.5 (#93): the guests in the room when a model saved
+    # this, as the speaker-class values /ingest already carries
+    # (`guest:<name>`, `guest:unknown`). Non-empty = held as guest-present,
+    # so the guest wall covers the direct save as well as the mined path.
+    # Absent = exactly the 1.4 behaviour.
+    guest_speakers: list[str] = Field([], max_length=12)
 
 
 class FactPatch(BaseModel):
@@ -1148,7 +1154,7 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                 body.origin_agent != "user" else "user",
                 origin_agent=body.origin_agent, source_app=body.source_app,
                 event_date=_event_day(body.event_date), confidence=body.confidence,
-                web_sources=body.web_sources)
+                web_sources=body.web_sources, guest_speakers=body.guest_speakers)
         except ValueError as e:
             raise HTTPException(422, str(e))
         finally:

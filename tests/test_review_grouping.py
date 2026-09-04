@@ -26,6 +26,12 @@ def test_reason_class_truth_table():
     # multi-flag reasons: the first flag is the class
     assert reason_class("speaker-trust: x; grounding: y — review before trusting") == "speaker-trust"
     assert reason_class("external write (mcp:tool) — held for review") == "external-write"
+    # 1.5 (#93): a stamped direct save; with a web stamp too, web-derived
+    # claimed the slot first and the guest clause rides after it
+    assert reason_class("guest-present: Alex was in the room when a model saved this; "
+                        "held for review") == "guest-present"
+    assert reason_class("web-derived: docs.example — a public page was read; "
+                        "guest-present: Alex was in the room") == "web-derived"
     assert reason_class("free-text with no prefix at all") == "other"
     assert reason_class("") == "other"
     assert reason_class(None) == "other"

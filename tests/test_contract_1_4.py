@@ -37,9 +37,11 @@ def _msg(ext, text, **extra):
 
 # ---- handshake ----
 
-def test_health_speaks_1_4_and_reports_loopback_origin_by_default(client, settings):
+def test_health_speaks_at_least_1_4_and_reports_loopback_origin_by_default(client, settings):
     h = client.get("/v1/health").json()
-    assert h["contract_version"] == "1.4"
+    # 1.5 (#93) is additive over 1.4: the version only ever moves up.
+    major, minor = h["contract_version"].split(".")
+    assert (int(major), int(minor)) >= (1, 4)
     assert h["browser_origin"] == f"http://127.0.0.1:{settings.port}"
 
 
