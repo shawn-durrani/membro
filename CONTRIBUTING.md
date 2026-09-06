@@ -56,6 +56,11 @@ git config core.hooksPath .githooks
   class only runs if you made the file, and it is never a completeness
   proof either way, so content must still be synthetic by
   construction. A green scan is not publication clearance.
+  The script is a byte-for-byte copy of crossband's, the fleet's
+  canonical scanner, and `tests/test_secret_scan.py` fails when the copy
+  differs. Do not patch it here: land the fix in crossband, then copy
+  the file across and commit it, from a local checkout or with
+  `curl -fsSL https://raw.githubusercontent.com/shawn-durrani/crossband/main/scripts/secret-scan.sh -o scripts/secret-scan.sh`.
 - The scope boundaries in [ARCHITECTURE.md](ARCHITECTURE.md) are
   deliberate.
 

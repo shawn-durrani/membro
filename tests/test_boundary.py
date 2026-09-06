@@ -179,6 +179,6 @@ def test_an_untrusted_host_is_still_refused_with_trusted_hosts_configured(tmp_pa
 def test_env_var_parses_a_comma_separated_list(monkeypatch):
     from memory_service.config import load_settings
     monkeypatch.setenv("MEMORY_TRUSTED_HOSTS",
-                       " My-Mac.My-Tailnet.ts.net , other.my-tailnet.ts.net ,")
+                       " My-Mac.My-Tailnet.ts.net , my-other.my-tailnet.ts.net ,")
     assert load_settings().trusted_hosts == ["my-mac.my-tailnet.ts.net",
-                                             "other.my-tailnet.ts.net"]
+                                             "my-other.my-tailnet.ts.net"]

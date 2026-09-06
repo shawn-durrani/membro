@@ -3,10 +3,12 @@
 # became un-writable. (This file is excluded from the tree scan by design; the
 # test feeds it to the scanner explicitly via --files.)
 
-# Tailscale host placeholders
+# Tailscale host placeholders. Every label is itself a placeholder (my-...,
+# <...>): a masked tailnet behind a real-looking machine name is a leak of
+# the machine name, and the scanner rejects it.
 my-mac.my-tailnet.ts.net
 <mac>.<tailnet>.ts.net
-mymac.tailXXXX.ts.net
+my-mac.tailXXXX.ts.net
 
 # Home-path placeholders
 /Users/you

@@ -46,12 +46,12 @@ def test_health_speaks_at_least_1_4_and_reports_loopback_origin_by_default(clien
 
 
 def test_browser_origin_follows_the_trusted_tailnet_host(settings, fake_llm):
-    served = settings.model_copy(update={"trusted_hosts": ["mac.example.ts.net"]})
+    served = settings.model_copy(update={"trusted_hosts": ["my-mac.example.ts.net"]})
     h = _client(served).get("/v1/health").json()
-    assert h["browser_origin"] == "https://mac.example.ts.net:8443"
-    custom = settings.model_copy(update={"trusted_hosts": ["mac.example.ts.net"],
+    assert h["browser_origin"] == "https://my-mac.example.ts.net:8443"
+    custom = settings.model_copy(update={"trusted_hosts": ["my-mac.example.ts.net"],
                                          "tailscale_port": 9443})
-    assert custom.reachable_browser_origin() == "https://mac.example.ts.net:9443"
+    assert custom.reachable_browser_origin() == "https://my-mac.example.ts.net:9443"
 
 
 def test_browser_origin_explicit_setting_wins_and_loses_its_slash(settings):

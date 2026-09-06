@@ -23,7 +23,7 @@ SCRIPT = REPO / "scripts" / "tailscale-serve.sh"
 
 
 def _make_fake_tailscale(bin_dir: Path, *, signed_in=True, serve_ok=True,
-                          funnel_on=False, dns_name="mymac.tailXXXX.ts.net",
+                          funnel_on=False, dns_name="my-mac.tailXXXX.ts.net",
                           log_path: Path | None = None):
     """Write a fake `tailscale` executable that answers just enough of the CLI
     surface tailscale-serve.sh actually calls."""
@@ -121,10 +121,10 @@ def test_signed_out_skips_cleanly(tmp_path):
 # ── happy path: route established, verified, URL reported ────────────────────
 def test_happy_path_reports_https_url(tmp_path):
     _make_fake_tailscale(tmp_path, signed_in=True, serve_ok=True, funnel_on=False,
-                         dns_name="mymac.tailXXXX.ts.net")
+                         dns_name="my-mac.tailXXXX.ts.net")
     rc, out, err = run(tmp_path)
     assert rc == 0, f"stderr:\n{err}"
-    assert "https://mymac.tailXXXX.ts.net:8443/" in out
+    assert "https://my-mac.tailXXXX.ts.net:8443/" in out
     # the port mount gives Membro its own ORIGIN — never a path under
     # the tailnet root, where its absolute links would hit another app
     assert "/membro" not in out
@@ -133,7 +133,7 @@ def test_happy_path_reports_https_url(tmp_path):
 # ── the safety property: Funnel detected → refuse, never claim success ───────
 def test_funnel_on_is_refused(tmp_path):
     _make_fake_tailscale(tmp_path, signed_in=True, serve_ok=True, funnel_on=True,
-                         dns_name="mymac.tailXXXX.ts.net")
+                         dns_name="my-mac.tailXXXX.ts.net")
     rc, out, err = run(tmp_path)
     assert rc == 1, "a Funnel-exposed device must never be reported as a success"
     assert "REFUSING" in err
@@ -248,13 +248,13 @@ def test_memory_tailscale_bin_is_honoured_when_path_has_no_cli(tmp_path):
     fake_dir = tmp_path / "elsewhere"
     fake_dir.mkdir()
     _make_fake_tailscale(fake_dir, signed_in=True, serve_ok=True,
-                         dns_name="mymac.tailXXXX.ts.net")
+                         dns_name="my-mac.tailXXXX.ts.net")
     named = fake_dir / "tailscale"
 
     # PATH deliberately does NOT contain the CLI; the env var names it
     rc, out, err = run(None, env_extra={"MEMORY_TAILSCALE_BIN": str(named)})
     assert rc == 0, f"stderr:\n{err}"
-    assert "https://mymac.tailXXXX.ts.net:8443/" in out
+    assert "https://my-mac.tailXXXX.ts.net:8443/" in out
 
 
 def test_no_cli_and_no_env_var_still_skips_without_guessing(tmp_path):
