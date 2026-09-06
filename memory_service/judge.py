@@ -28,7 +28,7 @@ import re
 import threading
 import time
 
-from . import db, llm, walls
+from . import busy, db, llm, walls
 
 log = logging.getLogger("memory.judge")
 
@@ -175,6 +175,14 @@ def run_pass(con, settings) -> dict:
     """One sweep. Returns counts; every row it cannot prove stays held."""
     if not settings.judge_pass:
         return {"enabled": False}
+    # A pass in flight is a busy reason on GET /v1/busy (busy.py): it
+    # commits once at the end, so a restart mid-pass rolls back every row
+    # it examined and spends the model calls again next hour.
+    with busy.mark("judge"):
+        return _run_pass(con, settings)
+
+
+def _run_pass(con, settings) -> dict:
     now = time.time()
     rows = con.execute(
         "SELECT f.* FROM facts f "

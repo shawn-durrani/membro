@@ -69,7 +69,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, auth, db, embeddings, episodic, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
+from . import access, auth, busy, db, embeddings, episodic, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -1064,6 +1064,15 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
                               "miner_model": settings.miner_model},
             "detail": h,
         }
+
+    @app.get("/v1/busy")
+    def busy_probe():
+        # The fleet's deploy watcher asks this before a restart and waits
+        # while the answer is true (workbench#69). Open on loopback like
+        # /health: no session, no bearer, and nothing in the answer is
+        # content, only the fixed labels in busy.LABELS. In-process marks
+        # alone, so it never waits on the database.
+        return busy.snapshot()
 
     @app.get("/v1/disposable-identity")
     def disposable_identity():

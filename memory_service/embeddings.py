@@ -23,6 +23,8 @@ import threading
 # there is no reason to defer it into the request path.
 from openai import OpenAI
 
+from . import busy
+
 log = logging.getLogger("memory.embeddings")
 
 SPACE_KEY = "embedding_space"
@@ -213,7 +215,10 @@ def start_reembed_if_needed(settings):
     def _run():
         c = db.connect(settings.db_path)
         try:
-            ensure_fact_embeddings(c, settings)
+            # The refill is a busy reason on GET /v1/busy (busy.py): cut
+            # off, the rest of the ledger embeds on the next chat round.
+            with busy.mark("reembed"):
+                ensure_fact_embeddings(c, settings)
             log.info("re-embed complete")
         except Exception:
             log.exception("re-embed stopped; recall-path backfill continues")

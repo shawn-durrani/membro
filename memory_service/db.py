@@ -16,6 +16,8 @@ import datetime
 import time
 from pathlib import Path
 
+from . import busy
+
 log = logging.getLogger("memory_service.db")
 
 SCHEMA_VERSION = 1
@@ -376,6 +378,14 @@ def backup(settings) -> Path | None:
     the standing snapshot does not already protect."""
     if not settings.db_path.exists():
         return None
+    # A copy in flight is a busy reason on GET /v1/busy (busy.py), whoever
+    # started it: the deploy watcher waits for it instead of leaving a
+    # part file where the restore point should be.
+    with busy.mark("backup"):
+        return _copy_snapshot(settings)
+
+
+def _copy_snapshot(settings) -> Path | None:
     bdir = settings.data_dir / "backups"
     bdir.mkdir(parents=True, exist_ok=True)
     dest = bdir / time.strftime("memory-%Y%m%d-%H%M%S.db")
