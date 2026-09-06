@@ -68,8 +68,9 @@ surface as a client would.
 **Selection and summary.** Half-life stretches with importance;
 permanence is owner-only (the miner cannot mint a 10); near-duplicates
 collapse before selection; the word budget is enforced by rewriting,
-with every failure mode keeping the complete draft; provenance tags
-derive mechanically.
+with every failure mode keeping the complete draft; a short draft is
+expanded once from its entries, only when they hold the material, and
+never invented; provenance tags derive mechanically.
 
 **Operations.** Snapshots are consistent, rotated, and change-detected;
 the launchd plist template contains no machine-local values; the leak

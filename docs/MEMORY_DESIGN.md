@@ -121,6 +121,12 @@ The profile is written to a word
 budget (default 2000, `memory_summary_words`) with a per-section ceiling, and
 the budget is enforced by *rewriting*, never truncation: if the draft
 overshoots by more than ~20%, it gets one "compress to budget" pass.
+The budget is also a target: the prompt asks for a range, from
+`memory_summary_fill` of the budget (default 80%) up to the budget, spent
+on the specifics the entries carry. A draft under that floor gets one
+"expand from the entries" pass, only when the selected entries hold at
+least twice the floor in words, and a draft still short after it is kept.
+Nothing is invented to fill the room.
 Truncation is never used because it silently amputates the last sections
 (Goals and Recent Changes, the most current ones). Every failure mode falls
 back to the complete-but-verbose draft, so a failed rewrite can leave the

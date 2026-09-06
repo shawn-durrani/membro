@@ -119,7 +119,10 @@ CREATE TABLE IF NOT EXISTS summary_versions(
   word_count INTEGER NOT NULL DEFAULT 0,
   word_budget INTEGER,
   model TEXT,
-  restored_from INTEGER                      -- non-null: human restore of that version
+  restored_from INTEGER,                     -- non-null: human restore of that version
+  passes TEXT                                -- JSON list of the rewrite passes that
+                                             -- shaped a fresh generation; NULL on a
+                                             -- restore and on rows older than the column
 );
 
 -- The access log: every lookup (recall / search / summary fetch), append-only.
@@ -245,6 +248,9 @@ def init(settings) -> None:
         if "web_sources" not in mcols:  # #55 additive, same pattern
             con.execute("ALTER TABLE messages ADD COLUMN web_sources "
                         "TEXT NOT NULL DEFAULT ''")
+        vcols = {r[1] for r in con.execute("PRAGMA table_info(summary_versions)")}
+        if "passes" not in vcols:  # #96 additive, same pattern
+            con.execute("ALTER TABLE summary_versions ADD COLUMN passes TEXT")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
         # Cheap (row-count comparison) and safe (no-op unless desynced) — see

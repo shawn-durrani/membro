@@ -83,4 +83,7 @@ The full route-by-route position is in [docs/API.md](docs/API.md).
 
 An overlong summary draft gets one compress pass; every failure mode
 keeps the complete draft. Truncation would cut the newest sections
-first, so it is never used.
+first, so it is never used. A draft under its floor
+(`memory_summary_fill` of the budget) gets one expand pass from the
+same entries, only when they carry the words to support it. A thin
+ledger keeps its short profile.
