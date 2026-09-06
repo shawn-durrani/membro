@@ -1005,7 +1005,7 @@ async function loadSummary() {
   catch (e) { errPanel("summary-body", "Couldn't load the summary: " + e.message, "loadSummary"); return; }
   // The word budget is a promise — show it being kept (or not) right here.
   const words = s.word_budget
-    ? ` · ${(s.word_count || 0).toLocaleString()} words of a ${s.word_budget.toLocaleString()}-word budget`
+    ? ` · ${(s.word_count || 0).toLocaleString()} words of a ${s.word_budget.toLocaleString()}-word budget (${Math.round(100 * (s.word_count || 0) / s.word_budget)}%)`
     : "";
   const meta = `generated ${fmtWhen(s.generated_at)} · ${s.source_fact_ids.length} source facts${words}`;
   $("summary-body").innerHTML = s.summary
@@ -1021,7 +1021,12 @@ async function loadSummaryVersions() {
   const box = $("summary-versions");
   if (!d.versions.length) { box.innerHTML = ""; return; }
   const rows = d.versions.map((v, i) => {
-    const label = `${fmtWhen(v.generated_at)} · ${v.word_count.toLocaleString()} words`
+    // Which rewrite passes shaped this version: "expanded" means the draft
+    // came back under its floor and was filled from the entries.
+    const passNames = { expand: "expanded", squeeze: "squeezed" };
+    const label = `${fmtWhen(v.generated_at)} · ${v.word_count.toLocaleString()}`
+      + (v.word_budget ? ` of ${v.word_budget.toLocaleString()}` : "") + " words"
+      + (v.passes && v.passes.length ? ` · ${v.passes.map(p => passNames[p] || esc(p)).join(", ")}` : "")
       + (v.model ? ` · ${esc(v.model)}` : "")
       + (v.restored_from ? ` · restored from an earlier version` : "");
     const actions = i === 0

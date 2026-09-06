@@ -62,6 +62,11 @@ class Settings(BaseModel):
     # keyword-only until that completes.
     embedding_base_url: str = ""
     memory_summary_words: int = 2000
+    # The floor of the profile's target range, as a share of the budget:
+    # the prompt asks for `words * fill` up to `words`, and a draft under
+    # the floor gets one expansion from the same entries when they carry
+    # the material (summary.py). 0 turns the floor off; above 1 reads as 1.
+    memory_summary_fill: float = 0.8
     # (`summary_emergent_topics` lived here until 2026-07-26. Emergent
     # middle sections graduated from experiment to simply how the profile is
     # written, so the knob is gone; an old value left in config.local.json is

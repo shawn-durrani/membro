@@ -52,10 +52,13 @@ def test_versions_endpoints(settings, con, fake_llm):
     with TestClient(create_app(settings), base_url="http://127.0.0.1") as client:
         vs = client.get("/v1/summary/versions").json()["versions"]
         assert len(vs) == 2 and vs[0]["word_count"] == len("## Identity\n- v2".split())
+        assert vs[0]["passes"] == []  # a fresh draft that needed no rewrite
         old = client.get(f"/v1/summary/versions/{vs[-1]['id']}").json()
         assert old["content"] == "## Identity\n- v1"
         r = client.post(f"/v1/summary/versions/{vs[-1]['id']}/restore")
         assert r.json()["summary"] == "## Identity\n- v1"
+        restored = client.get("/v1/summary/versions").json()["versions"][0]
+        assert restored["restored_from"] and restored["passes"] is None
         assert client.get("/v1/summary").json()["summary"] == "## Identity\n- v1"
         assert client.get("/v1/summary/versions/999").status_code == 404
         assert client.post("/v1/summary/versions/999/restore").status_code == 404

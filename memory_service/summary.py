@@ -11,10 +11,18 @@ profile, as ever; versions are the memory of the summary itself.
 
 import datetime
 import json
+import logging
 
 from . import db, embeddings, llm, weighting
 
+log = logging.getLogger("memory_service.summary")
+
 BUDGET_TOLERANCE = 1.2  # accept up to 20% over budget; beyond that, one rewrite
+# A draft under its floor is expanded only when the selected entries carry at
+# least this many times the floor in words of their own. A thin ledger has
+# nothing to expand into, and a model asked to fill a range the entries
+# cannot fill reaches for filler; a short profile is the better outcome.
+FILL_MATERIAL = 2.0
 
 
 def provenance_tag(fact: dict) -> str:
@@ -95,6 +103,14 @@ def regenerate(con, settings) -> str:
     # per-section ceiling distributes the trimming so no section balloons
     # while unequal spend between sections stays possible.
     per_section = max(150, words // 4)
+    # The floor (#96). A ceiling alone reads as "stop early" to a model also
+    # told not to pad, and the profile settled at about half its budget with
+    # a ledger that could fill it. The prompt now names a range, floor to
+    # ceiling, and a short draft gets one expansion from the same entries.
+    # 0 turns the floor off; above 1 reads as 1 (a floor cannot sit above
+    # the ceiling).
+    fill = max(0.0, min(1.0, settings.memory_summary_fill))
+    floor = int(words * fill)
 
     def block(fs):
         # Each entry carries its event_date (the date it is ABOUT) date-only,
@@ -132,7 +148,10 @@ def regenerate(con, settings) -> str:
         "that earn their space, and let a topic vanish when its facts "
         "fade. Include only sections that have content. "
     )
-    prompt = (
+    # How to read the entries. This travels with them on EVERY request that
+    # carries them: the expansion pass is a fresh call with no memory of the
+    # first, so it needs the same latest-wins and provenance rules, verbatim.
+    reading = (
         f"Below are selected entries from the memory ledger about "
         f"{settings.user_name}, in two groups (each oldest first; later entries "
         "reflect more recent information). Each entry is prefixed with "
@@ -160,18 +179,27 @@ def regenerate(con, settings) -> str:
         "your prose at all only when it is materially relevant (e.g. flagging "
         "something as told to you directly vs. inferred); most entries need no "
         "provenance language whatsoever. "
+    )
+    # What the room is for. A ceiling alone leaves a model free to stop at
+    # generalities; the range is filled with what the entries already hold.
+    specifics = ("dates, the names of projects and places, numbers, and the "
+                 "current state of each thread")
+    entries = (f"## Durable entries\n{block(durable)}\n\n"
+               f"## Active entries\n{block(active)}")
+    prompt = (
+        reading +
         "Write a structured profile summary organized "
         + headings +
         "Be faithful — merge "
         f"and organize, within a HARD budget of {words} words total and no "
         f"more than {per_section} words in any one section. "
+        + (f"Aim for between {floor} and {words} words. " if floor else "")
+        + f"Spend the room on the specifics the entries carry: {specifics}. "
         "Every section must be present and finished: when trimming is needed, "
         "drop per-fact detail, never a whole section (the later sections are "
         "the most current). The full ledger remains available to readers via "
-        "a recall tool, so do not invent or pad. Reply with ONLY the "
-        "profile.\n\n"
-        f"## Durable entries\n{block(durable)}\n\n"
-        f"## Active entries\n{block(active)}"
+        "a recall tool: leave out what does not fit, and invent nothing. "
+        "Reply with ONLY the profile.\n\n" + entries
     )
     # generous token ceiling: the WORD budget is enforced below by rewriting,
     # never by truncation — a truncated profile silently loses its LAST
@@ -180,9 +208,49 @@ def regenerate(con, settings) -> str:
     max_tokens = max(8000, words * 4)
     text = llm.utility_complete(prompt, settings, max_tokens=max_tokens,
                                 model=settings.summary_model)
+    passes = []  # the rewrite passes that shaped this version, in order
+    drafted = len(text.split())
+    # The floor is a softer promise than the ceiling: it is asked for only
+    # when the entries can support it, and a draft still short after one
+    # expansion is kept. Fail short, never invented.
+    if floor and drafted < floor:
+        material = sum(len(f["content"].split()) for f in facts)
+        if material >= floor * FILL_MATERIAL:
+            expand = (
+                reading + entries + "\n\n"
+                f"The profile below is {drafted} words, under its target of "
+                f"at least {floor} words. Expand it to between {floor} and "
+                f"{words} words using ONLY the entries above: add the "
+                f"specifics you left out ({specifics}), keep every heading "
+                f"and section, keep no more than {per_section} words in any "
+                "one section, keep the latest-wins and provenance rules, "
+                "invent nothing. Reply with ONLY the profile.\n\n" + text
+            )
+            try:
+                expanded = llm.utility_complete(expand, settings,
+                                                max_tokens=max_tokens,
+                                                model=settings.summary_model)
+            except Exception:
+                expanded = ""  # the short-but-faithful draft is still valid
+            # A reply shorter than the draft it was asked to expand dropped
+            # something, or is not a profile at all; the draft stays.
+            if len(expanded.split()) > drafted:
+                text = expanded
+                passes.append("expand")
+            if len(text.split()) < floor:
+                log.info("summary: %d words after the expansion pass, under "
+                         "the %d-word floor of a %d-word budget; kept as is",
+                         len(text.split()), floor, words)
+        else:
+            log.info("summary: the draft is %d words, under the %d-word "
+                     "floor, and its %d entries carry %d words, too few to "
+                     "expand from; kept as is",
+                     drafted, floor, len(facts), material)
     # The budget is a promise to the user: the setting must mean what it says.
     # One rewrite pass when the draft overshoots; if that fails or is still
-    # long, keep the draft — fail long, never short.
+    # long, keep the draft — fail long, never short. An expansion that
+    # overshoots takes this same pass, so a build never sends more than two
+    # rewrites.
     drafted = len(text.split())
     if drafted > words * BUDGET_TOLERANCE:
         squeeze = (
@@ -194,11 +262,14 @@ def regenerate(con, settings) -> str:
             "ONLY the profile.\n\n" + text
         )
         try:
-            text = llm.utility_complete(squeeze, settings,
-                                        max_tokens=max_tokens,
-                                        model=settings.summary_model) or text
+            squeezed = llm.utility_complete(squeeze, settings,
+                                            max_tokens=max_tokens,
+                                            model=settings.summary_model)
         except Exception:
-            pass  # the verbose-but-complete draft is still a valid summary
+            squeezed = ""  # the verbose-but-complete draft is still a valid summary
+        if squeezed:
+            text = squeezed
+            passes.append("squeeze")
     fact_ids = sorted(f["id"] for f in facts)
     # Structured provenance, persisted alongside fact_ids so a
     # downstream consumer can trace any claim back to what it actually traces
@@ -213,27 +284,36 @@ def regenerate(con, settings) -> str:
         "provenance": provenance,
     }))
     if text:
-        _append_version(con, text, fact_ids, settings)
+        _append_version(con, text, fact_ids, settings, passes=passes)
     con.commit()
     return text
 
 
 def _append_version(con, text, fact_ids, settings, restored_from=None,
-                    generated_at=None, model=None):
+                    generated_at=None, model=None, passes=None):
+    """`passes` names the rewrite passes that shaped a fresh generation, in
+    order ("expand", "squeeze"); None on a restore, which generated nothing,
+    and on rows stored before the column existed."""
     con.execute(
         "INSERT INTO summary_versions(generated_at, content, source_fact_ids, "
-        "word_count, word_budget, model, restored_from) VALUES(?,?,?,?,?,?,?)",
+        "word_count, word_budget, model, restored_from, passes) "
+        "VALUES(?,?,?,?,?,?,?,?)",
         (generated_at or db.now(), text, json.dumps(fact_ids), len(text.split()),
          settings.memory_summary_words, model or settings.summary_model,
-         restored_from))
+         restored_from, None if passes is None else json.dumps(passes)))
+
+
+def _decode_passes(d: dict) -> dict:
+    d["passes"] = json.loads(d["passes"]) if d.get("passes") else None
+    return d
 
 
 def versions(con) -> list[dict]:
     """Version metadata, newest first — content deliberately absent (the list
     stays light; fetch one version for its text)."""
-    return [dict(r) for r in con.execute(
-        "SELECT id, generated_at, word_count, word_budget, model, restored_from "
-        "FROM summary_versions ORDER BY id DESC")]
+    return [_decode_passes(dict(r)) for r in con.execute(
+        "SELECT id, generated_at, word_count, word_budget, model, restored_from, "
+        "passes FROM summary_versions ORDER BY id DESC")]
 
 
 def get_version(con, version_id: int) -> dict | None:
@@ -241,7 +321,7 @@ def get_version(con, version_id: int) -> dict | None:
                       (version_id,)).fetchone()
     if not row:
         return None
-    d = dict(row)
+    d = _decode_passes(dict(row))
     d["source_fact_ids"] = json.loads(d["source_fact_ids"] or "[]")
     return d
 

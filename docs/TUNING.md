@@ -34,6 +34,7 @@ regenerate, read the result; restore if you liked the old one better.
 | Setting | Default | What it does |
 |---|---|---|
 | `memory_summary_words` | `2000` | Word budget for the profile |
+| `memory_summary_fill` | `0.8` | Share of the budget the profile should reach; `0` turns the floor off |
 | `summary_model` | `claude-sonnet-5` | Which model writes it |
 | `user_name` | `"User"` | Your name, used in the profile and prompts |
 
@@ -47,6 +48,17 @@ for the model's attention, and the ledger remains fully searchable for
 anything the profile omits. Raise it if models keep having to look up
 everyday context; lower it if replies feel like they're reciting your
 biography. The admin page shows actual words next to budget.
+
+**`memory_summary_fill`** sets the floor of the target range, as a share
+of the budget. With the defaults the model is asked for 1,600 to 2,000
+words, and told to spend the room on the specifics the entries carry:
+dates, the names of projects and places, numbers, the current state of
+each thread. A draft that comes back under the floor gets one "expand
+from the entries" pass, and only when the selected entries hold at least
+twice the floor in words. A thin ledger gets a short profile; nothing is
+invented to fill the room. Set it to `0` to ask for the ceiling alone.
+The admin page shows the fill as a percentage, and each stored version
+says whether it was expanded or squeezed.
 
 **`summary_model`**: the profile is the most-read document in the system
 (every model, every round) and rebuilds are rare, so it defaults to a

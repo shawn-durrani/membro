@@ -632,7 +632,9 @@ needs lifecycle state must use the owner-gated `GET /facts` instead.
 "origin_agent": "user", "source": "user", "tag": "direct"}, ...]}`
 (`word_count`/`word_budget` added 2026-07-09, additive within contract 1.0;
 clients may ignore them. The budget is enforced at generation by a rewrite
-pass, never truncation.)
+pass, never truncation. The generator aims for `memory_summary_fill` of
+the budget, default 0.8, up to the budget, so `word_count / word_budget`
+reads as the fill.)
 
 `provenance` (additive) is one entry per fact that fed the current
 summary (same set as `source_fact_ids`), carrying that fact's **raw**
@@ -821,6 +823,10 @@ are **NOT** gated: they answer an unauthenticated loopback caller.
 
 `GET /v1/summary/versions`: every generated profile, newest first (metadata
 only; append-only history, so regeneration never destroys a version).
+Each row carries `word_count`, `word_budget`, `model`, `restored_from`
+and `passes`: the rewrite passes that shaped a fresh generation, in order
+(`expand`, `squeeze`, or an empty list), `null` on a restore row and on
+a version stored before the column existed (additive, 2026-09-06).
 `GET /v1/summary/versions/{id}`: one version with its full text. Open on
 loopback, so any local process can read any stored profile in full.
 `POST /v1/summary/versions/{id}/restore`: make that version current again by
