@@ -79,9 +79,11 @@ content.
 Snapshots land in `data/backups/` on a timer with rotation and an
 optional mirror folder (`MEMORY_MIRROR_DIR`).
 `ops/install-supervisor.sh` installs a launchd agent; restart with
-`launchctl kickstart -k gui/$(id -u)/dev.membro.server`. Everything the
-service knows lives under `data/`; back that folder up and treat it as
-sensitive.
+`launchctl kickstart -k gui/$(id -u)/dev.membro.server`. Before a
+restart, `GET /v1/busy` says whether a job, a backup, a judge pass or a
+re-embed is mid-flight; the fleet's deploy watcher waits on it. Everything
+the service knows lives under `data/`; back that folder up and treat it
+as sensitive.
 
 Widening beyond loopback is tailnet-only and opt-in: read
 [SECURITY.md](SECURITY.md) first. Never expose the port to the open

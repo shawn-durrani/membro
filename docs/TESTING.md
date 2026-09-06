@@ -76,7 +76,9 @@ the launchd plist template contains no machine-local values; the leak
 scanner rejects real-shaped secrets, identifiers, and deny-listed
 content, passes documented placeholders, and the committed tree must
 scan clean. A test plants a leak in a temp tree to prove the tree walk
-can detect one.
+can detect one. The busy probe names each kind of in-flight work by a
+fixed label, answers without a credential, and drops a mark after an
+hour.
 
 **Process docs.** CONTRIBUTING.md and CLAUDE.md are asserted to agree
 on how work lands; they drifted once.

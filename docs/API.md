@@ -80,7 +80,7 @@ the whole surface.
 Every other `/v1` route answers an unauthenticated loopback caller, governed
 only by the loopback-vs-token rule:
 
-- `/health`, `/disposable-identity`, `/backup`
+- `/health`, `/busy`, `/disposable-identity`, `/backup`
 - `/ingest`, `/distill`, `POST /facts` to create
 - `/recall`, `GET /summary`
 - **`POST /summary/regenerate`**, which rebuilds the live profile
@@ -700,6 +700,22 @@ also snapshots automatically: at startup and every `backup_interval_hours`
 (default 6, env `MEMORY_BACKUP_INTERVAL_HOURS`, `0` disables the timer) while
 running, skipping intervals with no DB change; `MEMORY_MIRROR_DIR` copies every
 snapshot to a second folder.
+
+### Busy probe
+
+`GET /busy` → `{"busy": false, "reasons": []}`. Whether a restart right now
+would interrupt work in flight. The fleet's deploy watcher asks before every
+restart and waits while `busy` is true. Open on loopback like `/health`.
+`reasons` lists fixed labels, sorted, one per kind of work, never an id or
+content. The labels: `distill`, `summary`, `consolidate` and
+`viz-embeddings` for a running job; `backup` for a snapshot mid-copy,
+whatever started it; `judge` for a judge pass; `reembed` for the vector
+refill after an embedding model change. The answer comes from in-process
+marks alone, so it never waits on the database. A mark older than an hour
+stops counting: the marks live in memory, so only a hung thread can leave
+one behind, and the restart this route stops blocking is the cure. The
+route serves the watcher, not the chat client, so it sits outside the
+versioned contract and `contract_version` does not move for it.
 
 ## Admin & visualisation surface (NOT part of contract v1)
 
