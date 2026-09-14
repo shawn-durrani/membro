@@ -116,13 +116,14 @@ def test_ingest_endpoint_carries_attachments(settings):
 
 def test_no_automated_delete_or_update_of_attachments():
     """Append-only with ONE exception, mirroring facts: the human-initiated
-    eraser in api.py (danger zone). No other module may delete or update."""
+    eraser (danger zone), which lives in erasers.py so the snapshot restore
+    erases the same way (#101). No other module may delete or update."""
     import pathlib
 
     from memory_service import episodic as mod
     for p in pathlib.Path(mod.__file__).parent.glob("*.py"):
         src = p.read_text().lower()
-        if p.name != "api.py":
+        if p.name != "erasers.py":
             assert "delete from attachments" not in src, p.name
         assert "update attachments" not in src, p.name
 

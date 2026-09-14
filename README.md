@@ -77,7 +77,12 @@ content.
 ## Operations
 
 Snapshots land in `data/backups/` on a timer with rotation and an
-optional mirror folder (`MEMORY_MIRROR_DIR`).
+optional mirror folder (`MEMORY_MIRROR_DIR`). To go back to one, stop the
+service and run `scripts/restore_snapshot.py` with the snapshot's path: it
+keeps a copy of the live database first and replays every erasure made
+since the snapshot, so a restore never brings back what you erased. The
+fleet runbook (workbench `runbooks/membro-restore.md`) has the full
+procedure.
 `ops/install-supervisor.sh` installs a launchd agent; restart with
 `launchctl kickstart -k gui/$(id -u)/dev.membro.server`. Before a
 restart, `GET /v1/busy` says whether a job, a backup, a judge pass or a
