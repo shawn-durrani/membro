@@ -69,7 +69,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, auth, busy, db, embeddings, episodic, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
+from . import access, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -1306,14 +1306,12 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # each journals a content-free tombstone in `erasures` (#45).
         c = con()
         try:
-            cur = c.execute("DELETE FROM facts WHERE id=?", (fact_id,))
-            if not cur.rowcount:
-                raise HTTPException(404, "no such fact")
-            db.journal_erasure(c, "fact", f"fact:{fact_id}")
-            c.commit()
-            return {"deleted": fact_id}
+            res = erasers.erase_fact(c, fact_id)
         finally:
             c.close()
+        if res is None:
+            raise HTTPException(404, "no such fact")
+        return res
 
     # ---- attachments (admin surface): browse, download, and the one eraser ----
 
@@ -1390,26 +1388,12 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # the file itself is only unlinked when no other row references it.
         c = con()
         try:
-            row = c.execute("SELECT stored_name, extracted_text FROM attachments "
-                            "WHERE id=?", (att_id,)).fetchone()
-            if not row:
-                raise HTTPException(404, "no such attachment")
-            # external-content FTS needs an explicit tombstone before the row goes
-            c.execute("INSERT INTO attachments_fts(attachments_fts, rowid, "
-                      "extracted_text) VALUES('delete', ?, ?)",
-                      (att_id, row["extracted_text"]))
-            c.execute("DELETE FROM attachments WHERE id=?", (att_id,))
-            shared = c.execute("SELECT 1 FROM attachments WHERE stored_name=? LIMIT 1",
-                               (row["stored_name"],)).fetchone()
-            db.journal_erasure(c, "attachment", f"attachment:{att_id}")
-            c.commit()
+            res = erasers.erase_attachment(c, settings, att_id)
         finally:
             c.close()
-        removed = False
-        if not shared:
-            (settings.data_dir / "attachments" / row["stored_name"]).unlink(missing_ok=True)
-            removed = True
-        return {"deleted": att_id, "file_removed": removed}
+        if res is None:
+            raise HTTPException(404, "no such attachment")
+        return res
 
     # ---- messages (admin surface): resolve a producer's ref, and the one
     # message eraser (#45 - the human hand behind crossband#106's honesty) ----
@@ -1466,39 +1450,12 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         # message keep their own eraser; the response counts what stays.
         c = con()
         try:
-            row = c.execute(
-                "SELECT m.id, m.external_id, m.content, m.conversation_id, "
-                "cv.source_app, cv.external_id AS conv_ref "
-                "FROM messages m JOIN conversations cv "
-                "ON cv.id=m.conversation_id WHERE m.id=?",
-                (message_id,)).fetchone()
-            if not row:
-                raise HTTPException(404, "no such message")
-            # external-content FTS needs an explicit tombstone before the row goes
-            c.execute("INSERT INTO messages_fts(messages_fts, rowid, content) "
-                      "VALUES('delete', ?, ?)", (message_id, row["content"]))
-            c.execute("DELETE FROM messages WHERE id=?", (message_id,))
-            held = c.execute(
-                "UPDATE facts SET quarantined_at=?, quarantine_reason=? "
-                "WHERE source_message_id=? "
-                "AND invalidated_at IS NULL AND quarantined_at IS NULL",
-                (time.time(),
-                 "source-deleted: origin message erased by owner",
-                 message_id)).rowcount
-            kept = c.execute(
-                "SELECT COUNT(*) AS n FROM attachments "
-                "WHERE conversation_id=? AND message_external_id=?",
-                (row["conversation_id"], row["external_id"])).fetchone()["n"]
-            db.journal_erasure(
-                c, "message",
-                f"message:{message_id} "
-                f"conv:{row['source_app']}/{row['conv_ref']} "
-                f"ref:{row['external_id']}")
-            c.commit()
+            res = erasers.erase_message(c, message_id)
         finally:
             c.close()
-        return {"deleted": message_id, "facts_held": held,
-                "attachments_kept": kept}
+        if res is None:
+            raise HTTPException(404, "no such message")
+        return res
 
     # ---- persons (#33): the fleet's identity home. Capture apps create
     # and upload; the admin surface renames/merges/forgets; forget is the

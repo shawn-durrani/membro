@@ -215,12 +215,13 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return con
 
 
-def journal_erasure(con, kind: str, ref: str) -> None:
+def journal_erasure(con, kind: str, ref: str, ts: float | None = None) -> None:
     """One content-free row per human erasure - ids in `ref`, never content.
     Caller commits: the journal row must land in the SAME transaction as the
-    delete it records."""
+    delete it records. `ts` is only passed by the snapshot restore, which
+    replays a tombstone under the time the owner actually erased (#101)."""
     con.execute("INSERT INTO erasures(ts, kind, ref) VALUES (?,?,?)",
-                (time.time(), kind, ref))
+                (ts if ts is not None else time.time(), kind, ref))
 
 
 def init(settings) -> None:
