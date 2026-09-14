@@ -174,7 +174,7 @@ def test_open_recall_projects_only_contract_fields(tmp_path, fake_llm):
     assert facts, "expected a hit"
     got = set(facts[0])
     assert got <= {"id", "content", "event_date", "confidence",
-                   "origin_agent", "score"}, f"leaked: {got}"
+                   "origin_agent", "score", "scope"}, f"leaked: {got}"
     # the fields consumers actually render must survive the projection
     assert {"id", "content"} <= got
     for leaked in ("content_hash", "conversation_id", "source_message_id",

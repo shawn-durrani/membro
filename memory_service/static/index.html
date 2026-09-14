@@ -891,11 +891,34 @@ function reviewCard(f) {
       <div class="meta">#${f.id} · origin <b>${esc(f.origin_agent)}</b> ·
         event ${fmtDate(f.event_date)} · created ${fmtWhen(f.created_at)} ·
         confidence ${esc(f.confidence)}</div>
+      ${scopeLine(f)}
       <div class="row-actions">
         <button class="good" onclick="approveFact(${f.id})">Approve <kbd>a</kbd></button>
         <button class="bad" onclick="dismissFact(${f.id})">Dismiss <kbd>d</kbd></button>
+        ${f.scope === "conversation" ? `<button onclick="widenFact(${f.id})">Recall everywhere</button>` : ""}
       </div>
     </div>`;
+}
+
+// A fact bound to one conversation is only ever recalled from that chat,
+// and never joins the profile. Approving keeps the binding; "Recall
+// everywhere" is the one way to widen it.
+function scopeLine(f) {
+  if (f.scope !== "conversation") return "";
+  const c = f.conversation;
+  const where = c ? `“${esc(c.title || "untitled")}” (${esc(c.source_app)} ${esc(c.external_id)})`
+                  : "its own conversation";
+  return `<div class="meta">bound to ${where}: recalled only there, never in the profile</div>`;
+}
+
+async function widenFact(id) {
+  try {
+    await api(`/facts/${id}/scope`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "global" }) });
+    toast(`Fact #${id} is now recalled everywhere.`, true);
+  } catch (e) { alert("Couldn't widen the fact: " + e.message); }
+  loadReview(); loadStats();
 }
 
 async function loadReview() {

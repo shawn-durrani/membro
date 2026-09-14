@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.5
+# Memory Service API: the HTTP contract, v1.6
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -10,6 +10,17 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- **1.6 (#72): every fact carries a `scope`, and `/recall` may name the
+  caller's conversation.** `global` facts are recalled from anywhere;
+  `conversation` facts only from the conversation they came from, and
+  never in the summary. A fact drawn from a guest's turn, or saved with
+  guests in the room, is bound at creation; the owner's own facts, and
+  every fact stored before 1.6, are global. `POST /recall` accepts
+  `source_app` and `conversation_id` (the pair the caller ingests under)
+  and answers with the bound facts beside the global ones; without the
+  pair, global only. Recall rows carry `scope`. `POST /facts/{id}/scope`
+  (owner credential) widens or rebinds one fact. Absent fields = the
+  1.5 behaviour, less any guest-derived fact recalled elsewhere.
 - **1.5 (#93): saves on `POST /facts` may carry `guest_speakers`**: the
   guests in the room when a model saved the fact, as the speaker-class
   values `/ingest` already uses (`guest:<name>`, `guest:unknown`; a list of
@@ -56,12 +67,12 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 
 **1.1: some endpoints require the owner credential ALWAYS, even on
 loopback.** This is a *separate, stricter* check from the loopback-vs-token
-rule above. Sixteen routes carry that always-on check, and these are all of
+rule above. Seventeen routes carry that always-on check, and these are all of
 them:
 
 - `GET /facts`, `GET /review`, and every verb on one existing fact by id:
   `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
-  `/facts/{id}/dismiss`, `DELETE /facts/{id}`
+  `/facts/{id}/dismiss`, `/facts/{id}/scope`, `DELETE /facts/{id}`
 - the two bulk ledger verbs: `POST /facts/quarantine`,
   `POST /review/dismiss-all`
 - `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
@@ -99,7 +110,7 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.5",
+  "contract_version": "1.6",
   "browser_origin": "http://127.0.0.1:8901",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
@@ -148,7 +159,7 @@ including from 127.0.0.1**. So do the two bulk ledger verbs
 routes, and `POST /search`, `POST /consolidate` and `GET /jobs/{id}`: search
 returns verbatim transcript snippets, attachments return file bytes and
 document text, and job rows carry operation results, so they are gated the
-same way. Those sixteen routes are the whole always-on set, and the list at
+same way. Those seventeen routes are the whole always-on set, and the list at
 the top of this document names each one. Either credential
 satisfies the check: `Authorization: Bearer <token>` (the real admin token,
 used by the MCP admin server and scripts), or the `mm_admin` session cookie a
@@ -484,7 +495,8 @@ any caller spoofing that origin over the local API) cannot launder a fact
 into canon by naming a trusted app. A held write also has its `confidence`
 forced to `low`, so a caller that sent `high` reads back `low`: an unreviewed
 claim is never presented as confident. Response includes
-`{"id": 1, "quarantined": bool}`.
+`{"id": 1, "quarantined": bool, "scope": "global" | "conversation"}` (the
+last since 1.6, #72).
 
 To deliberately **stage a fact for owner review** via the API (e.g. an agent
 proposing a revision), POST it with a non-`user` `origin_agent` (the authoring
@@ -572,6 +584,11 @@ body `{"ids": [...]}`) act on explicit id lists - only ids currently in the
 queue are touched, everything else is skipped, not an error, so one decision
 clears a whole cause without ever sweeping rows the owner has not seen.
 
+Each row also carries `scope` and `conversation` (1.6, #72): for a fact
+bound to one conversation, `conversation` is `{"id", "source_app",
+"external_id", "title"}`, the chat it will be recalled from and nowhere
+else; for a global fact it is `null`.
+
 `source` is `null` whenever the fact names no source message: an external
 (`mcp:*`) write, a fact saved by hand, or a mined fact that could not be tied
 to a single turn (see the guest-speaker notes above). It is never filled in
@@ -592,10 +609,24 @@ response carries exactly the fields below and no others: this endpoint
 answers unauthenticated loopback callers by design, so its projection is a
 security boundary. Adding a field here is a contract change.
 ```json
-{"query": "...", "limit": 10, "include_superseded": false, "origin": "http"}
+{"query": "...", "limit": 10, "include_superseded": false, "origin": "http",
+ "source_app": "multi-model-chat", "conversation_id": "42"}
 ```
 → `{"facts": [{"id": 1, "content": "...", "event_date": "...", "confidence": "...",
-               "origin_agent": "...", "score": 0.87}]}`
+               "origin_agent": "...", "score": 0.87, "scope": "global"}]}`
+
+`source_app` and `conversation_id` (1.6, #72) name the caller's own
+conversation, the same pair it ingests under. Every fact carries a
+`scope`: `global` is recalled from anywhere, `conversation` only from the
+conversation it came from. A fact drawn from a guest's turn, or saved
+while guests were in the room, is bound to its conversation at creation;
+the owner's own facts are global, as every fact stored before 1.6 is.
+A recall that names its conversation gets the facts bound to it beside the
+global ones. A recall without the pair, or naming a conversation the
+service has not ingested, gets global facts only. Bound facts never join
+the summary. `POST /facts/{id}/scope` with `{"scope": "global"}` (owner
+credential) is the one way to widen a fact; approving a held fact keeps
+its scope.
 
 `limit` defaults to 10, maximum 50 (422 outside 1–50). `origin` is an
 access-log label ONLY; it changes nothing about what comes back: `http` (the

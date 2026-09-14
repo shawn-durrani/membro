@@ -21,13 +21,23 @@ def _recency(entry: dict, now_ts: float) -> float:
 
 
 def recall(con, settings, query: str = "", limit: int = 10,
-           include_superseded: bool = False) -> list[dict]:
+           include_superseded: bool = False,
+           conversation_id: int | None = None) -> list[dict]:
+    """`conversation_id` (#72) is the caller's own conversation, membro's
+    internal id. A fact bound to a conversation is recalled only from that
+    one; with no conversation given, only global facts come back."""
     query = (query or "").strip()
+    if conversation_id is not None:
+        scope_sql = " AND (scope='global' OR conversation_id=?)"
+        scope_args: tuple = (conversation_id,)
+    else:
+        scope_sql = " AND scope='global'"
+        scope_args = ()
     if not query:
         rows = con.execute(
-            "SELECT * FROM facts WHERE quarantined_at IS NULL"
+            "SELECT * FROM facts WHERE quarantined_at IS NULL" + scope_sql
             + ("" if include_superseded else " AND invalidated_at IS NULL")
-            + " ORDER BY id DESC LIMIT ?", (limit,))
+            + " ORDER BY id DESC LIMIT ?", (*scope_args, limit))
         return [_out(dict(r), None) for r in rows]
 
     try:
@@ -35,7 +45,8 @@ def recall(con, settings, query: str = "", limit: int = 10,
     except Exception:
         pass  # semantic degrades; keyword still works
     entries = [dict(r) for r in con.execute(
-        "SELECT * FROM facts WHERE quarantined_at IS NULL")]
+        "SELECT * FROM facts WHERE quarantined_at IS NULL" + scope_sql,
+        scope_args)]
     if not entries:
         return []
 
