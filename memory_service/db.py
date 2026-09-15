@@ -20,7 +20,7 @@ from . import busy
 
 log = logging.getLogger("memory_service.db")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2 (#72): facts.scope, and the one-time backfill
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts(
@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS facts(
   quarantined_at REAL,                         -- held out of recall+summary pending review
   quarantine_reason TEXT,
   review_dismissed_at REAL,                    -- reviewed-and-kept-out (stays quarantined)
-  person_id INTEGER                            -- #33: the person record this fact links to
+  person_id INTEGER,                           -- #33: the person record this fact links to
+  scope TEXT NOT NULL DEFAULT 'global'         -- #72: 'global' | 'conversation' (recalled
+                                               -- only from its own conversation)
 );
 
 CREATE TABLE IF NOT EXISTS judge_attempts(
@@ -252,6 +254,24 @@ def init(settings) -> None:
         vcols = {r[1] for r in con.execute("PRAGMA table_info(summary_versions)")}
         if "passes" not in vcols:  # #96 additive, same pattern
             con.execute("ALTER TABLE summary_versions ADD COLUMN passes TEXT")
+        if "scope" not in cols:  # #72 additive, same pattern
+            con.execute("ALTER TABLE facts ADD COLUMN scope TEXT NOT NULL "
+                        "DEFAULT 'global'")
+        if ver < 2:
+            # #72, once: facts already stored that came from a guest's turn,
+            # or from a direct save with guests in the room, are bound to
+            # the conversation they came from. Everything else stays global,
+            # so recall keeps behaving as it did for the owner's own facts.
+            # An approved direct save with guests present has lost its hold
+            # reason and names no turn, so it cannot be told apart here and
+            # stays global.
+            con.execute(
+                "UPDATE facts SET scope='conversation' WHERE scope='global' "
+                "AND conversation_id IS NOT NULL AND ("
+                "quarantine_reason LIKE 'guest-%' "
+                "OR quarantine_reason LIKE '%; guest-present:%' "
+                "OR source_message_id IN "
+                "(SELECT id FROM messages WHERE speaker LIKE 'guest:%'))")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         con.commit()
         # Cheap (row-count comparison) and safe (no-op unless desynced) — see

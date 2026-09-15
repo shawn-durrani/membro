@@ -71,10 +71,13 @@ def select_for_summary(con, now: float | None = None) -> tuple[list[dict], list[
     # origin_agent + source travel through selection so the summary prompt (and
     # the /summary response's structured provenance) can carry each fact's real
     # recorded origin — coarse provenance, never a guessed speaker.
+    # #72: a fact bound to one conversation is not part of the owner's
+    # profile; the summary is read from every chat.
     rows = [dict(r) for r in con.execute(
         "SELECT id, content, importance, event_date, created_at, content_hash, "
         "embedding, origin_agent, source FROM facts "
-        "WHERE invalidated_at IS NULL AND quarantined_at IS NULL")]
+        "WHERE invalidated_at IS NULL AND quarantined_at IS NULL "
+        "AND scope='global'")]
 
     def imp(f):
         return f.get("importance") or DEFAULT_IMPORTANCE

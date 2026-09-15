@@ -86,9 +86,16 @@ def add_fact(con, content: str, settings, *, source: str = "user",
              quarantine_reason: str | None = None,
              web_sources: list[str] | None = None,
              guest_speakers: list[str] | None = None,
-             dedupe_in_conversation: bool = False) -> dict:
+             dedupe_in_conversation: bool = False,
+             scope: str | None = None) -> dict:
     """Append one fact. Untrusted origins are quarantined at creation (the gate);
     a caller-supplied quarantine_reason (e.g. a wall flag) also quarantines.
+
+    `scope` (#72): `global` is recalled everywhere, `conversation` only from
+    the conversation the fact came from. Left None it is worked out here: a
+    fact drawn from a guest's turn, or saved while guests were in the room,
+    is bound to its conversation; the owner's own facts stay global, as
+    every fact was before the column existed.
 
     `web_sources` (#55, contract 1.3): domains the authoring round read from
     the web - passed explicitly by /v1/facts, and inherited automatically
@@ -143,10 +150,12 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     # voice-match at 0.8+, weaker never). Same hold rules either way:
     # the link changes what review can say, never whether a fact is held.
     person_id = None
+    row = None
     webs = [str(w).strip().lower() for w in (web_sources or []) if str(w).strip()]
     if source_message_id is not None:
-        row = con.execute("SELECT speaker_identity, web_sources FROM messages "
-                          "WHERE id=?", (source_message_id,)).fetchone()
+        row = con.execute("SELECT speaker, speaker_identity, web_sources "
+                          "FROM messages WHERE id=?",
+                          (source_message_id,)).fetchone()
         if row and row["web_sources"]:
             # #55: the mining path inherits the stamp from the turn itself,
             # so the miner needs no knowledge of this rule.
@@ -180,18 +189,40 @@ def add_fact(con, content: str, settings, *, source: str = "user",
             # grouping it under the web page. The guest clause still rides
             # the row for the reviewer.
             reason = f"{reason}; {clause}"
+    if scope is None:
+        from . import walls
+        speaker_cls = walls.speaker_class(row["speaker"]) if row is not None else None
+        from_guest = bool(guests) or speaker_cls in ("guest", "guest-unknown")
+        scope = ("conversation" if from_guest and conversation_id is not None
+                 else "global")
+    if scope not in SCOPES:
+        raise ValueError(f"scope must be one of {SCOPES}")
     cur = con.execute(
         "INSERT INTO facts(content, source, origin_agent, conversation_id, "
         "source_message_id, created_at, event_date, confidence, importance, "
-        "content_hash, quarantined_at, quarantine_reason, person_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "content_hash, quarantined_at, quarantine_reason, person_id, scope) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (content, source, origin, conversation_id, source_message_id, ts,
          event_date if event_date is not None else db.day_start(ts),
          confidence, importance, db.content_hash(content),
-         ts if reason else None, reason, person_id))
+         ts if reason else None, reason, person_id, scope))
     con.commit()
     _spawn_embed(settings, cur.lastrowid, content)
-    return {"id": cur.lastrowid, "quarantined": bool(reason)}
+    return {"id": cur.lastrowid, "quarantined": bool(reason), "scope": scope}
+
+
+SCOPES = ("global", "conversation")
+
+
+def set_scope(con, fact_id: int, scope: str) -> bool:
+    """Rebind a fact (#72): `global` lets it be recalled everywhere, which
+    is how the owner adopts a guest's fact as their own; `conversation`
+    binds it back. Human-only (API/UI); never changes the hold state."""
+    if scope not in SCOPES:
+        raise ValueError(f"scope must be one of {SCOPES}")
+    cur = con.execute("UPDATE facts SET scope=? WHERE id=?", (scope, fact_id))
+    con.commit()
+    return cur.rowcount > 0
 
 
 def _guest_list(guest_speakers) -> list[str]:

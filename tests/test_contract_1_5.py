@@ -34,8 +34,10 @@ def _post(client, **extra):
 
 # ---- handshake ----
 
-def test_health_speaks_1_5(client):
-    assert client.get("/v1/health").json()["contract_version"] == "1.5"
+def test_health_speaks_at_least_1_5(client):
+    # 1.6 (#72) is additive over 1.5: the version only ever moves up.
+    major, minor = client.get("/v1/health").json()["contract_version"].split(".")
+    assert (int(major), int(minor)) >= (1, 5)
 
 
 # ---- the field ----
@@ -50,7 +52,9 @@ def test_stamped_save_is_accepted_and_held(client, settings):
 def test_body_without_the_field_is_the_1_4_behaviour(client):
     r = _post(client)
     assert r.status_code == 200, r.text
-    assert r.json() == {"id": r.json()["id"], "quarantined": False}
+    # `scope` arrived with 1.6 (#72), additive; a 1.5 client ignores it
+    assert r.json() == {"id": r.json()["id"], "quarantined": False,
+                        "scope": "global"}
 
 
 def test_unknown_shapes_are_dropped_not_rejected(client):

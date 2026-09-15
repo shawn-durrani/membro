@@ -181,6 +181,11 @@ class RecallBody(BaseModel):
     # access-log label (additive, contract 1.0): "auto" marks ambient recalls a
     # client fires on the user's behalf, vs a model deliberately reaching in
     origin: str = Field("http", pattern=r"^[a-z][a-z0-9:_-]{0,31}$")
+    # #72 (contract 1.6): the caller's own conversation, as the pair it
+    # ingests under. Facts bound to that conversation come back beside the
+    # global ones; without the pair only global facts do.
+    source_app: str | None = Field(None, max_length=64)
+    conversation_id: str | None = Field(None, max_length=64)
 
 
 # The exact recall projection the contract documents (docs/API.md "POST /recall").
@@ -188,7 +193,7 @@ class RecallBody(BaseModel):
 # the HTTP surface must not, since /recall answers unauthenticated loopback
 # callers by design. Add a field here only by amending the contract too.
 RECALL_FIELDS = ("id", "content", "event_date", "confidence",
-                 "origin_agent", "score")
+                 "origin_agent", "score", "scope")
 
 
 def _recall_out(f: dict) -> dict:
@@ -231,6 +236,18 @@ def _review_out(c, f: dict) -> dict:
     """
     out = dict(f)
     out["reason_class"] = reason_class(f.get("quarantine_reason"))
+    # #72: a fact bound to one conversation says which, so the reviewer
+    # sees where it will and will not be recalled.
+    out["conversation"] = None
+    if f.get("scope") == "conversation" and f.get("conversation_id") is not None:
+        conv = c.execute(
+            "SELECT id, source_app, external_id, title FROM conversations "
+            "WHERE id=?", (f["conversation_id"],)).fetchone()
+        if conv is not None:
+            out["conversation"] = {"id": conv["id"],
+                                   "source_app": conv["source_app"],
+                                   "external_id": conv["external_id"],
+                                   "title": conv["title"]}
     row = None
     if f.get("source_message_id") is not None:
         row = c.execute(
@@ -1230,6 +1247,21 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
         finally:
             c.close()
 
+    class ScopeBody(BaseModel):
+        scope: str = Field(pattern=r"^(global|conversation)$")
+
+    @app.post("/v1/facts/{fact_id}/scope", dependencies=[Depends(_admin_auth)])
+    def set_scope(fact_id: int, body: ScopeBody):
+        # #72: rebind a fact. `global` is how the owner adopts a guest's
+        # fact as their own; approving never widens on its own.
+        c = con()
+        try:
+            if not ledger.set_scope(c, fact_id, body.scope):
+                raise HTTPException(404, "no such fact")
+            return ledger.get_fact(c, fact_id)
+        finally:
+            c.close()
+
     @app.post("/v1/facts/{fact_id}/dismiss", dependencies=[Depends(_admin_auth)])
     def dismiss(fact_id: int):
         c = con()
@@ -1663,8 +1695,19 @@ terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
     def do_recall(body: RecallBody):
         c = con()
         try:
+            conv_id = None
+            if body.source_app and body.conversation_id:
+                # #72: the caller names its conversation the way it ingests
+                # it; one not ingested yet can hold no bound facts, so it
+                # simply reads as no conversation.
+                conv = c.execute(
+                    "SELECT id FROM conversations WHERE source_app=? "
+                    "AND external_id=?",
+                    (body.source_app, body.conversation_id)).fetchone()
+                conv_id = conv["id"] if conv else None
             facts = recall.recall(c, settings, body.query, body.limit,
-                                  body.include_superseded)
+                                  body.include_superseded,
+                                  conversation_id=conv_id)
             # every recall leaves a footprint — ids + scores, the raw material
             # of reinforce-on-reuse; also feeds the /math live view
             access.record(c, "recall", body.query, origin=body.origin,
