@@ -24,8 +24,9 @@ db.py         - SQLite (WAL), snapshots, integrity checks
 ## The ledger is append-only
 
 No automated path hard-deletes a fact. Supersession, quarantine, and
-dismissal are reversible state changes. The single hard delete is one
-API handler behind the owner credential. Ingested messages and the
+dismissal are reversible state changes. The only hard deletes are the
+owner's erasers, each one API handler behind the owner credential, and
+a restore, which replays those same erasures. Ingested messages and the
 access log follow the same rule.
 
 ## The transcript is ground truth; the summary is a cache
@@ -65,11 +66,12 @@ it; the miner is capped at 9.
 ## Open endpoints are defined by their projection
 
 `/v1/recall` answers unauthenticated loopback callers because every
-chat round calls it, so it returns exactly six documented fields and at
-most 50 rows. Everything reading or writing exact rows (facts, review,
-search, attachments, jobs, consolidate) requires the owner credential
-even on loopback. Sessions are opaque server-side ids in httpOnly
-cookies; the bearer token never rides in a cookie.
+chat round calls it, so it returns exactly seven documented fields and
+at most 50 rows. Everything reading or writing exact rows (facts, review,
+search, attachments, messages, person records, jobs, consolidate)
+requires the owner credential even on loopback. Sessions are opaque
+server-side ids in httpOnly cookies; the bearer token never rides in a
+cookie.
 
 The principle is applied to exact rows, not to everything revealing, and
 four surfaces sit outside it today: `GET /v1/summary/versions/{id}`

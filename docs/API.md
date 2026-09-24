@@ -13,9 +13,12 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - **1.6 (#72): every fact carries a `scope`, and `/recall` may name the
   caller's conversation.** `global` facts are recalled from anywhere;
   `conversation` facts only from the conversation they came from, and
-  never in the summary. A fact drawn from a guest's turn, or saved with
-  guests in the room, is bound at creation; the owner's own facts, and
-  every fact stored before 1.6, are global. `POST /recall` accepts
+  never in the summary. A fact the miner ties to a guest's turn is bound
+  at creation. `POST /facts` names no conversation, so a save made with
+  guests in the room is held for review but stays global. The owner's
+  own facts are global. Facts stored before 1.6 that came from a guest's
+  turn were bound to their conversation once, on upgrade, and the rest
+  stayed global. `POST /recall` accepts
   `source_app` and `conversation_id` (the pair the caller ingests under)
   and answers with the bound facts beside the global ones; without the
   pair, global only. Recall rows carry `scope`. `POST /facts/{id}/scope`
@@ -67,20 +70,23 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 
 **1.1: some endpoints require the owner credential ALWAYS, even on
 loopback.** This is a *separate, stricter* check from the loopback-vs-token
-rule above. Seventeen routes carry that always-on check, and these are all of
-them:
+rule above. These routes carry that always-on check, and the list is
+complete:
 
 - `GET /facts`, `GET /review`, and every verb on one existing fact by id:
   `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
   `/facts/{id}/dismiss`, `/facts/{id}/scope`, `DELETE /facts/{id}`
-- the two bulk ledger verbs: `POST /facts/quarantine`,
+- the bulk ledger verbs: `POST /facts/quarantine`,
+  `POST /facts/bulk-approve`, `POST /facts/bulk-dismiss`,
   `POST /review/dismiss-all`
 - `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
 - all four attachment routes: `GET /attachments`,
   `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
   `DELETE /attachments/{id}`
+- both message routes: `GET /messages/resolve`, `DELETE /messages/{id}`
+- every person route under `/persons` (see "Person records")
 
-No other `/v1` route carries it. Two things sit outside that count without
+No other `/v1` route carries it. Two things sit outside that list without
 contradicting it. `GET /` is not on the list yet still varies by credential:
 an unauthenticated caller gets the locked page rather than the admin UI, and
 no 401. And the loopback-vs-token rule above is a separate gate that governs
@@ -92,6 +98,8 @@ Every other `/v1` route answers an unauthenticated loopback caller, governed
 only by the loopback-vs-token rule:
 
 - `/health`, `/busy`, `/disposable-identity`, `/backup`
+- the ingest watermark,
+  `GET /conversations/{source_app}/{conversation_id}/watermark`
 - `/ingest`, `/distill`, `POST /facts` to create
 - `/recall`, `GET /summary`
 - **`POST /summary/regenerate`**, which rebuilds the live profile
@@ -153,14 +161,17 @@ Clients should read `db`, never `detail`.
 
 `GET /facts`, `GET /review`, and every verb that reads or writes ONE existing
 fact by id (`PATCH /facts/{id}`, `POST /facts/{id}/supersede`, `/approve`,
-`/dismiss`, `DELETE /facts/{id}`) require a valid credential **unconditionally,
-including from 127.0.0.1**. So do the two bulk ledger verbs
-(`POST /facts/quarantine`, `POST /review/dismiss-all`), all four attachment
-routes, and `POST /search`, `POST /consolidate` and `GET /jobs/{id}`: search
-returns verbatim transcript snippets, attachments return file bytes and
-document text, and job rows carry operation results, so they are gated the
-same way. Those seventeen routes are the whole always-on set, and the list at
-the top of this document names each one. Either credential
+`/dismiss`, `/scope`, `DELETE /facts/{id}`) require a valid credential
+**unconditionally, including from 127.0.0.1**. So do the bulk ledger verbs
+(`POST /facts/quarantine`, `/facts/bulk-approve`, `/facts/bulk-dismiss`,
+`POST /review/dismiss-all`), all four attachment routes, both message
+routes, every person route, and `POST /search`, `POST /consolidate` and
+`GET /jobs/{id}`. Search returns verbatim transcript snippets, attachments
+return file bytes and document text, the message routes preview and erase
+one archived message, person routes return names and voice clips, and job
+rows carry operation results, so they are gated the same way. That is the
+whole always-on set, and the list at the top of this document names each
+route. Either credential
 satisfies the check: `Authorization: Bearer <token>` (the real admin token,
 used by the MCP admin server and scripts), or the `mm_admin` session cookie a
 browser gets from `POST /login` (an opaque session id, never the token
@@ -198,8 +209,8 @@ These survive from earlier revisions of this design:
   a cookie, so a leaked session id cannot be used to derive or reconstruct
   it, and revoking a session never touches the token or any other session.
 - **Exact-row endpoints require the owner credential even on loopback** (the
-  list above), as do the bulk ledger verbs, the attachment routes,
-  `POST /search`, `POST /consolidate` and `GET /jobs/{id}`. The
+  list above), as do the bulk ledger verbs, the attachment, message and
+  person routes, `POST /search`, `POST /consolidate` and `GET /jobs/{id}`. The
   loopback-vs-token rule at the top of this document governs every other
   route, including the summary-version and `/viz/*` routes described under
   "Open on loopback, and what that means" at the end of this section.
@@ -621,9 +632,13 @@ security boundary. Adding a field here is a contract change.
 `source_app` and `conversation_id` (1.6, #72) name the caller's own
 conversation, the same pair it ingests under. Every fact carries a
 `scope`: `global` is recalled from anywhere, `conversation` only from the
-conversation it came from. A fact drawn from a guest's turn, or saved
-while guests were in the room, is bound to its conversation at creation;
-the owner's own facts are global, as every fact stored before 1.6 is.
+conversation it came from. A fact the miner ties to a guest's turn is
+bound to its conversation at creation. A save on `POST /facts` carries no
+conversation, so a save made while guests were in the room is held for
+review but stays global: once approved, it is recalled in every chat.
+The owner's own facts are global. Of the facts stored before 1.6, those
+that came from a guest's turn were bound to their conversation once, on
+upgrade, and the rest stayed global.
 A recall that names its conversation gets the facts bound to it beside the
 global ones. A recall without the pair, or naming a conversation the
 service has not ingested, gets global facts only. Bound facts never join
@@ -643,8 +658,8 @@ non-quarantined facts, newest first, which is useful as a cheap "what do you
 know about me lately". Those rows carry no `score` field at all.
 
 The response is exactly the projection in the example and nothing more:
-`id`, `content`, `event_date`, `confidence`, `origin_agent`, and `score`
-(the last on scored recalls only; an empty-query recall omits it). That set
+`id`, `content`, `event_date`, `confidence`, `origin_agent`, `score`
+(on scored recalls only; an empty-query recall omits it) and `scope`. That set
 is `RECALL_FIELDS` in `api.py`, and a test fails if a field is added without
 amending this contract. The rest of the fact row does NOT travel over this
 endpoint: no `created_at`, `importance`, `source`, `conversation_id`,
@@ -819,7 +834,7 @@ rode the message are counted in the response, never cascaded. Journals to
 Apps that capture voices create person records here and upload their
 accepted clips, so a learned voice survives a lost client data directory.
 Membro never does voice identification itself; it records what apps
-assert. All five routes **require the owner admin token, even on
+assert. Every route below **requires the owner admin token, even on
 loopback**:
 
 `GET /v1/persons?since=<time>`: person records changed since then,
@@ -959,9 +974,12 @@ ever made to the service. What that means in practice:
   exception: if the `access_log` table is missing, the adapter creates it
   itself on first write, so lookups against a not-yet-migrated database
   are still recorded rather than lost.)
-- Its calls never traverse the API's loopback / bearer-token checks, so no
-  `MEMORY_AUTH_TOKEN` is involved; filesystem permissions on `data/` are
-  what governs access.
+- Its calls never traverse the API's loopback / bearer-token checks;
+  filesystem permissions on `data/` are what governs access. The one
+  exception is `search_history`, which checks `MEMORY_AUTH_TOKEN` itself to
+  match the owner gate on `POST /search`. Register the server with
+  `-e MEMORY_AUTH_TOKEN=<the service's token>` for search; the other three
+  tools need no token.
 
 Every save carries `origin_agent = "mcp:<client-name>"` and is therefore
 auto-quarantined: the write gate is unaffected by the missing HTTP hop

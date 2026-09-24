@@ -250,7 +250,8 @@ check, changing nothing); it's idempotent and safe to repeat.
 ## What is deliberately NOT tunable
 
 - **Append-only**: no setting turns off "facts are never deleted by
-  software." The only hard delete is you, in the admin UI.
+  software." The only hard deletes are yours: an eraser in the admin UI,
+  and a restore, which replays the erasures you already made.
 - **The write gate**: external (MCP) saves are always quarantined for your
   review. No trust setting bypasses it.
 - **The episodic record**: ingested messages are immutable.

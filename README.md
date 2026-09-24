@@ -12,7 +12,8 @@ it to your own tailnet.
 ## Guarantees
 
 - Facts are superseded, quarantined, or dismissed, never deleted by
-  automation. The only hard delete is a button in the UI.
+  automation. The only hard deletes are the erasers you press in the
+  UI, and a restore, which replays the erasures you already made.
 - Every mined fact passes grounding, temporal, and source-trust checks
   before entering canon. Doubtful facts are held for your review.
 - Ingested messages are immutable. The summary is a cache rebuilt from
