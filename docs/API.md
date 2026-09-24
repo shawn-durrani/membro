@@ -211,11 +211,14 @@ Always out-of-band, never over HTTP:
   environment), that's the token: **stable across restarts**, which is what a
   persistently-registered MCP client needs. The owner already knows it (they
   set it).
-- Otherwise the server mints a fresh random token for its process lifetime
-  and **prints it to its own stdout at startup** (the terminal that ran
-  `start.sh`), never to an HTTP response and never to a file. A sandboxed
-  session sharing the machine's filesystem/network has no route to another
-  process's live terminal output.
+- Otherwise the server mints a fresh random token for its process lifetime.
+  It **prints it at startup only on a first run**, before a password is
+  enrolled, and never in an HTTP response. Under launchd, stdout is
+  `data/service.log`, so a printed token stays in that file. After
+  enrolment the startup line says the token is not shown: set
+  `MEMORY_AUTH_TOKEN` and restart when you need one for a reset, MCP or
+  curl.
+- A configured token is never printed. It's already in `.env`.
 
 ### Owner password login
 

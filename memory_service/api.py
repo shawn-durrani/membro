@@ -626,8 +626,8 @@ small{color:#a1a1aa}
 """
         if not enrolled:
             # First run (or an install predating the owner password): no password exists yet.
-            # Setting one requires the RECOVERY SECRET — the token printed to
-            # the terminal at startup, or your MEMORY_AUTH_TOKEN. That proof
+            # Setting one requires the RECOVERY SECRET: the token printed at
+            # a first start, or your MEMORY_AUTH_TOKEN. That proof
             # stops any other process on this machine from enrolling itself in.
             body = f"""<p><strong>First-time setup.</strong> Choose a password you'll
 use to unlock Membro from now on. To prove you're the owner, paste the
@@ -710,8 +710,9 @@ async function passkeyUnlock() {{
 {password_form}"""
             body = intro + """
 <details><summary>Forgot your password?</summary>
-<p><small>Reset it with the <em>recovery secret</em> — the token printed to the
-terminal at startup, or your <code>MEMORY_AUTH_TOKEN</code>.</small></p>
+<p><small>Reset it with the <em>recovery secret</em>: your
+<code>MEMORY_AUTH_TOKEN</code> from <code>.env</code>. Not set? Set one and
+restart the service.</small></p>
 <form method="post" action="/reset">
 <input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
 <label>Recovery secret<input type="password" name="recovery" autocomplete="off"></label>
@@ -1915,21 +1916,35 @@ def main():
             f"refusing to bind {settings.host} without MEMORY_AUTH_TOKEN — "
             "this service holds personal data and ships no auth for loopback use only")
     app = create_app(settings)
-    # The ONLY place the admin token is ever printed: this process's own
-    # stdout (the owner's terminal that ran start.sh), never an HTTP response
-    # (admin-gate v3) and never a file. A sandboxed session sharing this machine's
-    # filesystem/network has no route to a live terminal's stdout.
-    #
-    # Since the password-login slice: this value is the RECOVERY SECRET, not the everyday login.
-    # First run, it enrolls your durable password; after that you log in with
-    # the password and only need this again to reset it (or for MCP/curl Bearer).
-    kind = "configured MEMORY_AUTH_TOKEN" if settings.auth_token else "generated for this run — changes on restart"
-    enrolled = auth.is_enrolled_path(settings.db_path)
-    verb = ("log in with your password; use this only to RESET it" if enrolled
-            else "open the page and use this to set your password (first-run enrollment)")
-    print(f"Membro admin: open http://{settings.host}:{settings.port}/ — {verb}.\n"
-          f"Recovery secret ({kind}):\n  {app.state.admin_token}")
+    print(startup_banner(settings, app.state.admin_token,
+                         auth.is_enrolled_path(settings.db_path)))
     uvicorn.run(app, host=settings.host, port=settings.port)
+
+
+def startup_banner(settings, token: str, enrolled: bool) -> str:
+    """What the service prints as it starts. Never an HTTP response.
+
+    Under launchd, stdout is `data/service.log`, so a printed secret stays
+    in that file in plain text (#113). The recovery secret is printed only
+    when there's no other way to learn it: a first run with a token minted
+    for this start. A configured token already lives in `.env`, and after
+    enrolment the everyday login is the password."""
+    url = f"http://{settings.host}:{settings.port}/"
+    if not enrolled and not settings.auth_token:
+        return (f"Membro admin: open {url} and use this to set your password "
+                "(first-run enrolment).\n"
+                "Recovery secret (generated for this run, changes on "
+                f"restart):\n  {token}")
+    if not enrolled:
+        return (f"Membro admin: open {url} and set your password. The "
+                "recovery secret is your MEMORY_AUTH_TOKEN in .env.")
+    if settings.auth_token:
+        return (f"Membro admin: open {url} and log in with your password. "
+                "The recovery secret is your MEMORY_AUTH_TOKEN in .env.")
+    return (f"Membro admin: open {url} and log in with your password. The "
+            "recovery secret is random this start and not shown. To reset "
+            "a forgotten password, or to use curl or MCP, set "
+            "MEMORY_AUTH_TOKEN in .env and restart.")
 
 
 if __name__ == "__main__":
