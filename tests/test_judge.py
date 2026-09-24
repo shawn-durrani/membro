@@ -1,5 +1,7 @@
 """#58: the judge pass — verified witnesses clear, everything else holds."""
 
+import sqlite3
+
 from memory_service import episodic, judge
 from memory_service.api import reason_class
 
@@ -139,3 +141,37 @@ def test_multi_flag_rows_left_for_humans(con, settings, fake_llm):
     fake_llm["response"] = '{"Zephyrline": "toured the zephyrline factory"}'
     assert judge.run_pass(con, settings)["examined"] == 0
     assert _fact(con, fid)["quarantined_at"] is not None
+
+
+def test_model_call_never_holds_the_write_lock(con, settings, monkeypatch):
+    """A judge look can take minutes on a slow network, or stall for hours
+    while the Mac sleeps. Other writers must still get in while it waits:
+    an ingest waits 30 seconds for the write lock and then fails."""
+    settings.judge_pass = True
+    cid, mids = _conv(con, ["I toured the zephyrline factory today",
+                            "the zephyrline tour was great"])
+    first = _held(con, cid, mids[0], GROUND)
+    second = _held(con, cid, mids[1], GROUND,
+                   content="Alex enjoyed the Zephyrline tour.")
+    ingested = []
+
+    def _model(prompt, settings, max_tokens=1000, model=None, **kw):
+        other = sqlite3.connect(settings.db_path, timeout=0)
+        other.row_factory = sqlite3.Row
+        try:
+            n = len(ingested)
+            episodic.ingest(other, "multi-model-chat", "meanwhile",
+                            [{"external_id": f"w{n}", "speaker": "user",
+                              "content": "a turn arriving mid-pass",
+                              "created_at": 1700000500.0 + n}], title="t")
+            ingested.append(n)
+        finally:
+            other.close()
+        return '{"Zephyrline": "zephyrline"}'
+
+    monkeypatch.setattr("memory_service.llm.utility_complete", _model)
+    out = judge.run_pass(con, settings)
+    assert ingested == [0, 1]
+    assert out["cleared"] == 2
+    assert _fact(con, first)["quarantined_at"] is None
+    assert _fact(con, second)["quarantined_at"] is None

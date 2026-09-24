@@ -52,7 +52,12 @@ def record(con, kind: str, query: str = "", origin: str = "http",
     try:
         try:
             con.execute(_INSERT, row)
-        except sqlite3.OperationalError:  # table missing: pre-migration DB
+        except sqlite3.OperationalError as exc:
+            # Only a pre-migration DB is missing the table. A lock held
+            # elsewhere has already waited out busy_timeout, and a second
+            # try would make the lookup wait that long again.
+            if "no such table" not in str(exc):
+                raise
             con.executescript(TABLE)
             con.execute(_INSERT, row)
         con.commit()

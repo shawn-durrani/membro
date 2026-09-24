@@ -118,6 +118,36 @@ def test_record_failure_never_breaks_the_lookup(con):
     access.record(con, "recall", "still fine")  # must not raise
 
 
+def test_locked_write_waits_once_not_twice(settings, con):
+    """A write lock held elsewhere is not a missing table. The insert has
+    already waited out busy_timeout (30 seconds live), so a second try
+    would make the lookup wait that long again before it answers."""
+    class _Spy:
+        def __init__(self, con):
+            self.con, self.scripts = con, 0
+
+        def execute(self, *a):
+            return self.con.execute(*a)
+
+        def executescript(self, sql):
+            self.scripts += 1
+            return self.con.executescript(sql)
+
+        def commit(self):
+            return self.con.commit()
+
+    holder = sqlite3.connect(settings.db_path)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        con.execute("PRAGMA busy_timeout = 0")
+        spy = _Spy(con)
+        access.record(spy, "search", "who holds the lock")  # never raises
+        assert spy.scripts == 0
+    finally:
+        holder.rollback()
+        holder.close()
+
+
 def test_no_automated_delete_or_update_of_access_log():
     """Append-only, same standard as facts/messages: the service source never
     deletes or rewrites an access row."""
