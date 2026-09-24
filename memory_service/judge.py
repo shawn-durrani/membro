@@ -175,9 +175,9 @@ def run_pass(con, settings) -> dict:
     """One sweep. Returns counts; every row it cannot prove stays held."""
     if not settings.judge_pass:
         return {"enabled": False}
-    # A pass in flight is a busy reason on GET /v1/busy (busy.py): it
-    # commits once at the end, so a restart mid-pass rolls back every row
-    # it examined and spends the model calls again next hour.
+    # A pass in flight is a busy reason on GET /v1/busy (busy.py): a
+    # restart mid-pass throws away the model call in flight, and that row
+    # waits for the next hour's pass.
     with busy.mark("judge"):
         return _run_pass(con, settings)
 
@@ -197,18 +197,23 @@ def _run_pass(con, settings) -> dict:
          BATCH_LIMIT)).fetchall()
     cleared = relabelled = 0
     for fact in rows:
-        con.execute(
-            "INSERT INTO judge_attempts(fact_id, attempted_at) VALUES(?,?) "
-            "ON CONFLICT(fact_id) DO UPDATE SET attempted_at=excluded.attempted_at",
-            (fact["id"], now))
+        # The model call runs with no write open. A look can take minutes
+        # on a slow network, or stall while the Mac sleeps, and every other
+        # writer waits 30 seconds for the lock and then fails. So each row's
+        # verdict and attempt land together, in one short commit after it.
         try:
             if fact["quarantine_reason"].startswith(GROUNDING_PREFIX):
                 cleared += bool(_judge_grounding(con, settings, fact))
             else:
                 relabelled += bool(_judge_persona(con, settings, fact))
         except Exception as exc:  # fail closed: key, endpoint, anything
+            con.rollback()
             log.warning("judge: fact %s left held (%s)", fact["id"], exc)
-    con.commit()
+        con.execute(
+            "INSERT INTO judge_attempts(fact_id, attempted_at) VALUES(?,?) "
+            "ON CONFLICT(fact_id) DO UPDATE SET attempted_at=excluded.attempted_at",
+            (fact["id"], now))
+        con.commit()
     if rows:
         log.info("judge pass: %d examined, %d cleared, %d relabelled, %d left held",
                  len(rows), cleared, relabelled,
