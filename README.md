@@ -35,9 +35,10 @@ cd membro
 ```
 
 The server runs at **http://127.0.0.1:8901**; set `MEMORY_PORT` if that
-port is taken. First run prints a recovery secret; use it once to enrol a
-password, then log in with the password. Set `MEMORY_AUTH_TOKEN` in
-`.env` to keep the secret stable.
+port is taken. Unless you've set `MEMORY_AUTH_TOKEN` in `.env`, the
+first run prints a recovery secret; use it once to enrol a password,
+then log in with the password. Set `MEMORY_AUTH_TOKEN` to keep the
+secret stable, and to reset a forgotten password later.
 
 To import your claude.ai export, unzip it first: the importer reads the
 unzipped directory, not the zip. Stop the service before running it, or

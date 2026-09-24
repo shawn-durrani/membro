@@ -177,10 +177,11 @@ because the database holds your accumulated memory.
    no configured value it refuses to bind a non-loopback host.
  Leaving it unset does
 **not** mean no secret exists: the service mints a fresh random one at
-every start and prints it to the terminal that ran `./start.sh`. Set a
-stable value in `.env` or `config.local.json` if you register the
-`membro-admin` MCP server, or if you simply don't want your recovery
-secret changing on every restart. An auto-minted token still only works
+every start. It prints it only on a first run, before you've set a
+password, because that's the one time you need it. Set a stable value
+in `.env` or `config.local.json` if you register the `membro-admin` MCP
+server, or if you'll ever need to reset a forgotten password. A
+configured value is never printed. An auto-minted token still only works
 locally; remote serving needs a configured one.
 
 ### Logging in
@@ -200,7 +201,8 @@ use:
 
 - **Your password** (the browser). On first run,
   `http://127.0.0.1:8901` shows a setup form: paste the recovery secret
-  from the terminal to prove it's you, then choose a password (8
+  (your `MEMORY_AUTH_TOKEN`, or the one the first start printed) to
+  prove it's you, then choose a password (8
   characters minimum). After that you just log in with the password;
   it's durable across restarts. Forgotten it? "Forgot your password?"
   on the same page takes the recovery secret again and sets a new one.
