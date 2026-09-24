@@ -13,10 +13,13 @@ the registration command itself):
         <repo>/.venv/bin/python -m memory_service.mcp_server
 
 MEMORY_AUTH_TOKEN enables search_history (#81); without it the owner-gated
-verbatim search refuses while the other three tools work as ever.
+verbatim search refuses while the other three tools work as ever. The token
+it's checked against is the service's own, from config.json,
+config.local.json or .env, never this process's environment (#117).
 """
 
 import datetime
+import hmac
 import os
 import sys
 
@@ -27,6 +30,7 @@ from mcp.server.fastmcp import FastMCP  # noqa: E402
 from memory_service import access, db, episodic, ledger as ledger_mod  # noqa: E402
 from memory_service import recall as recall_mod, summary as summary_mod  # noqa: E402
 from memory_service import walls  # noqa: E402
+from memory_service import config  # noqa: E402
 from memory_service.config import load_settings  # noqa: E402
 
 mcp = FastMCP("membro")
@@ -73,8 +77,9 @@ def search_history(query: str) -> str:
     """Verbatim full-text search across every ingested message in the user's
     conversation history. Owner-gated like the HTTP route (#81): register the
     server with -e MEMORY_AUTH_TOKEN=<the service's token> to enable it."""
-    if SETTINGS.auth_token and (
-            os.environ.get("MEMORY_AUTH_TOKEN") != SETTINGS.auth_token):
+    owner = config.configured_auth_token()
+    if owner and not hmac.compare_digest(
+            os.environ.get("MEMORY_AUTH_TOKEN", "").encode(), owner.encode()):
         return ("Verbatim transcript search is owner-gated: this MCP server "
                 "was registered without the owner's MEMORY_AUTH_TOKEN, so "
                 "search_history is unavailable. recall_memory still works.")

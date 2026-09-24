@@ -104,6 +104,33 @@ class Settings(BaseModel):
         return f"http://127.0.0.1:{self.port}"
 
 
+def configured_auth_token(root: Path | None = None) -> str | None:
+    """The owner token the service runs with, read from the files it reads:
+    config.json, then config.local.json, then `.env`, which start.sh exports
+    over them. It never reads this process's environment. An MCP server
+    holds the credential being presented there, and a token compared with
+    itself proves nothing (#117)."""
+    root = root or REPO_ROOT
+    token = None
+    for name in ("config.json", "config.local.json"):
+        p = root / name
+        if p.exists():
+            token = json.loads(p.read_text()).get("auth_token") or token
+    env = root / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == "MEMORY_AUTH_TOKEN":
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                    value = value[1:-1]
+                token = value or token
+    return token or None
+
+
 def load_settings() -> Settings:
     merged: dict = {}
     for name in ("config.json", "config.local.json"):
