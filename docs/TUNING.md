@@ -153,7 +153,7 @@ of these constants is wrong, that's a bug report we want.
 | Setting | Default | What it does |
 |---|---|---|
 | `data_dir` | `./data` | Where the database lives (env: `MEMORY_DATA_DIR`) |
-| `backup_interval_hours` | `6` | Automatic snapshot cadence (env available, `0` disables) |
+| `backup_interval_hours` | `6` | Hours between automatic snapshots, by the clock, so time asleep counts (env available, `0` disables) |
 | `backup_keep` | `14` | Local snapshots kept |
 | `mirror_dir` | unset | Second folder (e.g. iCloud) for snapshot copies (env available) |
 | `mirror_keep` | `7` | Mirrored snapshots kept |

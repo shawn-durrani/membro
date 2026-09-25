@@ -466,23 +466,58 @@ def _changed_since_last_snapshot(settings) -> bool:
     return False
 
 
-def start_backup_scheduler(settings) -> threading.Event:
+# How often the backup timer wakes to ask whether a snapshot is due. The
+# wait itself runs on the monotonic clock, which stops while macOS sleeps,
+# so the interval is judged by the wall clock on each tick instead: a
+# snapshot that fell due during sleep is taken within one tick of waking.
+# A tick costs a directory listing and a few stat calls.
+BACKUP_TICK_S = 300.0
+
+
+def _snapshot_due(settings, now: float, last_try: float | None) -> bool:
+    """True when the newest snapshot, and the scheduler's last try, are both
+    at least backup_interval_hours old by the wall clock. The last try
+    counts because a content-deduped copy leaves the old snapshot standing,
+    and without it a stale snapshot would re-copy the DB every tick. A time
+    ahead of `now` means the clock was set back, and is ignored so backups
+    never stall until the clock catches up."""
+    snaps = sorted((settings.data_dir / "backups").glob("memory-*.db"))
+    newest = snaps[-1].stat().st_mtime if snaps else None
+    marks = [t for t in (newest, last_try) if t is not None and t <= now]
+    return not marks or now - max(marks) >= settings.backup_interval_hours * 3600
+
+
+def _scheduled_tick(settings, now: float, last_try: float | None) -> float | None:
+    """One wake of the backup timer; returns the new last-try time. A due
+    snapshot is still skipped when nothing changed since the newest one."""
+    try:
+        if not (_snapshot_due(settings, now, last_try)
+                and _changed_since_last_snapshot(settings)):
+            return last_try
+        backup(settings)
+    except Exception:
+        log.exception("scheduled backup failed; will retry next interval")
+    return now
+
+
+def start_backup_scheduler(settings, *, clock=time.time,
+                           tick_s: float = BACKUP_TICK_S) -> threading.Event:
     """Snapshot on a timer, not just at startup — a long-running instance must
     never sit on a stale restore point. Skips ticks where nothing changed so
     rotation keeps real history depth instead of identical copies.
+    `clock` is the wall clock, injectable for tests.
     Returns a stop Event; interval <= 0 disables (the Event is still returned)."""
     stop = threading.Event()
-    hours = settings.backup_interval_hours
-    if hours <= 0:
+    interval_s = settings.backup_interval_hours * 3600
+    if interval_s <= 0:
         return stop
 
     def _loop():
-        while not stop.wait(hours * 3600):
-            try:
-                if _changed_since_last_snapshot(settings):
-                    backup(settings)
-            except Exception:
-                log.exception("scheduled backup failed; will retry next interval")
+        # init() snapshotted just before this starts, so that was the first
+        # try: the next one is an interval out, as it was before.
+        last_try = clock()
+        while not stop.wait(min(tick_s, interval_s)):
+            last_try = _scheduled_tick(settings, clock(), last_try)
 
     threading.Thread(target=_loop, daemon=True, name="backup-scheduler").start()
     return stop
