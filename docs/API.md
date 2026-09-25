@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.6
+# Memory Service API: the HTTP contract, v1.7
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -10,12 +10,36 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 - Base URL: `http://127.0.0.1:8901/v1`
 - Local-only: the server refuses to bind a non-loopback address unless
   `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
+- All bodies JSON. Errors the service raises itself use one envelope:
+  `{"error": {"code": "...", "message": "..."}}` with conventional HTTP
+  status. Two classes come straight from the web framework and keep its
+  native `{"detail": ...}` shape instead: request-schema validation (422,
+  a missing or mistyped field; `detail` is then a per-field list) and an
+  unmatched route (404 `{"detail": "Not Found"}`). A client that parses
+  error bodies should read `error` first and fall back to `detail`. One
+  endpoint can return both shapes: `POST /facts` with no `content` key at
+  all is a `detail` 422; `POST /facts` with a 3-character `content` is an
+  `error` 422.
+- Async operations return `202 {"job_id": "..."}`; poll `GET /jobs/{id}`
+  (which requires the owner credential; see "Maintenance").
+
+### What each minor version added
+
+- **1.7 (#115): saves on `POST /facts` may name the caller's
+  conversation.** `conversation_id` beside `source_app` is the pair
+  `/ingest` and `/recall` already use. A save that carries
+  `guest_speakers` is bound to that conversation at creation, like a fact
+  the miner ties to a guest's turn, and is still held for review. When
+  the service has not ingested that conversation yet, the save creates
+  its record, and the first ingest fills the same record. The owner's own
+  saves stay global. Absent field = exactly the 1.6 behaviour: a save
+  with guests in the room is held but stays global.
 - **1.6 (#72): every fact carries a `scope`, and `/recall` may name the
   caller's conversation.** `global` facts are recalled from anywhere;
   `conversation` facts only from the conversation they came from, and
   never in the summary. A fact the miner ties to a guest's turn is bound
-  at creation. `POST /facts` names no conversation, so a save made with
-  guests in the room is held for review but stays global. The owner's
+  at creation. In 1.6 `POST /facts` names no conversation, so a save made
+  with guests in the room is held for review but stays global. The owner's
   own facts are global. Facts stored before 1.6 that came from a guest's
   turn were bound to their conversation once, on upgrade, and the rest
   stayed global. `POST /recall` accepts
@@ -53,18 +77,6 @@ repo's CI (against the real service) and in each client's CI (against the stub).
   from an identified message links to that person when the identity is
   strong: introduced and owner-correction always, voice-match at 0.8+,
   weaker never auto-binds. Absent field = exactly the 1.1 behaviour.
-- All bodies JSON. Errors the service raises itself use one envelope:
-  `{"error": {"code": "...", "message": "..."}}` with conventional HTTP
-  status. Two classes come straight from the web framework and keep its
-  native `{"detail": ...}` shape instead: request-schema validation (422,
-  a missing or mistyped field; `detail` is then a per-field list) and an
-  unmatched route (404 `{"detail": "Not Found"}`). A client that parses
-  error bodies should read `error` first and fall back to `detail`. One
-  endpoint can return both shapes: `POST /facts` with no `content` key at
-  all is a `detail` 422; `POST /facts` with a 3-character `content` is an
-  `error` 422.
-- Async operations return `202 {"job_id": "..."}`; poll `GET /jobs/{id}`
-  (which requires the owner credential; see "Maintenance").
 
 ### Always gated, even on loopback
 
@@ -118,7 +130,7 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.6",
+  "contract_version": "1.7",
   "browser_origin": "http://127.0.0.1:8901",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
@@ -471,7 +483,8 @@ service has less, which is what a restore from a snapshot leaves behind.
  "origin_agent": "user | <participant-slug> | mcp:<client>",
  "source_app": "<registered app>",
  "web_sources": ["<domain>", "..."],
- "guest_speakers": ["guest:<name>", "guest:unknown"]}
+ "guest_speakers": ["guest:<name>", "guest:unknown"],
+ "conversation_id": "<the caller's own conversation id>"}
 ```
 `content` is whitespace-collapsed first, then must be 8–10 000 characters;
 anything shorter or longer is a 422 ("nothing meaningful to save" / "fact too
@@ -499,6 +512,15 @@ names the domains, `guest-present:` names the guests in plain English
 named). When both are present the reason keeps the `web-derived:` prefix
 and the guest clause follows after `; `. The origin gate below outranks
 both stamps.
+
+`conversation_id` (1.7, max 64 characters) names the conversation the
+save was made in: with `source_app`, the pair the caller ingests under.
+A save with a guest stamp is bound to it, so once approved it is
+recalled only there. A save with no guest stays global, and records the
+conversation when the service holds it. A guest-present save that
+arrives before the conversation's first ingest creates its empty
+record, which that ingest fills. Without the pair, a guest-present save
+is held but stays global. The response's `scope` says which happened.
 
 Gate (invariant 4; the gate applies to the write itself, whoever the writer
 is): a write reaches canon only if `origin_agent` is `user` **or** it
@@ -633,9 +655,10 @@ security boundary. Adding a field here is a contract change.
 conversation, the same pair it ingests under. Every fact carries a
 `scope`: `global` is recalled from anywhere, `conversation` only from the
 conversation it came from. A fact the miner ties to a guest's turn is
-bound to its conversation at creation. A save on `POST /facts` carries no
-conversation, so a save made while guests were in the room is held for
-review but stays global: once approved, it is recalled in every chat.
+bound to its conversation at creation. So is a save on `POST /facts`
+made while guests were in the room, when it names its conversation
+(1.7). A guest-present save that names none is held for review but stays
+global: once approved, it is recalled in every chat.
 The owner's own facts are global. Of the facts stored before 1.6, those
 that came from a guest's turn were bound to their conversation once, on
 upgrade, and the rest stayed global.

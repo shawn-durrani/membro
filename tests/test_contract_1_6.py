@@ -50,8 +50,10 @@ def _recall(client, query="", **extra):
 
 # ---- handshake ----
 
-def test_health_speaks_1_6(client):
-    assert client.get("/v1/health").json()["contract_version"] == "1.6"
+def test_health_speaks_at_least_1_6(client):
+    # 1.7 (#115) is additive over 1.6: the version only ever moves up.
+    major, minor = client.get("/v1/health").json()["contract_version"].split(".")
+    assert (int(major), int(minor)) >= (1, 6)
 
 
 # ---- where a fact is bound at creation ----
