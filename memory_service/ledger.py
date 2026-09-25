@@ -175,7 +175,7 @@ def add_fact(con, content: str, settings, *, source: str = "user",
         shown = ", ".join(sorted(set(webs))[:5])[:300]
         reason = (f"web-derived: {shown} — a public page was read in this "
                   "round; held for review before becoming canon")
-    guests = _guest_list(guest_speakers)
+    guests = guest_list(guest_speakers)
     if guests:
         who = _render_guests(guests)
         verb = "was" if len(guests) == 1 else "were"
@@ -225,7 +225,7 @@ def set_scope(con, fact_id: int, scope: str) -> bool:
     return cur.rowcount > 0
 
 
-def _guest_list(guest_speakers) -> list[str]:
+def guest_list(guest_speakers) -> list[str]:
     """Normalise a `guest_speakers` stamp the way web_sources is: strip, drop
     empties, dedupe, keep order. Anything that is not a guest class (a model
     slug, `user`, an unknown prefix) is dropped rather than rejected: the

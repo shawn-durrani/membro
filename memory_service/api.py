@@ -142,6 +142,30 @@ class FactBody(BaseModel):
     # so the guest wall covers the direct save as well as the mined path.
     # Absent = exactly the 1.4 behaviour.
     guest_speakers: list[str] = Field([], max_length=12)
+    # additive, contract 1.7 (#115): the caller's own conversation, named
+    # with `source_app` as the pair /ingest and /recall use. A save that
+    # carries guest_speakers binds to it, like a fact mined from a guest's
+    # turn. Absent = exactly the 1.6 behaviour.
+    conversation_id: str | None = Field(None, max_length=64)
+
+
+def _save_conversation(c, body: FactBody) -> int | None:
+    """#115: the conversation a save names, resolved to its row here. The
+    ledger decides the scope: a guest-present save binds to the row, and
+    the owner's own saves stay global and only record where they were made.
+
+    A client hands a chat over when it goes quiet, so a guest-present save
+    can name a chat not ingested yet. For one, the row is created empty, as
+    the first ingest would create it, and that ingest later fills the same
+    row. Any other save naming a conversation not held here records none."""
+    if not (body.source_app and body.conversation_id):
+        return None
+    conv = episodic.get_conversation(c, body.source_app, body.conversation_id)
+    if conv is not None:
+        return conv["id"]
+    if not ledger.guest_list(body.guest_speakers):
+        return None
+    return episodic.open_conversation(c, body.source_app, body.conversation_id)
 
 
 class FactPatch(BaseModel):
@@ -1176,12 +1200,15 @@ restart the service.</small></p>
     def add_fact(body: FactBody):
         c = con()
         try:
+            # A conversation row created here commits with the fact, or
+            # not at all when the fact is refused.
             res = ledger.add_fact(
                 c, body.content, settings, source="model" if
                 body.origin_agent != "user" else "user",
                 origin_agent=body.origin_agent, source_app=body.source_app,
                 event_date=_event_day(body.event_date), confidence=body.confidence,
-                web_sources=body.web_sources, guest_speakers=body.guest_speakers)
+                web_sources=body.web_sources, guest_speakers=body.guest_speakers,
+                conversation_id=_save_conversation(c, body))
         except ValueError as e:
             raise HTTPException(422, str(e))
         finally:

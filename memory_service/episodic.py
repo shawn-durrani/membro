@@ -175,6 +175,19 @@ def get_conversation(con, source_app: str, external_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def open_conversation(con, source_app: str, external_id: str) -> int:
+    """The row id for a conversation, created empty when this service has
+    not ingested it yet, as a first ingest would create it (#115). The
+    caller commits, so the row lands with the write that needed it."""
+    con.execute(
+        "INSERT OR IGNORE INTO conversations(source_app, external_id, title, "
+        "created_at) VALUES(?,?,?,?)",
+        (source_app, external_id, "", db.now()))
+    return con.execute(
+        "SELECT id FROM conversations WHERE source_app=? AND external_id=?",
+        (source_app, external_id)).fetchone()["id"]
+
+
 def messages_after(con, conversation_id: int, after_id: int = 0) -> list[dict]:
     return [dict(r) for r in con.execute(
         "SELECT * FROM messages WHERE conversation_id=? AND id>? ORDER BY id",
