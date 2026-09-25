@@ -39,13 +39,14 @@ assertion is accepted only for `localhost` or a host listed in
 ## Open vs gated
 
 Gated even on loopback: everything reading or writing exact rows
-(facts, review, verbatim search, attachments, jobs, consolidate). The
-MCP server honours the same rule: `search_history` works only when the
-token was passed at registration.
+(facts, review, verbatim search, attachments, messages, person records,
+jobs, consolidate). The MCP server honours the same rule:
+`search_history` works only when the token was passed at registration.
 
-Open on loopback: `/v1/recall` (six fields, max 50 rows),
-`/v1/summary` and its version list, `/v1/health`,
-`/v1/disposable-identity` (a probe for benchmark harnesses that
+Open on loopback: `/v1/recall` (seven fields, max 50 rows),
+`/v1/summary` and its version list, `/v1/health`, `/v1/busy`, the
+per-conversation ingest watermark, `/v1/disposable-identity` (a probe
+for benchmark harnesses that
 answers "no" on a real install and reveals nothing else), the
 ingest/distill/fact-create flows, `/v1/backup`, and every `/v1/viz/*`
 route.

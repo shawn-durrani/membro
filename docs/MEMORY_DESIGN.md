@@ -16,8 +16,9 @@ research is in [REFERENCES.md](REFERENCES.md), the wire contract in
    fact per card. **Append-only**: a card is never thrown away; when something
    changes, the old card is flipped face-down (*superseded*) and kept as history.
 3. **The profile** (the summary): one page built from the face-up cards, handed to the models at the start of every chat so they know you without a
-   lookup. It is a *cache* over the cards, and the cards remain the source of
-   truth.
+   lookup. A card bound to one chat, such as one drawn from a guest's words,
+   never joins it, because every chat reads the profile. It is a *cache* over
+   the cards, and the cards remain the source of truth.
 
 A cheap miner model reads each conversation on the way out and writes cards.
 The four extraction walls check each card before it is trusted.
@@ -111,9 +112,11 @@ in [REFERENCES.md](REFERENCES.md)) is:
   copy before selection, so how *often* something came up can't buy it more of
   the budget. The ledger keeps every copy; only the selection collapses.
 
-The ledger still has every fact, and `recall_memory` can still fetch anything
-on demand; a card missing from today's profile has merely been out-selected
-and remains retrievable.
+The ledger still has every fact. A card missing from today's profile has
+merely been out-selected, and `recall_memory` can still fetch it on demand.
+A card bound to one chat never joins the profile, and comes back only to an
+HTTP recall that names that chat. `recall_memory` names no chat, so it never
+returns one.
 
 #### The word budget
 

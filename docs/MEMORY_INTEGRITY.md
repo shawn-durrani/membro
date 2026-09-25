@@ -89,7 +89,8 @@ walls make the *write* safe instead. This trade-off is deliberate.
 `test_walls.py`, `test_mining.py`, `test_meta_conversation.py`,
 `test_invariants.py`):**
 - Append-only: no automated path deletes a fact (supersede / quarantine / dismiss
-  only; the sole hard delete is a human pressing the button).
+  only; a fact is hard-deleted only when a human presses the eraser, or when
+  a restore replays that same erasure).
 - The episodic transcript is ground truth and is never modified by any pass, which is
   what makes a bad card *detectable* and traceable to its source. The one exception
   is the same human hand: the owner can erase a single archived message
