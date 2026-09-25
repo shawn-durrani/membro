@@ -69,7 +69,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
+from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -410,6 +410,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     db.init(settings)
     app = FastAPI(title="membro", version=settings.contract_version)
     app.state.settings = settings
+    # The admin header's row of links to the owner's other apps.
+    app.state.sibling_probe = app_links.SiblingProbe(settings.sibling_apps)
     app.state.backup_scheduler_stop = db.start_backup_scheduler(settings)
     app.router.on_shutdown.append(app.state.backup_scheduler_stop.set)
     # The judge pass (#58): startup + hourly while enabled; off by default.
@@ -1065,6 +1067,17 @@ restart the service.</small></p>
         if not removed:
             raise HTTPException(404, "no passkey with that id")
         return {"ok": True}
+
+    @app.get("/app-links", include_in_schema=False,
+             dependencies=[Depends(_admin_auth)])
+    def app_links_row(request: Request):
+        # The admin page's header row: the owner's other apps that answered
+        # their health probe on loopback, each linked at an address that
+        # opens from where this page was opened. Not part of the wire
+        # contract, and owner-only like the page that reads it.
+        found = request.app.state.sibling_probe.found()
+        return {"links": app_links.link_row(request.url.hostname,
+                                            app_links.APP, found)}
 
     @app.get("/math")
     def math_page():

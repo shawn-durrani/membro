@@ -12,6 +12,14 @@ from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# The fleet's other apps, each at the health route it answers on loopback
+# without a session. The ports are the fleet's allocation.
+DEFAULT_SIBLING_APPS = {
+    "crossband": "http://127.0.0.1:8902/api/auth/session",
+    "spendglass": "http://127.0.0.1:8903/api/session",
+    "threadfold": "http://127.0.0.1:8904/health",
+}
+
 
 class Settings(BaseModel):
     # server
@@ -91,6 +99,11 @@ class Settings(BaseModel):
     # otherwise loopback on `port`.
     browser_origin: str = ""
     tailscale_port: int = 8443  # scripts/tailscale-serve.sh's default
+    # The owner's other apps, linked from a row in the admin page header:
+    # name -> the health route each answers on loopback without a session.
+    # Each is asked for its `browser_origin`, and one that doesn't answer
+    # isn't shown. Loopback addresses only. {} turns the row off.
+    sibling_apps: dict[str, str] = dict(DEFAULT_SIBLING_APPS)
 
     @property
     def db_path(self) -> Path:
@@ -151,6 +164,14 @@ def load_settings() -> Settings:
         merged["browser_origin"] = os.environ["MEMORY_BROWSER_ORIGIN"]
     if os.environ.get("MEMORY_TAILSCALE_PORT"):
         merged["tailscale_port"] = int(os.environ["MEMORY_TAILSCALE_PORT"])
+    if os.environ.get("MEMORY_SIBLING_APPS"):
+        # JSON, like the config key. Unparseable keeps the file's value.
+        try:
+            siblings = json.loads(os.environ["MEMORY_SIBLING_APPS"])
+        except ValueError:
+            siblings = None
+        if isinstance(siblings, dict):
+            merged["sibling_apps"] = siblings
     if os.environ.get("MEMORY_DATA_DIR"):
         merged["data_dir"] = os.environ["MEMORY_DATA_DIR"]
     if os.environ.get("MEMORY_MIRROR_DIR"):
