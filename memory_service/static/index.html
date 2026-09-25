@@ -97,6 +97,15 @@
          display: inline-block; flex: none; }
   .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.err { background: var(--err); }
 
+  /* ---- your other apps: one row, the current one unlinked ---- */
+  .app-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3);
+               margin: 0 0 var(--space-4); padding-bottom: var(--space-2);
+               border-bottom: 1px solid var(--border); font-size: 12px; line-height: 16px; }
+  .app-links[hidden] { display: none; }
+  .app-links a { color: var(--dim); text-decoration: none; padding: var(--space-1) 2px; }
+  .app-links a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+  .app-links [aria-current] { color: var(--text); font-weight: 600; padding: var(--space-1) 2px; }
+
   /* ---- health strip: stat cards ---- */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
            gap: var(--space-3); margin-bottom: var(--space-5); }
@@ -383,6 +392,8 @@
     button { padding: var(--space-2) var(--space-3); }
     .chev { padding: var(--space-2); }
     .math-link { padding: 6px var(--space-3); }
+    .app-links { gap: 0 var(--space-2); }
+    .app-links a, .app-links [aria-current] { padding: 6px var(--space-1); }
     .theme-pick { padding: 6px var(--space-2); }
     /* 16px form text so phone browsers don't zoom-and-pan on focus */
     input, textarea, select { font-size: 16px; }
@@ -430,6 +441,7 @@
     <button class="dismiss" id="setup-banner-x" aria-label="Dismiss setup note"
             title="Hide this note (it comes back if a different key goes missing)">✕</button>
   </div>
+  <nav class="app-links" id="app-links" aria-label="Your apps" hidden></nav>
   <header class="page-head">
     <div>
       <h1>membro</h1>
@@ -1697,6 +1709,24 @@ async function loadHealth() {
     `<dl class="health">${healthRows(h.detail || {}).join("")}</dl>`;
 }
 
+// ---- your other apps ----
+// The server asks each sibling app on this machine where a browser opens it
+// and builds the row for this page's own address, so the page only draws it.
+// No row at all when no other app can open from here.
+async function loadAppLinks() {
+  let links = [];
+  try {
+    const r = await fetch("/app-links");
+    if (r.ok) links = (await r.json()).links || [];
+  } catch { /* no row is the whole fallback */ }
+  const nav = $("app-links");
+  nav.innerHTML = links.map(l => l.current
+    ? `<span aria-current="page">${esc(l.name)}</span>`
+    : `<a href="${esc(l.href)}" target="_blank" rel="noopener noreferrer"
+          title="Open ${esc(l.name)} in a new tab">${esc(l.name)}</a>`).join("");
+  nav.hidden = !links.length;
+}
+
 // ---- passkeys (#27) ----
 // Not under /v1 (they are browser-session plumbing, not contract surface),
 // so these use plain fetch rather than api(). Same-origin cookies ride along
@@ -1781,6 +1811,7 @@ async function removePasskey(id) {
 // ---- boot ----
 
 loadReview(); loadSummary(); loadLedger(); loadFiles(); loadHealth(); loadPasskeys(); loadPeople();
+loadAppLinks();
 prefillEraseFromHash();
 setInterval(() => { if (document.visibilityState === "visible") loadHealth(); }, 15000);
 </script>

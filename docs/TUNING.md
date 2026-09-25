@@ -163,6 +163,7 @@ of these constants is wrong, that's a bug report we want.
 | `MEMORY_TAILSCALE_SERVE` | `0` (off) | Opt in to tailnet-only remote access at startup (env only, see below) |
 | `MEMORY_TAILSCALE_PORT` | `8443` | The HTTPS port Membro gets on your tailnet; its own origin rather than a path (env only) |
 | `MEMORY_TAILSCALE_BIN` | unset | Path to a `tailscale` CLI that is installed but not on `PATH`, the normal macOS case (env only) |
+| `sibling_apps` | Crossband, Spendglass and Threadfold on their usual ports | Your other apps, linked from the admin page's header. Each entry names an app and the health address it answers on this machine. `{}` turns the row off (env: `MEMORY_SIBLING_APPS`, as JSON). See below |
 
 Set `mirror_dir` to a folder inside iCloud Drive/Dropbox/OneDrive and every
 snapshot is copied off-machine automatically. This is strongly recommended,
@@ -246,6 +247,17 @@ isn't installed or isn't signed in, startup prints a loud but non-blocking
 warning and Membro keeps serving on loopback exactly as before. Re-run it
 any time with `bash scripts/tailscale-serve.sh` (or `--status` to just
 check, changing nothing); it's idempotent and safe to repeat.
+
+### Links to your other apps
+
+A row at the top of the admin page links your other apps, one tap each.
+Membro asks each app in `sibling_apps` where a browser can open it, on
+this machine, and keeps the answers for a minute. An app that doesn't
+answer within a second is left out. On the Mac every running app shows,
+at its local address. From your phone, only the apps served on your
+tailnet show, so the row never offers a link that won't open. Membro
+reports its own address the same way, as `browser_origin` on
+`/v1/health`.
 
 ## What is deliberately NOT tunable
 
