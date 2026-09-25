@@ -46,9 +46,9 @@ import datetime
 import os
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
-mcp = FastMCP("membro-admin")
+mcp = MCPServer("membro-admin")
 
 
 def _base_url() -> str:
