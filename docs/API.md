@@ -770,10 +770,12 @@ a missing API key), never a silent failure. Jobs live in the service's memory
 only, so a restart forgets them and a later poll is a 404; read the result
 before restarting, or just re-run the operation.
 `POST /backup` → snapshot now; `GET /health` reports backup state. The service
-also snapshots automatically: at startup and every `backup_interval_hours`
-(default 6, env `MEMORY_BACKUP_INTERVAL_HOURS`, `0` disables the timer) while
-running, skipping intervals with no DB change; `MEMORY_MIRROR_DIR` copies every
-snapshot to a second folder.
+also snapshots automatically: at startup, and whenever the newest snapshot is
+`backup_interval_hours` old by the clock (default 6, env
+`MEMORY_BACKUP_INTERVAL_HOURS`, `0` disables the timer) and the DB has changed
+since. Time the computer spends asleep counts, and the timer checks every five
+minutes, so a snapshot that fell due during sleep is taken soon after it wakes.
+`MEMORY_MIRROR_DIR` copies every snapshot to a second folder.
 
 ### Busy probe
 
