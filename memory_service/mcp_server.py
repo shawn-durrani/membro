@@ -25,7 +25,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from mcp.server import MCPServer  # noqa: E402
 
 from memory_service import access, db, episodic, ledger as ledger_mod  # noqa: E402
 from memory_service import recall as recall_mod, summary as summary_mod  # noqa: E402
@@ -33,7 +33,7 @@ from memory_service import walls  # noqa: E402
 from memory_service import config  # noqa: E402
 from memory_service.config import load_settings  # noqa: E402
 
-mcp = FastMCP("membro")
+mcp = MCPServer("membro")
 SETTINGS = load_settings()
 CLIENT = os.environ.get("MEMORY_MCP_CLIENT", "claude-code")
 ORIGIN = f"mcp:{CLIENT}"  # access-log origin: these lookups happen in THIS
