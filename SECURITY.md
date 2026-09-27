@@ -84,16 +84,17 @@ ledger rows, so the gate does not cover them.
 
   | path | mode | when |
   |---|---|---|
-  | `data/` | 0700 | every startup |
-  | `data/memory.db` | 0600 | every startup |
-  | `data/attachments/` | 0700 | first time an attachment is stored or read, so it does not exist on an install that has never taken one |
-  | each attachment file | 0600 | when its bytes are first written; storage is content-addressed, so a file already on disk is left as it is |
-  | `data/backups/`, `service.log` | whatever the creator's umask allowed, typically 0644 | not chmodded at all |
+  | `data/` and every folder in it | 0700 | every startup, and from creation |
+  | every file in `data/`, backups and `service.log` included | 0600 | every startup, and from the first byte |
 
-  The SQLite WAL and SHM files follow `memory.db` at 0600: SQLite creates
-  them with the database file's own mode, and a umask can only clear
-  further bits, never add them. Either way, the 0700 directory is what
-  keeps other users out.
+  At startup the service sets its umask to 0o077, so every file it makes
+  after that is 0600 and every folder 0700. It also takes group and other
+  access off anything already in `data/`. That covers the `service.log`
+  launchd creates before the service starts, and anything copied in by
+  hand. The SQLite WAL and SHM files follow `memory.db` at 0600, because
+  SQLite creates them with the database file's own mode. Copies in the
+  backup mirror keep their snapshot's 0600. The restore and the scripts
+  that write the database do the same at their start.
 
 ## Operational notes
 

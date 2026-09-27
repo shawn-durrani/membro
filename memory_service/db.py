@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import threading
 import datetime
 import time
@@ -251,9 +252,62 @@ def journal_erasure(con, kind: str, ref: str, ts: float | None = None) -> None:
                 (ts if ts is not None else time.time(), kind, ref))
 
 
+def _owner_only(path, st) -> bool:
+    """Drop group and other access from one entry (0644 -> 0600, 0755 ->
+    0700). True when it changed anything. Never raises."""
+    if not st.st_mode & 0o077:
+        return False
+    try:
+        os.chmod(path, stat.S_IMODE(st.st_mode) & 0o700)
+        return True
+    except OSError:
+        return False
+
+
+def secure_data_dir(settings) -> int:
+    """The data directory, and everything in it, owner-only (#133).
+
+    A Mac home folder is readable by the `staff` group, which every local
+    account is in, so a 0644 file under it is readable by anyone else who
+    uses the machine once the folders above let them through. A backup
+    copied out of `data/` keeps its own mode, so every file has to be
+    private, not just the folder.
+
+    Two parts. The process umask becomes 0o077, so every file and folder
+    this process makes from here on is owner-only from its first byte: a
+    snapshot, a pre-restore copy, an attachment, a mirror folder. SQLite
+    gives -wal and -shm the database's own mode, so they follow. Then
+    anything already in the directory that the group or others can read
+    loses those bits, which repairs what older builds left (every backup
+    was 0644) and the service.log launchd creates before the service
+    starts. Symlinks are skipped: chmod would follow them out. Best-effort:
+    a permissions failure never stops startup. Returns how many entries it
+    tightened, and logs only that count."""
+    os.umask(0o077)
+    root = settings.data_dir
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        tightened = int(bool(root.stat().st_mode & 0o077))
+        os.chmod(root, 0o700)
+    except OSError:
+        return 0
+    for folder, dirs, files in os.walk(root):
+        for name in dirs + files:
+            path = os.path.join(folder, name)
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            if not stat.S_ISLNK(st.st_mode):
+                tightened += _owner_only(path, st)
+    if tightened:
+        log.warning("data directory: %d file(s) and folder(s) other accounts "
+                    "could read are now owner-only", tightened)
+    return tightened
+
+
 def init(settings) -> None:
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(settings.data_dir, 0o700)
+    secure_data_dir(settings)  # owner-only before the snapshot below
     if settings.db_path.exists():
         backup(settings)  # pre-migration restore point, every startup
     con = connect(settings.db_path)

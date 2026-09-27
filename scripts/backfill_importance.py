@@ -72,6 +72,8 @@ def main() -> int:
     settings = load_settings()
     if args.data_dir:
         settings = settings.model_copy(update={"data_dir": args.data_dir.resolve()})
+    if not args.dry_run:
+        db.secure_data_dir(settings)  # owner-only, like the service's files
     con = db.connect(settings.db_path)
     try:
         rows = [dict(r) for r in con.execute(

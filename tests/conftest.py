@@ -1,10 +1,22 @@
 import hashlib
+import os
 
 import pytest
 
 from memory_service import db as db_mod
 from memory_service import sessions
 from memory_service.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _umask_restored():
+    """db.init makes the process umask owner-only (0o077, #133). Put the
+    runner's own back after each test, so one test's startup never decides
+    the modes another test's files get."""
+    old = os.umask(0o022)
+    os.umask(old)
+    yield
+    os.umask(old)
 
 
 @pytest.fixture

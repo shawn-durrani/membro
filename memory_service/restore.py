@@ -170,6 +170,8 @@ def restore(settings, snapshot: Path, dry_run: bool = False) -> dict:
     if dry_run:
         return result
 
+    # Every copy below holds the whole memory: owner-only from the start.
+    db.secure_data_dir(settings)
     # Work from a private copy of the chosen snapshot: the startup backup
     # that db.init takes below names files to the second and could
     # otherwise land on top of the source.

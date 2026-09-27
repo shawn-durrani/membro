@@ -62,6 +62,7 @@ def main() -> int:
         if args.check:
             print(f"OUT OF SYNC: {out_of_sync} (re-run without --check to repair)")
             return 1
+        db.secure_data_dir(settings)  # owner-only, like the service's files
         result = db.repair_fts(con)
         print(f"rebuilt: {result['repaired']}")
     finally:
