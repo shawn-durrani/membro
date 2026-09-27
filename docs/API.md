@@ -1,4 +1,4 @@
-# Memory Service API: the HTTP contract, v1.7
+# Memory Service API: the HTTP contract, v1.8
 
 The contract between Membro and its clients. Owned by this repo.
 Versioned; breaking changes bump the major version. Clients check `contract_version`
@@ -25,6 +25,10 @@ repo's CI (against the real service) and in each client's CI (against the stub).
 
 ### What each minor version added
 
+- **1.8 (#127): a capture app says which voice clips it keeps.** Person
+  records count the stored clips its manifest leaves out, the owner's
+  press deletes them, and a clip delete may say why. See "Person
+  records". Absent manifest = the 1.7 behaviour, nothing counted.
 - **1.7 (#115): saves on `POST /facts` may name the caller's
   conversation.** `conversation_id` beside `source_app` is the pair
   `/ingest` and `/recall` already use. A save that carries
@@ -96,7 +100,8 @@ complete:
   `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
   `DELETE /attachments/{id}`
 - both message routes: `GET /messages/resolve`, `DELETE /messages/{id}`
-- every person route under `/persons` (see "Person records")
+- every person route under `/persons` (see "Person records"), and
+  `DELETE /unused-clips`
 
 No other `/v1` route carries it. Two things sit outside that list without
 contradicting it. `GET /` is not on the list yet still varies by credential:
@@ -130,7 +135,7 @@ at the end of it.
 ```json
 {
   "status": "ok|degraded",
-  "contract_version": "1.7",
+  "contract_version": "1.8",
   "browser_origin": "http://127.0.0.1:8901",
   "db": {"facts": 0, "messages": 0, "size_bytes": 0, "integrity": "ok",
           "fts_in_sync": true, "last_backup_at": null},
@@ -866,7 +871,8 @@ loopback**:
 forgotten marks included - a syncing app deletes its local copies of
 anyone marked forgotten. Each record carries slug, display name (and
 whether the owner set it - an owner-set name survives client updates),
-relationship, aliases, clip count, and timestamps.
+relationship, aliases, clip count, `unused_clips` (1.8, below), and
+timestamps.
 
 `POST /v1/persons`: create or update by slug. Aliases combine; an alias
 already belonging to a different person is refused (409), never
@@ -875,10 +881,13 @@ outright - the crossband participant boundary (#65), backstopped
 server-side. Existing `guest:<alias>` facts link to the person on upsert
 (the response reports how many).
 
+#### Clips and corrections
+
 `POST /v1/persons/{slug}/anchors`: upload one clip (base64). Content-
 addressed - the same bytes for the same person is a no-op. Files live
-under `voice_anchors/`, owner-only modes, every clip kept (owner
-decision: no server-side pruning).
+under `voice_anchors/`, owner-only modes. Membro never prunes clips by
+itself: a clip goes when the uploading app deletes it, or when the owner
+does.
 
 `GET /v1/persons/{slug}/anchors` and `.../{id}/file`: list and download,
 for rebuilding a lost client cache.
@@ -894,18 +903,45 @@ through this, so a rebuild can never resurrect a corrected clip.
 
 `DELETE /v1/persons/{slug}/anchors/{id}`: delete one clip - journalled in
 `erasures`, bytes unlinked when no other row shares them. Crossband
-replays its local clip deletes through this.
+replays its local clip deletes through this, and the clips its banks drop
+too. An optional `?reason=` (1.8) says why the app dropped the clip:
+`rotation`, `settled` or `set-aside`. The journal row ends
+`reason:<value>`. Any other value is ignored.
 
 `POST /v1/persons/{slug}/merge` (body `{"into": slug}`): fold one person
 into another - aliases, clips and fact links re-point; the losing row
 stays, marked `merged_into`. Refused (410) when either side is forgotten.
 
 `POST /v1/persons/{slug}/forget`: the one-press forget. Deletes the
-audio from disk (one content-free `erasures` row), marks the person
-forgotten, and moves their approved facts back into review as one
-person-forgotten group (owner decision: nothing silently deleted).
-Anchor routes answer `410 gone` afterwards; the record itself stays
-listed so syncing apps learn to delete their copies.
+audio from disk (one content-free `erasures` row) and the person's clip
+manifests, marks the person forgotten, and moves their approved facts
+back into review as one person-forgotten group (owner decision: nothing
+silently deleted). Anchor routes answer `410 gone` afterwards; the record
+itself stays listed so syncing apps learn to delete their copies.
+
+#### Clips an app no longer uses (1.8)
+
+`PUT /v1/persons/{slug}/manifest` (1.8, body
+`{"client": "<app>", "sha256": ["<hex>", ...]}`): the clips the app's bank
+keeps for this person, as sha256 hex digests, at most 1,000. It replaces
+that app's last manifest and deletes nothing, however little it lists. The
+response is `{"stored": <n>, "unused_clips": <n>}`. A value that isn't a
+sha256 is refused (422).
+
+A person's `unused_clips` counts the clips that app uploaded, stored
+before its manifest arrived, and missing from it. A clip stored after the
+manifest is never counted by it. A manifest older than the person's last
+change (a clip moved or deleted, a merge, a rename) counts nothing until
+the app sends a fresh one. With no manifest the count is 0.
+
+`DELETE /v1/persons/{slug}/unused-clips` and `DELETE /v1/unused-clips`
+(1.8): the owner's press on the People page, for one person or for
+everyone. The set is worked out again at the press, never taken from the
+caller. Each clip is deleted like the one-clip route and journals its own
+`erasures` row ending `reason:unused`. The answer counts what went:
+`{"slug", "deleted", "files_removed"}` for one person, and
+`{"deleted", "files_removed", "persons"}` for everyone.
+
 The three summary-version routes below, unlike the attachment routes above,
 are **NOT** gated: they answer an unauthenticated loopback caller.
 

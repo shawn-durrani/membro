@@ -601,7 +601,14 @@
           and linked facts move across. Listen plays a stored clip; moving or deleting
           one corrects the durable record the same way the capture app does. Forget is
           the strong one: the audio is deleted for every app, and that person's
-          approved facts return to review for you to judge.</p></details>
+          approved facts return to review for you to judge.</p>
+          <p><b>Clips crossband no longer uses.</b> Crossband keeps a few clips per
+          person and sends the list here each time it syncs. A stored clip missing
+          from that list is counted under the person, and you can delete them for one
+          person or for everyone. Nothing is deleted until you press. Clips crossband
+          drops are deleted here when it syncs, so the count shows the older ones it
+          stopped using.</p></details>
+        <div id="people-unused"></div>
         <div id="people-body"><div class="empty">Loading…</div></div>
       </div>
     </details>
@@ -1383,6 +1390,15 @@ async function loadPeople() {
   const rows = (d.persons || []).filter(p => !p.merged_into);
   const living = rows.filter(p => !p.forgotten_at);
   $("people-count").textContent = living.length ? String(living.length) : "";
+  // 1.8 (#127): clips crossband's kept-set list leaves out, counted, never
+  // deleted until the owner presses.
+  const unused = living.reduce((n, p) => n + (p.unused_clips || 0), 0);
+  $("people-unused").innerHTML = unused
+    ? `<div class="fields" style="margin:6px 0">
+        <span>${unused} stored clip${unused === 1 ? "" : "s"} crossband no longer uses</span>
+        <button class="danger" onclick="deleteAllUnused(${unused})">Delete all ${unused}…</button>
+      </div>`
+    : "";
   if (!rows.length) {
     $("people-body").innerHTML = '<div class="empty">Nobody yet - people appear here when a capture app (crossband) syncs its learned voices.</div>';
     return;
@@ -1399,6 +1415,10 @@ async function loadPeople() {
       <dt>${esc(p.display_name)}${p.relationship ? ` <span style="color:var(--dim)">(${esc(p.relationship)})</span>` : ""}</dt>
       <dd>
         <div>${p.clip_count} clip${p.clip_count === 1 ? "" : "s"}${names ? " · also answers to: " + names : ""}</div>
+        ${p.unused_clips ? `<div class="fields" style="margin-top:4px">
+          <span style="color:var(--dim)">${p.unused_clips} clip${p.unused_clips === 1 ? "" : "s"} crossband no longer uses</span>
+          <button class="danger" onclick="deleteUnused('${esc(p.slug)}', '${esc(p.display_name)}', ${p.unused_clips})">Delete ${p.unused_clips === 1 ? "it" : "them"}…</button>
+        </div>` : ""}
         <div class="fields" style="margin-top:4px">
           <input type="text" id="rn-${esc(p.slug)}" placeholder="rename" style="width:120px" aria-label="Rename ${esc(p.display_name)}">
           <button onclick="renamePerson('${esc(p.slug)}')">Rename</button>
@@ -1441,6 +1461,24 @@ async function forgetPerson(slug, name) {
     toast(`${name} forgotten: ${r.clips_deleted} clip(s) deleted, ${r.facts_held} fact(s) moved to review.`, true);
     loadPeople(); loadReview(); loadHealth();
   } catch (e) { toast("Couldn't forget: " + e.message, false); }
+}
+
+async function deleteUnused(slug, name, n) {
+  if (!confirm(`Delete ${n} stored clip${n === 1 ? "" : "s"} of ${name} that crossband no longer uses? Crossband keeps its own clips. These go for good, and each leaves a content-free line in the erasure journal.`)) return;
+  try {
+    const r = await api(`/persons/${encodeURIComponent(slug)}/unused-clips`, { method: "DELETE" });
+    toast(`${r.deleted} clip(s) deleted.`, true);
+    loadPeople();
+  } catch (e) { toast("Couldn't delete: " + e.message, false); }
+}
+
+async function deleteAllUnused(n) {
+  if (!confirm(`Delete all ${n} stored clips crossband no longer uses, for everyone? Crossband keeps its own clips. These go for good, and each leaves a content-free line in the erasure journal.`)) return;
+  try {
+    const r = await api("/unused-clips", { method: "DELETE" });
+    toast(`${r.deleted} clip(s) deleted across ${r.persons} person(s).`, true);
+    loadPeople();
+  } catch (e) { toast("Couldn't delete: " + e.message, false); }
 }
 
 async function toggleClips(slug) {

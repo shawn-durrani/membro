@@ -1680,18 +1680,62 @@ restart the service.</small></p>
 
     @app.delete("/v1/persons/{slug}/anchors/{anchor_id}",
                 dependencies=[Depends(_admin_auth)])
-    def delete_anchor(slug: str, anchor_id: int):
+    def delete_anchor(slug: str, anchor_id: int, reason: str = ""):
         # The clip eraser - human judgement that this audio should not
-        # exist under this person. Journalled like every eraser.
+        # exist under this person. Journalled like every eraser. 1.8
+        # (#127): a capture app replaying a clip its bank dropped says why
+        # (persons.DROP_REASONS), and the journal row carries it.
         c = con()
         try:
             person = _person_or_404(c, slug, allow_forgotten=True)
-            r = persons.delete_clip(c, settings, person, anchor_id)
+            r = persons.delete_clip(c, settings, person, anchor_id, reason)
         finally:
             c.close()
         if not r.get("deleted"):
             raise HTTPException(404, r.get("reason", "no such clip"))
         return r
+
+    class ManifestBody(BaseModel):
+        client: str = Field(min_length=1, max_length=80)
+        sha256: list[str] = []
+
+    @app.put("/v1/persons/{slug}/manifest",
+             dependencies=[Depends(_admin_auth)])
+    def put_manifest(slug: str, body: ManifestBody):
+        # 1.8 (#127): the clips a capture app's bank keeps for this person,
+        # by content hash. Stored to count the clips the app no longer
+        # uses; nothing is ever deleted on it alone.
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            return persons.store_manifest(c, person, client=body.client,
+                                          shas=body.sha256)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        finally:
+            c.close()
+
+    @app.delete("/v1/persons/{slug}/unused-clips",
+                dependencies=[Depends(_admin_auth)])
+    def delete_unused_clips(slug: str):
+        # 1.8 (#127): the owner's press on the People page. Deletes the
+        # clips the capture app's manifest leaves out, worked out again
+        # here, one journal row per clip.
+        c = con()
+        try:
+            person = _person_or_404(c, slug)
+            return persons.delete_unused(c, settings, person)
+        finally:
+            c.close()
+
+    @app.delete("/v1/unused-clips", dependencies=[Depends(_admin_auth)])
+    def delete_all_unused_clips():
+        # 1.8 (#127): the same press for everyone at once.
+        c = con()
+        try:
+            return persons.delete_all_unused(c, settings)
+        finally:
+            c.close()
 
     class MergeBody(BaseModel):
         into: str = Field(min_length=1, max_length=80)

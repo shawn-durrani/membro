@@ -70,8 +70,10 @@ def _fact_conversation(settings, fact_id):
 
 # ---- handshake ----
 
-def test_health_speaks_1_7(client):
-    assert client.get("/v1/health").json()["contract_version"] == "1.7"
+def test_health_speaks_at_least_1_7(client):
+    # 1.8 (#127) is additive over 1.7: the version only ever moves up.
+    major, minor = client.get("/v1/health").json()["contract_version"].split(".")
+    assert (int(major), int(minor)) >= (1, 7)
 
 
 # ---- a guest-present save that names its conversation ----

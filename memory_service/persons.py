@@ -5,7 +5,11 @@ module holds the logic behind the /v1/persons routes: create-or-update,
 alias rules, clip storage, the guest-fact link, and forget.
 
 The five owner decisions (2026-08-14) this implements:
-- every uploaded clip is kept (no server-side keep-best);
+- membro never prunes clips by itself (no server-side keep-best). Since
+  the owner's decision of 2026-09-27 ("only keep the best"), a capture
+  app sends the clips it drops as ordinary clip deletes, and the clips
+  it no longer uses are counted against its kept-set manifest (contract
+  1.8, #127) and deleted only on the owner's press;
 - persons are created only by capture apps (the admin surface renames,
   merges and forgets - it does not create);
 - a guest fact links to a person always on introduced/owner-correction,
@@ -28,7 +32,9 @@ Rules enforced here, not left to callers:
 """
 
 import hashlib
+import json
 import os
+import re
 import time
 
 from . import db, walls
@@ -38,6 +44,11 @@ DIR_NAME = "voice_anchors"
 # Methods a human stood behind - mirrors crossband's vouch sources (#83).
 HUMAN_METHODS = ("introduced", "owner-correction")
 VOICE_MATCH_MIN_CONFIDENCE = 0.8   # owner decision 3 (membro#33)
+# Why a capture app dropped a clip (contract 1.8, #127): journalled on the
+# clip delete it sends. Anything else is ignored, never stored.
+DROP_REASONS = ("rotation", "settled", "set-aside")
+MANIFEST_MAX = 1000                # sha256s in one kept-set manifest
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 def binding(con, identity) -> int | None:
@@ -98,7 +109,10 @@ def out(con, person) -> dict:
             "origin_client": person["origin_client"],
             "merged_into": person["merged_into"],
             "forgotten_at": person["forgotten_at"],
-            "aliases": aliases, "clip_count": clips}
+            "aliases": aliases, "clip_count": clips,
+            # 1.8 (#127): stored clips the capture app's kept-set manifest
+            # leaves out. Counted only, never deleted from here.
+            "unused_clips": len(unused_clips(con, person))}
 
 
 def grounding_names(con) -> set[str]:
@@ -242,6 +256,111 @@ def add_clip(con, settings, person, *, data: bytes, seconds: float = 0,
     return {"deduped": False, "anchor_id": cur.lastrowid}
 
 
+def store_manifest(con, person, *, client: str, shas: list) -> dict:
+    """Keep a capture app's kept-set manifest for one person (contract 1.8,
+    #127): the content addresses of the clips its bank holds. Replaces the
+    app's last one. Deletes nothing: the manifest only feeds the count the
+    People page shows and the owner's delete. Raises ValueError on a value
+    that isn't a sha256 or a list over MANIFEST_MAX."""
+    client = (client or "").strip()
+    if not client:
+        raise ValueError("a manifest names the client that sent it")
+    if len(shas) > MANIFEST_MAX:
+        raise ValueError(f"a manifest holds at most {MANIFEST_MAX} clips")
+    keep = sorted({str(s).lower() for s in shas})
+    if not all(SHA256.match(s) for s in keep):
+        raise ValueError("every manifest entry must be a sha256 hex digest")
+    upto = con.execute("SELECT COALESCE(MAX(id), 0) AS n "
+                       "FROM voice_anchors").fetchone()["n"]
+    con.execute(
+        "INSERT INTO clip_manifests(person_id, client, shas, anchor_upto, "
+        "received_at) VALUES(?,?,?,?,?) ON CONFLICT(person_id, client) DO "
+        "UPDATE SET shas=excluded.shas, anchor_upto=excluded.anchor_upto, "
+        "received_at=excluded.received_at",
+        (person["id"], client, json.dumps(keep), upto, time.time()))
+    con.commit()
+    return {"stored": len(keep), "unused_clips": len(unused_clips(con, person))}
+
+
+def unused_clips(con, person) -> list:
+    """The stored clips a capture app no longer uses, by its manifest: rows
+    that app uploaded, stored before the manifest arrived, and missing from
+    it. A manifest older than the person's last change (a clip moved in or
+    deleted, a merge, a rename) judges nothing until the app sends a fresh
+    one, and a person with no manifest has no unused clips. Reads only."""
+    person = con.execute("SELECT * FROM persons WHERE id=?",
+                         (person["id"],)).fetchone()
+    if person is None or person["forgotten_at"]:
+        return []
+    out = []
+    for m in con.execute("SELECT * FROM clip_manifests WHERE person_id=?",
+                         (person["id"],)).fetchall():
+        if (person["updated_at"] or 0) > m["received_at"]:
+            continue
+        keep = set(json.loads(m["shas"]))
+        out += [r for r in con.execute(
+            "SELECT id, sha256, stored_name FROM voice_anchors "
+            "WHERE person_id=? AND client=? AND id<=? ORDER BY id",
+            (person["id"], m["client"], m["anchor_upto"]))
+            if r["sha256"] not in keep]
+    return out
+
+
+def delete_unused(con, settings, person) -> dict:
+    """The owner's press on the People page: delete one person's clips the
+    capture app no longer uses. The set is worked out again here, never
+    taken from the caller. Each clip goes through the clip eraser's own
+    steps and journals its own content-free row, marked reason:unused."""
+    rows = unused_clips(con, person)
+    unlink = [_erase_anchor(con, person, r, "unused") for r in rows]
+    if rows:
+        con.execute("UPDATE persons SET updated_at=? WHERE id=?",
+                    (time.time(), person["id"]))
+    con.commit()
+    removed = _unlink(settings, unlink)
+    return {"slug": person["slug"], "deleted": len(rows),
+            "files_removed": removed}
+
+
+def delete_all_unused(con, settings) -> dict:
+    """The owner's one press for everyone: delete_unused for each person
+    membro hasn't forgotten."""
+    deleted = removed = people = 0
+    for person in con.execute("SELECT * FROM persons WHERE forgotten_at IS "
+                              "NULL ORDER BY id").fetchall():
+        r = delete_unused(con, settings, person)
+        if r["deleted"]:
+            people += 1
+            deleted += r["deleted"]
+            removed += r["files_removed"]
+    return {"deleted": deleted, "files_removed": removed, "persons": people}
+
+
+def _erase_anchor(con, person, row, reason: str = ""):
+    """Delete one clip row and journal it, content-free, in the caller's
+    transaction. Returns the stored file name when no other row shares
+    those bytes, for the caller to unlink once it has committed."""
+    con.execute("DELETE FROM voice_anchors WHERE id=?", (row["id"],))
+    shared = con.execute(
+        "SELECT 1 FROM voice_anchors WHERE stored_name=? LIMIT 1",
+        (row["stored_name"],)).fetchone()
+    ref = (f"clip:{row['sha256'][:12]} person:{person['slug']} "
+           f"file_removed:{not shared}")
+    if reason:
+        ref += f" reason:{reason}"
+    db.journal_erasure(con, "voice", ref)
+    return None if shared else row["stored_name"]
+
+
+def _unlink(settings, names) -> int:
+    removed = 0
+    for name in names:
+        if name:
+            (clips_dir(settings) / name).unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
 def forget(con, settings, person) -> dict:
     """The one-press forget, exactly the numbered steps on the issue:
     delete the audio (journalled, content-free), mark the person
@@ -265,6 +384,9 @@ def forget(con, settings, person) -> dict:
     now = time.time()
     con.execute("UPDATE persons SET forgotten_at=?, updated_at=? WHERE id=?",
                 (now, now, person["id"]))
+    # The kept-set manifests go too: hashes of audio that no longer exists.
+    con.execute("DELETE FROM clip_manifests WHERE person_id=?",
+                (person["id"],))
     held = con.execute(
         "UPDATE facts SET quarantined_at=?, quarantine_reason=?, "
         "review_dismissed_at=NULL WHERE person_id=? "
@@ -326,31 +448,25 @@ def move_clip(con, settings, person, anchor_id: int, to_person) -> dict:
     return {"moved": True, "to": to_person["slug"]}
 
 
-def delete_clip(con, settings, person, anchor_id: int) -> dict:
+def delete_clip(con, settings, person, anchor_id: int,
+                reason: str = "") -> dict:
     """Delete one clip - the owner's judgement that this audio should not
     exist under this person (or crossband replaying that judgement).
     Journalled like every erasure; bytes unlinked when no other row
-    shares them."""
+    shares them. `reason` (contract 1.8, #127) is why a capture app
+    dropped the clip, one of DROP_REASONS, journalled on the same row;
+    any other value is ignored."""
     row = con.execute(
         "SELECT id, sha256, stored_name FROM voice_anchors "
         "WHERE id=? AND person_id=?", (anchor_id, person["id"])).fetchone()
     if not row:
         return {"deleted": False, "reason": "no such clip"}
-    con.execute("DELETE FROM voice_anchors WHERE id=?", (row["id"],))
-    shared = con.execute(
-        "SELECT 1 FROM voice_anchors WHERE stored_name=? LIMIT 1",
-        (row["stored_name"],)).fetchone()
-    removed = False
-    if not shared:
-        (clips_dir(settings) / row["stored_name"]).unlink(missing_ok=True)
-        removed = True
+    name = _erase_anchor(con, person, row,
+                         reason if reason in DROP_REASONS else "")
     con.execute("UPDATE persons SET updated_at=? WHERE id=?",
                 (time.time(), person["id"]))
-    db.journal_erasure(con, "voice",
-                       f"clip:{row['sha256'][:12]} person:{person['slug']} "
-                       f"file_removed:{removed}")
     con.commit()
-    return {"deleted": True, "file_removed": removed}
+    return {"deleted": True, "file_removed": bool(_unlink(settings, [name]))}
 
 
 def merge(con, settings, loser, winner) -> dict:

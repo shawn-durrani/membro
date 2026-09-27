@@ -37,6 +37,13 @@ is forgotten. Moving a clip collapses it onto a duplicate; deleting one
 journals the erasure and unlinks the bytes. Every route refuses callers
 without the owner token (`test_person_records.py`).
 
+**Clips an app no longer uses (contract 1.8).** A capture app's kept-set
+manifest is stored and deletes nothing on its own. The count leaves out
+clips stored after it and goes to zero when the person changes after it.
+The owner's delete, for one person or everyone, removes the rows and the
+unshared files and journals one row per clip. An app's own drop is an
+ordinary clip delete that journals its reason (`test_contract_1_8.py`).
+
 **Wire identity (contract 1.2).** `speaker_identity` stores verbatim, and an
 absent field means 1.1 behaviour exactly. Facts bind per the owner's policy:
 introduced and owner-correction always, voice-match at 0.8+, weaker never.

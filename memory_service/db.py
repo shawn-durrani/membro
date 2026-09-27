@@ -196,6 +196,20 @@ CREATE TABLE IF NOT EXISTS voice_anchors(
   UNIQUE(person_id, sha256)
 );
 
+-- What a capture app keeps (contract 1.8, #127): the content addresses of
+-- the clips its bank holds for one person, as the app last sent them, the
+-- highest voice_anchors.id when they arrived, and when. Read only to count
+-- the stored clips the app no longer uses; nothing is deleted on it alone.
+-- Additive, created on init like erasures.
+CREATE TABLE IF NOT EXISTS clip_manifests(
+  person_id INTEGER NOT NULL REFERENCES persons(id),
+  client TEXT NOT NULL,               -- the app that sent it, as on voice_anchors.client
+  shas TEXT NOT NULL,                 -- JSON list of sha256 hex digests
+  anchor_upto INTEGER NOT NULL,       -- a clip stored after it is never judged by it
+  received_at REAL NOT NULL,
+  PRIMARY KEY(person_id, client)
+);
+
 -- The erasure journal (#45): each use of the three human erasers (fact /
 -- attachment / message) appends one CONTENT-FREE row - kind, refs/ids, when.
 -- What was erased is gone; THAT it was erased is not. Additive to schema v1,
