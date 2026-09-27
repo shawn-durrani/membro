@@ -7,7 +7,8 @@ in a new chat, and grades the answer with LongMemEval's own grading
 prompts. Your real membro and crossband are never touched.
 
 [METHODOLOGY.md](METHODOLOGY.md) says what the score means, lists every
-adjustment the harness makes, and holds the results and what they cost.
+adjustment the harness makes, and holds the results of a 60-question
+sample and what it cost.
 
 ## What you need
 
@@ -78,9 +79,9 @@ least a dollar.
 
 ## What a run costs
 
-A question costs about 34 US cents with crossband's default seat, and
+A question costs about 35 US cents with crossband's default seat, and
 three quarters of that is membro mining the question's chat history and
-rebuilding its profile. All 500 questions come to about $172.
+rebuilding its profile. All 500 questions come to about $173.
 [METHODOLOGY.md](METHODOLOGY.md#what-it-costs) has the breakdown by model.
 
 A question takes just under three minutes, almost all of it mining.

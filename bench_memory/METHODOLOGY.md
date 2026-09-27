@@ -95,50 +95,57 @@ does.
 
 ## Results
 
-**Pilot, 12 questions, not a LongMemEval score.** Two questions of each
-type, drawn with `--seed 1`, run on 27 September 2026 against membro
-`ea97e81` and crossband `ff3fb05`, with crossband's default seat.
+**A 60-question sample, not a LongMemEval score.** Ten questions of each
+type, drawn with `--seed 1`, run on 28 September 2026 against membro
+`ea97e81` and crossband `0756998`, with crossband's default seat.
 
 | Question type | Correct |
 |---|---:|
-| knowledge-update | 2 of 2 |
-| multi-session | 0 of 2 |
-| single-session-assistant | 1 of 2 |
-| single-session-preference | 0 of 2 |
-| single-session-user | 1 of 2 |
-| temporal-reasoning | 2 of 2 |
-| All twelve | 6 of 12, 50% |
+| knowledge-update | 6 of 10 |
+| multi-session | 2 of 10 |
+| single-session-assistant | 8 of 10 |
+| single-session-preference | 1 of 10 |
+| single-session-user | 7 of 10 |
+| temporal-reasoning | 9 of 10 |
+| All sixty | 33 of 60, 55% |
 
-Two questions per type can't tell a strong type from a weak one. The pilot
-shows the whole pipeline works on real questions and measures what a
-question costs. A score needs all 500.
+A published LongMemEval score covers all 500 questions, weighted the way
+the dataset is. This sample weights every type equally and holds none of
+the 30 unanswerable questions, so its 55% can't be set beside a published
+score. With ten questions a type, one more or one fewer right moves that
+type by ten points.
 
 Every question was answered and graded, and none failed. Membro mined
-between 15 and 59 facts from each history, 35 on average, and held about
-one per history for review. Both preference questions got good general
-advice that left out what the history said about the person, which is the
-failure the profile exists to prevent.
+between 8 and 76 facts from each history, 38 on average, and held about
+two per history for review. Nine of the ten preference answers missed.
+Two gave general advice. Three said memory held nothing on the subject and
+asked, when the history did hold it. Four used something else they knew
+about the person, not the detail the grader's rubric wanted. Carrying
+preferences into every answer is the job the profile exists to do, so
+it's the clearest thing the sample found.
 
 ## What it costs
 
-Every call in the pilot went through the meter, 1,957 of them, and each
-was priced at list price from the token counts in its reply.
+Every call in the sample went through the meter, 10,052 of them, and each
+was priced at list price from the token counts in its reply. The sample
+cost $20.81.
 
 | What | Model | Per question |
 |---|---|---:|
-| Membro mining the history | `claude-haiku-4-5` | $0.221 |
+| Membro mining the history | `claude-haiku-4-5` | $0.224 |
 | Membro rebuilding its profile | `claude-sonnet-5` | $0.043 |
 | Membro's embeddings | `text-embedding-3-small` | $0.001 |
-| Crossband's seat answering | `claude-opus-4-8` | $0.076 |
+| Crossband's seat answering | `claude-opus-4-8` | $0.077 |
 | Crossband's own small calls | `claude-haiku-4-5` | $0.002 |
 | Grading | `gpt-4o-2024-08-06` | $0.001 |
-| Total | | $0.343 |
+| Total | | $0.347 |
 
-At that rate all 500 questions cost about $172. A question takes about
-167 seconds, 162 of them spent filling membro, so a full run takes about
-23 hours one question at a time, or about 6 hours with `--jobs 4`. Mining reads about
-200,000 tokens a question, which is the history plus the ledger so far,
-once per conversation.
+A question cost between 28 and 44 cents. At the average, all 500
+questions cost about $173. A question takes about 166 seconds, 161 of them
+spent filling membro. The sample ran with `--jobs 4` in 43 minutes, so all
+500 would take about 6 hours that way, or about 23 hours one question at a
+time. Mining reads about 200,000 tokens a question, which is the history
+plus the ledger so far, once per conversation.
 
 Reusing kept stores with `--stores` drops the cost of a rerun to the seat
 and the grading, about 8 cents a question, or $39 for all 500.
@@ -160,7 +167,9 @@ job, and the question types show where.
 | single-session-assistant | 56 | Outside the ledger. These ask what the assistant said, and membro mines only facts about you. |
 
 The assistant questions can be answered only when the seat searches the
-saved chats. Read the score by type, and never as one number alone.
+saved chats. In the sample it did, for 8 of 10. The preference row went
+the other way: 1 of 10, where the fit says it should be strongest. Read
+the score by type, and never as one number alone.
 
 ## What the score is for
 
@@ -183,8 +192,8 @@ you mentioned four times that never became a fact.
 
 ## Limits
 
-Mining isn't deterministic. One history gave 31 facts on one build and 38
-on the next, so what the seat can find, and whether it answers, can change
+Mining isn't deterministic. One history gave 31, 33 and 38 facts on three
+builds, so what the seat can find, and whether it answers, can change
 between runs. A full run averages that out over 500 questions. One
 question's result doesn't.
 
