@@ -1097,4 +1097,5 @@ tools:
 ## Development
 
 `GET /v1/disposable-identity` supports disposable benchmark stores; it
-reports `disposable: false` on a real store and returns no token.
+reports `disposable: false` on a real store and returns no token. The
+harness that uses it is [bench_memory](../bench_memory/README.md).

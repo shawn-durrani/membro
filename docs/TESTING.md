@@ -101,8 +101,19 @@ hour.
 **Process docs.** CONTRIBUTING.md and CLAUDE.md are asserted to agree
 on how work lands; they drifted once.
 
+**The benchmark harness.** `tests/test_bench_memory_*.py` pin the guards
+that keep a benchmark run off your real apps, without starting any
+service. The harness and the service read the disposability sentinel
+identically on every hostile input. A throwaway app's environment holds
+only what the harness names. A folder is deleted only while it proves it's
+the run's own. The meter parses and prices each provider's replies, stops
+at the budget, and speaks both SDKs' wire formats in mock mode. The
+grading prompts match the pinned upstream scorer byte for byte.
+
 ## Not covered
 
 Extraction quality is judged by benchmarks and use, not unit tests.
+The benchmark is LongMemEval, run by
+[bench_memory](../bench_memory/README.md).
 There is no load testing beyond the distill lock and no network
 fuzzing; the service is loopback-first.

@@ -112,6 +112,8 @@ internet.
 - [docs/TESTING.md](docs/TESTING.md): what the suite guarantees.
 - [docs/REFERENCES.md](docs/REFERENCES.md): research lineage, including
   claims we checked and rejected.
+- [bench_memory/README.md](bench_memory/README.md): the LongMemEval
+  benchmark harness, and what a run costs.
 
 ## Licence
 
