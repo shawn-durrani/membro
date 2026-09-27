@@ -53,7 +53,9 @@ def test_restore_replays_erasures_made_after_the_snapshot(settings, con, no_serv
     result = restore.restore(settings, snap)
     assert result["to_replay"] == 3
     assert result["replayed"] == {"fact": 1, "attachment": 0, "message": 1,
+                                  "clip": 0, "person": 0,
                                   "already_absent": 1}
+    assert result["to_replay_by_kind"] == {"fact": 2, "message": 1}
     assert result["pre_restore_snapshot"]
 
     c = mdb.connect(settings.db_path)

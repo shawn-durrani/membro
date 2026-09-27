@@ -49,6 +49,12 @@ VOICE_MATCH_MIN_CONFIDENCE = 0.8   # owner decision 3 (membro#33)
 DROP_REASONS = ("rotation", "settled", "set-aside")
 MANIFEST_MAX = 1000                # sha256s in one kept-set manifest
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# The journal refs _erase_anchor and forget write, read back by the
+# snapshot restore's replay (#129). A slug runs up to the next field, so
+# one with a space in it still parses.
+CLIP_REF = re.compile(
+    r"^clip:([0-9a-f]{12}) person:(.+?) file_removed:(True|False)(?: |$)")
+FORGET_REF = re.compile(r"^person:(.+?) clips:\d+ files_removed:\d+$")
 
 
 def binding(con, identity) -> int | None:
@@ -361,29 +367,37 @@ def _unlink(settings, names) -> int:
     return removed
 
 
-def forget(con, settings, person) -> dict:
+def forget(con, settings, person,
+           replay: tuple[float, str] | None = None) -> dict:
     """The one-press forget, exactly the numbered steps on the issue:
     delete the audio (journalled, content-free), mark the person
     forgotten, move their approved facts back into review as one
     person-forgotten group (owner decision 4 - nothing silently
     deleted), and report what happened. Clip files are shared only by
     sha collision within the same store, so each stored file whose last
-    row is gone is unlinked."""
+    row is gone is unlinked.
+
+    `replay` is only passed by the snapshot restore (#129): the time and
+    ref of the journal row it is replaying. The person is marked
+    forgotten at that time and the same row is journalled again, so a
+    later restore finds the journal whole. The files are left alone: the
+    owner's forget already removed each one no other clip shared."""
     rows = con.execute("SELECT id, stored_name FROM voice_anchors "
                        "WHERE person_id=?", (person["id"],)).fetchall()
     con.execute("DELETE FROM voice_anchors WHERE person_id=?",
                 (person["id"],))
     removed = 0
-    for r in rows:
-        shared = con.execute(
-            "SELECT 1 FROM voice_anchors WHERE stored_name=? LIMIT 1",
-            (r["stored_name"],)).fetchone()
-        if not shared:
-            (clips_dir(settings) / r["stored_name"]).unlink(missing_ok=True)
-            removed += 1
+    if replay is None:
+        for r in rows:
+            shared = con.execute(
+                "SELECT 1 FROM voice_anchors WHERE stored_name=? LIMIT 1",
+                (r["stored_name"],)).fetchone()
+            if not shared:
+                (clips_dir(settings) / r["stored_name"]).unlink(missing_ok=True)
+                removed += 1
     now = time.time()
     con.execute("UPDATE persons SET forgotten_at=?, updated_at=? WHERE id=?",
-                (now, now, person["id"]))
+                (replay[0] if replay else now, now, person["id"]))
     # The kept-set manifests go too: hashes of audio that no longer exists.
     con.execute("DELETE FROM clip_manifests WHERE person_id=?",
                 (person["id"],))
@@ -393,12 +407,76 @@ def forget(con, settings, person) -> dict:
         "AND invalidated_at IS NULL AND quarantined_at IS NULL",
         (now, f"person-forgotten: {person['display_name']} was forgotten "
               "by the owner - re-review each fact", person["id"])).rowcount
-    db.journal_erasure(
-        con, "voice",
-        f"person:{person['slug']} clips:{len(rows)} files_removed:{removed}")
+    if replay:
+        db.journal_erasure(con, "voice", replay[1], ts=replay[0])
+    else:
+        db.journal_erasure(
+            con, "voice",
+            f"person:{person['slug']} clips:{len(rows)} files_removed:{removed}")
     con.commit()
     return {"forgotten": person["slug"], "clips_deleted": len(rows),
             "files_removed": removed, "facts_held": held}
+
+
+def replay_erasure(con, settings, ref: str, ts: float) -> str | None:
+    """Replay one journalled voice erasure onto a restored snapshot (#129):
+    a clip delete, whatever its reason, or a forget. Returns "clip" or
+    "person" when the restored copy still held what was erased, and None
+    when it didn't, which the restore journals as already absent. A
+    replayed row is journalled under its own time and ref.
+
+    The journal names a clip by its person and the first 12 characters of
+    its sha256. When the delete removed the file, no row anywhere held
+    those bytes afterwards, so every row carrying them goes. That also
+    catches a clip moved or merged to another person after the snapshot,
+    which the restored copy still files under its old owner. When the
+    file stayed, another clip still used it, so only the named person's
+    row goes. A prefix that matches two different sha256s is left alone:
+    a 1 in 2^48 chance, and the restore's missing-file check still
+    names either row if its audio is gone.
+
+    Rows only. The owner's delete already removed the file, or left it
+    for a clip that shares it."""
+    m = CLIP_REF.match(ref)
+    if m:
+        prefix, slug, file_removed = m.groups()
+        rows = con.execute(
+            "SELECT a.id, a.person_id, a.sha256, p.slug FROM voice_anchors a "
+            "JOIN persons p ON p.id = a.person_id "
+            "WHERE substr(a.sha256, 1, 12)=?", (prefix,)).fetchall()
+        if len({r["sha256"] for r in rows}) != 1:
+            return None
+        if file_removed == "False":
+            rows = [r for r in rows if r["slug"] == slug]
+            if not rows:
+                return None
+        now = time.time()
+        for r in rows:
+            con.execute("DELETE FROM voice_anchors WHERE id=?", (r["id"],))
+            # a manifest older than the change judges nothing (#127)
+            con.execute("UPDATE persons SET updated_at=? WHERE id=?",
+                        (now, r["person_id"]))
+        db.journal_erasure(con, "voice", ref, ts=ts)
+        con.commit()
+        return "clip"
+    m = FORGET_REF.match(ref)
+    if m:
+        person = _row(con, m.group(1))
+        if person is None or person["forgotten_at"]:
+            return None
+        forget(con, settings, person, replay=(ts, ref))
+        return "person"
+    return None
+
+
+def clips_missing_files(con, settings) -> list[dict]:
+    """Clip rows whose audio file isn't on disk, oldest first, as the
+    person's slug and the clip's id: content-free. Reads only."""
+    d = settings.data_dir / DIR_NAME
+    return [{"person": r["slug"], "clip": r["id"]} for r in con.execute(
+        "SELECT a.id, a.stored_name, p.slug FROM voice_anchors a "
+        "JOIN persons p ON p.id = a.person_id ORDER BY a.id")
+        if not (d / r["stored_name"]).is_file()]
 
 
 def rename(con, person, display_name: str, relationship=None) -> dict:

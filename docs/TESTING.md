@@ -44,6 +44,16 @@ The owner's delete, for one person or everyone, removes the rows and the
 unshared files and journals one row per clip. An app's own drop is an
 ordinary clip delete that journals its reason (`test_contract_1_8.py`).
 
+**Restoring a snapshot.** A restore replays every erasure made since the
+snapshot, so nothing you erased comes back. That covers facts, files,
+messages, deleted clips and forgotten people. A clip moved or merged to
+someone else and then deleted is found under its old owner. Bytes another
+clip still uses are kept. A forgotten person comes back forgotten, with no
+clips, no kept-clip lists, and their approved facts in review. A clip whose
+audio file is missing is listed and kept. Everything else reads the same
+as the snapshot, and the journal comes out whole
+(`test_restore.py`, `test_restore_voice.py`).
+
 **Wire identity (contract 1.2).** `speaker_identity` stores verbatim, and an
 absent field means 1.1 behaviour exactly. Facts bind per the owner's policy:
 introduced and owner-correction always, voice-match at 0.8+, weaker never.
