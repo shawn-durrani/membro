@@ -1,0 +1,166 @@
+[
+ {
+  "question_id": "syn_temporal_0001",
+  "question_type": "temporal-reasoning",
+  "question": "Between adopting the tabby and starting the ceramics class, which did the synthetic user do first?",
+  "answer": "adopting the tabby",
+  "question_date": "2026/01/20 (Tue) 09:12",
+  "haystack_dates": [
+   "2025/11/03 (Mon) 10:15",
+   "2025/11/19 (Wed) 19:40",
+   "2025/12/12 (Fri) 18:05"
+  ],
+  "haystack_session_ids": [
+   "syn_syn_temporal_0001_s1",
+   "syn_syn_temporal_0001_s2",
+   "syn_syn_temporal_0001_s3"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "We adopted a tabby cat this weekend. Naming her Comet."
+    },
+    {
+     "role": "assistant",
+     "content": "Congratulations on adopting Comet the tabby."
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "Reorganised the pantry today. Nothing else new."
+    },
+    {
+     "role": "assistant",
+     "content": "Sounds like a productive afternoon."
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "I started the ceramics class tonight - first wheel session."
+    },
+    {
+     "role": "assistant",
+     "content": "Nice, throwing on the wheel is a steep first lesson."
+    }
+   ]
+  ],
+  "answer_session_ids": []
+ },
+ {
+  "question_id": "syn_knowledge_update_0002",
+  "question_type": "knowledge-update",
+  "question": "After the latest update, what is the synthetic user's current commuting method?",
+  "answer": "cycling",
+  "question_date": "2026/02/03 (Tue) 18:44",
+  "haystack_dates": [
+   "2025/10/08 (Wed) 08:20",
+   "2026/01/28 (Wed) 07:55"
+  ],
+  "haystack_session_ids": [
+   "syn_syn_knowledge_update_0002_s1",
+   "syn_syn_knowledge_update_0002_s2"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "I drive to work every morning, about 35 minutes each way."
+    },
+    {
+     "role": "assistant",
+     "content": "That is a fair amount of time in the car each day."
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "Update: I sold the car. I cycle to work now, every day."
+    },
+    {
+     "role": "assistant",
+     "content": "Switching to cycling for the commute is a big change."
+    }
+   ]
+  ],
+  "answer_session_ids": []
+ },
+ {
+  "question_id": "syn_single_session_user_0003",
+  "question_type": "single-session-user",
+  "question": "What instrument did the synthetic user say they were learning?",
+  "answer": "the cello",
+  "question_date": "2026/02/15 (Sun) 11:05",
+  "haystack_dates": [
+   "2026/02/10 (Tue) 20:00",
+   "2026/02/11 (Wed) 09:00"
+  ],
+  "haystack_session_ids": [
+   "syn_syn_single_session_user_0003_s1",
+   "syn_syn_single_session_user_0003_s2"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "I have started learning the cello. First lesson was today."
+    },
+    {
+     "role": "assistant",
+     "content": "The cello is a lovely instrument to begin with."
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "Also booked a dentist appointment for next month."
+    },
+    {
+     "role": "assistant",
+     "content": "Noted."
+    }
+   ]
+  ],
+  "answer_session_ids": []
+ },
+ {
+  "question_id": "syn_single_session_preference_0004_abs",
+  "question_type": "single-session-preference",
+  "question": "Given only what was discussed, what is the synthetic user's preferred airline?",
+  "answer": "The user never stated an airline preference; a correct system abstains.",
+  "question_date": "2026/03/01 (Sun) 08:30",
+  "haystack_dates": [
+   "2026/02/25 (Wed) 12:30",
+   "2026/02/26 (Thu) 15:10"
+  ],
+  "haystack_session_ids": [
+   "syn_syn_single_session_preference_0004_abs_s1",
+   "syn_syn_single_session_preference_0004_abs_s2"
+  ],
+  "haystack_sessions": [
+   [
+    {
+     "role": "user",
+     "content": "Booked flights for the trip in April. Aisle seat as usual."
+    },
+    {
+     "role": "assistant",
+     "content": "Aisle seats are the sensible choice on a long flight."
+    }
+   ],
+   [
+    {
+     "role": "user",
+     "content": "Packing light this time - carry-on only."
+    },
+    {
+     "role": "assistant",
+     "content": "Carry-on only makes connections much easier."
+    }
+   ]
+  ],
+  "answer_session_ids": []
+ }
+]
