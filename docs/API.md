@@ -211,12 +211,12 @@ These survive from earlier revisions of this design:
   password login" below); the admin token is never accepted there.
 - **Sessions are opaque server-side ids.** `POST /login` mints a fresh,
   random, high-entropy session id (`secrets.token_urlsafe(32)`) and records
-  its expiry **server-side**, in `app.state.admin_sessions`. The id is never
+  its expiry **server-side**, in the `sessions` table. The id is never
   derived from or equal to any client-supplied value, so there is no session
-  fixation. That store is in-memory, so a restart clears it and every browser
-  re-authenticates: deliberate, and it keeps sessions out of the ledger and
-  the database entirely. The cookie carries ONLY that
-  opaque id. A copy of the cookie is therefore a bounded, revocable
+  fixation. The table holds only a SHA-256 hash of the id, so a restart signs
+  nobody out and a copy of the database can't sign anyone in. It sits beside
+  the password verifier as operational auth state, outside the ledger. The
+  cookie carries ONLY that opaque id. A copy of the cookie is therefore a bounded, revocable
   capability: it expires (`app.state.admin_session_ttl`, 24h by default),
   and `POST /logout` deletes it from the server-side store, which
   invalidates **every** copy of that cookie instantly, not just the one
@@ -265,7 +265,7 @@ longer accepted as the everyday login.
 - `POST /login` with form field `password=<value>`, checked against the
   verifier. A correct password mints an opaque session id and sets `mm_admin`
   (`HttpOnly`, `SameSite=Strict`; opaque server-side id, not the token;
-  expires; cleared on restart), then redirects to `/`. A wrong password (or
+  expires; kept across restarts), then redirects to `/`. A wrong password (or
   the admin token submitted here) gets the locked page again, no session
   created. Before enrolment there is nothing to check against, so login
   simply fails and the page offers enrolment.
@@ -278,6 +278,7 @@ longer accepted as the everyday login.
   straight in.
 - `POST /reset` with `recovery=<admin token>`, `password`, `confirm`: the
   same recovery-gated proof, allowed at any time, replacing the verifier.
+  Every existing session ends, and the browser that reset gets a fresh one.
 - `POST /logout` revokes the session server-side and clears the cookie.
 
 ### Passkey login
@@ -301,7 +302,9 @@ origin (`127.0.0.1`) can never hold one.
   enrolled as discoverable, so the browser finds its own.
 - `GET /webauthn/credentials` and `DELETE /webauthn/credentials/{id}`
   (unlocked session or bearer): list and remove enrolled passkeys. Removal
-  can never lock the owner out; the password always remains.
+  can never lock the owner out; the password always remains. Removal ends
+  every other session, so a lost phone's session goes with its passkey. A
+  browser doing the removal gets a fresh session.
 
 These endpoints are the browser admin UI surface (`include_in_schema=False`),
 not part of the versioned `/v1` contract, so `contract_version` is unchanged.

@@ -32,7 +32,10 @@ reset, and authenticates MCP/curl callers; passkey enrolment
 additionally requires an already-unlocked session, so it can never
 happen from the lock screen. Sessions are opaque server-side ids in
 httpOnly SameSite=Strict cookies; logout revokes an id everywhere; the
-token itself never rides in a cookie. A passkey is origin-bound: an
+token itself never rides in a cookie. The store keeps only a SHA-256 hash
+of each id with its expiry, so a restart signs nobody out and a copy of
+the database can't sign anyone in. A password reset or a passkey removal
+ends every session, and so does a snapshot restore. A passkey is origin-bound: an
 assertion is accepted only for `localhost` or a host listed in
 `MEMORY_TRUSTED_HOSTS`, each enrolled separately.
 

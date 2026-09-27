@@ -220,6 +220,17 @@ CREATE TABLE IF NOT EXISTS erasures(
   kind TEXT NOT NULL,                     -- fact | attachment | message | voice
   ref TEXT NOT NULL                       -- ids only, never content
 );
+
+-- Admin page sign-ins (#131), so a restart signs nobody out. Only the
+-- SHA-256 of the cookie's random id is kept, never the id, so a copy of
+-- this file can't sign anyone in. Operational auth state like the password
+-- verifier in settings, never ledger content. Additive, created on init.
+CREATE TABLE IF NOT EXISTS sessions(
+  sid_hash TEXT PRIMARY KEY,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 """
 
 

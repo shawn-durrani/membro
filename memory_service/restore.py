@@ -16,6 +16,10 @@ the clip files on disk already match the live state. The replay changes
 rows only, then lists any clip row whose file is missing. Those rows stay
 for the owner to judge: the journal doesn't explain them.
 
+A restore also ends every admin page sign-in (#131). A snapshot can carry
+sign-ins that were revoked after it was taken, such as a stolen cookie a
+password reset had ended, and a restore must not bring them back.
+
 Run it with the service stopped. The command refuses while the service
 answers on its port, and it never prints content, only counts, ids and
 paths.
@@ -30,7 +34,7 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-from . import db, erasers, persons
+from . import db, erasers, persons, sessions
 
 _REF_ID = re.compile(r"^(fact|attachment|message):(\d+)")
 MISSING_LISTED = 50     # clip rows named in the report; the count is whole
@@ -184,6 +188,7 @@ def restore(settings, snapshot: Path, dry_run: bool = False) -> dict:
     db.init(settings)  # migrate the older copy to the current schema
     con = db.connect(settings.db_path)
     try:
+        sessions.revoke_all(con)
         result["replayed"] = replay(con, settings, missing)
         result["fts"] = db.repair_fts(con)
         gone = persons.clips_missing_files(con, settings)

@@ -208,9 +208,10 @@ use:
   it's durable across restarts. Forgotten it? "Forgot your password?"
   on the same page takes the recovery secret again and sets a new one.
   A successful login sets a private, HttpOnly cookie holding an opaque
-  session id, never the token itself. It lasts 24 hours, "Log out"
-  revokes it instantly and everywhere, and a restart clears every
-  session. That duration is fixed in code; there is no setting for it.
+  session id, never the token itself. It lasts 24 hours and survives a
+  restart. "Log out" revokes it instantly and everywhere, and a password
+  reset or a passkey removal ends every session. That duration is fixed in
+  code; there is no setting for it.
 - **The token** (MCP and curl). Machine callers send
   `Authorization: Bearer <auth_token>` and never touch the password.
 

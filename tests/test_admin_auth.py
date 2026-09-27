@@ -310,17 +310,19 @@ def test_session_cookie_value_is_not_the_bearer_token(tmp_path):
     assert other.get("/v1/facts").status_code == 401
 
 
-def test_session_is_tracked_server_side(tmp_path):
+def test_session_is_tracked_server_side(tmp_path, admin_sessions):
     app = _app(tmp_path)
     _enroll(app)
     c = _client(app, token=None)
     c.post("/login", data={"password": PASSWORD}, follow_redirects=False)
     sid = c.cookies.get("mm_admin")
-    assert sid in app.state.admin_sessions
-    assert app.state.admin_sessions[sid] > 0  # an expiry timestamp is recorded
+    stored = admin_sessions.stored(app)
+    assert admin_sessions.hash(sid) in stored
+    assert stored[admin_sessions.hash(sid)] > 0  # an expiry timestamp is recorded
 
 
-def test_logout_revokes_the_session_for_every_copy_not_just_one_browser(tmp_path):
+def test_logout_revokes_the_session_for_every_copy_not_just_one_browser(
+        tmp_path, admin_sessions):
     """The exact scenario a stolen/copied cookie represents: a second client
     presents the SAME session id. v3 could only clear one browser's cookie;
     v4's logout deletes the session server-side, so both are cut off at once."""
@@ -338,10 +340,10 @@ def test_logout_revokes_the_session_for_every_copy_not_just_one_browser(tmp_path
 
     assert thief.get("/v1/facts").status_code == 401  # revoked for the copy too
     assert owner.get("/v1/facts").status_code == 401
-    assert sid not in app.state.admin_sessions
+    assert admin_sessions.hash(sid) not in admin_sessions.stored(app)
 
 
-def test_expired_session_is_rejected(tmp_path):
+def test_expired_session_is_rejected(tmp_path, admin_sessions):
     app = _app(tmp_path)
     _enroll(app)
     c = _client(app, token=None)
@@ -349,14 +351,14 @@ def test_expired_session_is_rejected(tmp_path):
     sid = c.cookies.get("mm_admin")
     assert c.get("/v1/facts").status_code == 200
 
-    app.state.admin_sessions[sid] = db.now() - 1  # force it into the past
+    admin_sessions.set_expiry(app, sid, db.now() - 1)  # force it into the past
     assert c.get("/v1/facts").status_code == 401
     assert c.get("/").status_code == 200 and "locked" in c.get("/").text.lower()
     # an expired session is evicted, not just rejected-in-place
-    assert sid not in app.state.admin_sessions
+    assert admin_sessions.hash(sid) not in admin_sessions.stored(app)
 
 
-def test_login_ignores_any_preexisting_cookie_no_fixation(tmp_path):
+def test_login_ignores_any_preexisting_cookie_no_fixation(tmp_path, admin_sessions):
     """A caller can't hand the server a session id to adopt — login always
     mints its own, so pre-seeding a cookie before authenticating buys nothing
     (the classic session-fixation attack: pre-set a known id, wait for the
@@ -370,7 +372,7 @@ def test_login_ignores_any_preexisting_cookie_no_fixation(tmp_path):
     victim = _client(app, token=None)
     victim.cookies.set("mm_admin", planted)
     r = victim.post("/login", data={"password": PASSWORD}, follow_redirects=False)
-    assert planted not in app.state.admin_sessions
+    assert admin_sessions.hash(planted) not in admin_sessions.stored(app)
     # the server's own Set-Cookie response must carry a freshly minted value,
     # never the planted one
     assert planted not in r.headers.get("set-cookie", "")
