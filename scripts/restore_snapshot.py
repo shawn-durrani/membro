@@ -7,7 +7,8 @@ Usage:
 
 Stop the service first; the command refuses while membro answers on its
 port. It snapshots the live database before touching it, so the step can be
-undone by restoring that copy. Output is counts and paths only.
+undone by restoring that copy. Output is counts, ids and paths only; any
+clip row left pointing at a missing audio file is listed by id, not removed.
 
 The fleet runbook (workbench runbooks/membro-restore.md) covers the whole
 procedure, including winding crossband's ingest mark back afterwards.

@@ -10,8 +10,15 @@ erasure the restored copy does not carry, through the same erasers the
 owner's hand uses. The replayed tombstones are appended under their original
 times, so the journal stays a complete record.
 
+Voice erasures replay too (#129): a deleted clip stays deleted and a
+forgotten person stays forgotten. The snapshot holds only the database, so
+the clip files on disk already match the live state. The replay changes
+rows only, then lists any clip row whose file is missing. Those rows stay
+for the owner to judge: the journal doesn't explain them.
+
 Run it with the service stopped. The command refuses while the service
-answers on its port, and it never prints content, only counts and paths.
+answers on its port, and it never prints content, only counts, ids and
+paths.
 """
 
 import os
@@ -20,11 +27,13 @@ import shutil
 import sqlite3
 import time
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
-from . import db, erasers
+from . import db, erasers, persons
 
 _REF_ID = re.compile(r"^(fact|attachment|message):(\d+)")
+MISSING_LISTED = 50     # clip rows named in the report; the count is whole
 
 
 def service_answers(settings, timeout: float = 1.0) -> bool:
@@ -64,28 +73,34 @@ def replay(con, settings, rows: list[dict]) -> dict:
     """Apply each missing tombstone to the restored database. A row the
     restored copy never had (created and erased after the snapshot) is
     counted as already absent and still journalled, so the record is whole."""
-    counts = {"fact": 0, "attachment": 0, "message": 0, "already_absent": 0}
+    counts = {"fact": 0, "attachment": 0, "message": 0, "clip": 0,
+              "person": 0, "already_absent": 0}
     for r in rows:
-        m = _REF_ID.match(r["ref"])
-        if not m:
+        kind = _replay_one(con, settings, r)
+        if kind is None:
             db.journal_erasure(con, r["kind"], r["ref"], ts=r["ts"])
             con.commit()
-            counts["already_absent"] += 1
-            continue
-        kind, row_id = m.group(1), int(m.group(2))
-        if kind == "fact":
-            res = erasers.erase_fact(con, row_id, journal_ts=r["ts"])
-        elif kind == "attachment":
-            res = erasers.erase_attachment(con, settings, row_id, journal_ts=r["ts"])
-        else:
-            res = erasers.erase_message(con, row_id, journal_ts=r["ts"])
-        if res is None:
-            db.journal_erasure(con, r["kind"], r["ref"], ts=r["ts"])
-            con.commit()
-            counts["already_absent"] += 1
-        else:
-            counts[kind] += 1
+            kind = "already_absent"
+        counts[kind] += 1
     return counts
+
+
+def _replay_one(con, settings, r: dict) -> str | None:
+    """One tombstone through its own eraser: the kind it erased, or None
+    when the restored copy doesn't hold the row."""
+    if r["kind"] == "voice":
+        return persons.replay_erasure(con, settings, r["ref"], r["ts"])
+    m = _REF_ID.match(r["ref"])
+    if not m:
+        return None
+    kind, row_id = m.group(1), int(m.group(2))
+    if kind == "fact":
+        res = erasers.erase_fact(con, row_id, journal_ts=r["ts"])
+    elif kind == "attachment":
+        res = erasers.erase_attachment(con, settings, row_id, journal_ts=r["ts"])
+    else:
+        res = erasers.erase_message(con, row_id, journal_ts=r["ts"])
+    return None if res is None else kind
 
 
 def _check_snapshot(path: Path) -> None:
@@ -145,6 +160,7 @@ def restore(settings, snapshot: Path, dry_run: bool = False) -> dict:
         "live_journal_rows": len(live_journal),
         "snapshot_journal_rows": len(snap_journal),
         "to_replay": len(missing),
+        "to_replay_by_kind": dict(Counter(r["kind"] for r in missing)),
         "dry_run": dry_run,
     }
     if dry_run:
@@ -170,6 +186,9 @@ def restore(settings, snapshot: Path, dry_run: bool = False) -> dict:
     try:
         result["replayed"] = replay(con, settings, missing)
         result["fts"] = db.repair_fts(con)
+        gone = persons.clips_missing_files(con, settings)
+        result["clips_missing_file"] = {"count": len(gone),
+                                        "clips": gone[:MISSING_LISTED]}
     finally:
         con.close()
     return result

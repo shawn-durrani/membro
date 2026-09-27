@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS clip_manifests(
 CREATE TABLE IF NOT EXISTS erasures(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts REAL NOT NULL,
-  kind TEXT NOT NULL,                     -- fact | attachment | message
+  kind TEXT NOT NULL,                     -- fact | attachment | message | voice
   ref TEXT NOT NULL                       -- ids only, never content
 );
 """
