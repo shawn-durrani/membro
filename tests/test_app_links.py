@@ -195,10 +195,9 @@ def _app(tmp_path, **extra):
     return app
 
 
-def _signed_in(app, base_url):
+def _signed_in(app, base_url, admin_sessions):
     c = TestClient(app, base_url=base_url)
-    app.state.admin_sessions["test-session-id"] = 1e12
-    c.cookies.set("mm_admin", "test-session-id")
+    c.cookies.set("mm_admin", admin_sessions.plant(app))
     return c
 
 
@@ -208,11 +207,14 @@ def test_route_is_owner_only_even_on_loopback(tmp_path):
     assert TestClient(app, base_url=f"https://{TAILNET}").get("/app-links").status_code == 403
 
 
-def test_route_builds_the_row_for_the_address_the_page_was_opened_at(tmp_path):
+def test_route_builds_the_row_for_the_address_the_page_was_opened_at(
+        tmp_path, admin_sessions):
     app = _app(tmp_path)
-    on_mac = _signed_in(app, "http://127.0.0.1").get("/app-links").json()["links"]
+    on_mac = _signed_in(app, "http://127.0.0.1",
+                        admin_sessions).get("/app-links").json()["links"]
     assert [link["href"] for link in on_mac] == ["http://127.0.0.1:8902/", ""]
-    on_phone = _signed_in(app, f"https://{TAILNET}").get("/app-links").json()["links"]
+    on_phone = _signed_in(app, f"https://{TAILNET}",
+                          admin_sessions).get("/app-links").json()["links"]
     assert [link["href"] for link in on_phone] == [f"https://{TAILNET}/", ""]
 
 

@@ -25,10 +25,11 @@ token; `HttpOnly` stopped page JS from reading it, but any same-origin request
 still carried a reusable, non-expiring, non-revocable credential — a copied
 cookie was forever equivalent to the real token, and "logout" could only ever
 clear the browser's own copy, never invalidate one already exfiltrated.
-`app.state.admin_sessions` maps session id -> expiry; login mints a fresh
-random id server-side, logout pops it (true revocation), and every check
-rejects an expired id. The MCP admin server keeps using the real bearer token
-directly (`Authorization` header) — untouched by any of this.
+The `sessions` table (see `sessions.py`) holds the SHA-256 of each id with its
+expiry; login mints a fresh random id server-side, logout deletes it (true
+revocation), and every check rejects an expired id. The MCP admin server keeps
+using the real bearer token directly (`Authorization` header) — untouched by
+any of this.
 
 OWNER PASSWORD: the everyday browser login is now a durable
 PASSWORD, not the process's admin token. `POST /login` checks the password
@@ -40,8 +41,10 @@ SECRET that gates first-run enrollment and password reset. Enrollment/reset
 (`POST /enroll`, `POST /reset`) require that recovery secret, so an
 unauthenticated caller sharing loopback — a sandboxed coding agent — cannot
 self-enroll a password and let itself in: it never sees the terminal/`.env`
-secret. Sessions remain opaque, HttpOnly, SameSite=Strict, in-memory (cleared
-on restart), expiring, and revocable, exactly as v4 left them.
+secret. Sessions remain opaque, HttpOnly, SameSite=Strict, expiring, and
+revocable, exactly as v4 left them. Since #131 they are stored hashed in the
+database, so a restart keeps them, and a reset or a passkey removal ends every
+one.
 """
 
 import base64
@@ -69,7 +72,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, summary, viz, walls
+from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, sessions, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -439,20 +442,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # role: proof-of-owner for setting a password, never the password itself.
     app.state.admin_token = settings.auth_token or secrets.token_urlsafe(32)
 
-    # Server-side session store for the BROWSER path (admin-gate v4): sid -> expiry
-    # (unix epoch). The cookie holds only this opaque, random sid — never the
-    # admin token — so a copied cookie is a revocable, expiring capability, not
-    # a standing credential equivalent to the token itself. In-memory and
-    # per-process on purpose: a restart is a fresh, empty store, so every
-    # browser session must re-authenticate (matches the token's own restart
-    # behavior when unconfigured, and keeps this out of the ledger entirely —
-    # no schema, no persistence, nothing for the admin-gate work's "no ledger mutation" scope
-    # to touch).
-    app.state.admin_sessions = {}
-    # Exposed on app.state (not just a closure local) so tests can inspect/
-    # force-expire real sessions without reaching into private closures.
+    # Server-side session store for the BROWSER path (admin-gate v4). The cookie
+    # holds only an opaque, random sid — never the admin token — so a copied
+    # cookie is a revocable, expiring capability, not a standing credential
+    # equivalent to the token itself. The `sessions` table keeps the sid's
+    # SHA-256 and its expiry (#131, sessions.py), so a restart or a deploy
+    # signs nobody out. It is operational auth state beside the password
+    # verifier, never ledger content. Sign-ins that ran out while the service
+    # was down go now.
     app.state.admin_session_ttl = 60 * 60 * 24  # 24h — a deliberately bounded default
     ADMIN_SESSION_TTL = app.state.admin_session_ttl
+    _c = db.connect(settings.db_path)
+    try:
+        sessions.prune(_c)
+    finally:
+        _c.close()
 
     # In-flight WebAuthn ceremonies (#27): ceremony id -> the challenge this
     # server minted plus the origin/RP it was minted FOR. Server-side and
@@ -555,18 +559,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ADMIN_COOKIE = "mm_admin"
 
     def _session_ok(sid: str) -> bool:
-        """True only for a sid this process itself minted at login, that
-        hasn't expired. Lazily evicts expired entries so the store never
-        grows unbounded from abandoned sessions."""
+        """True only for a sid this service minted at login, not revoked,
+        not expired. An expired row is deleted on sight."""
         if not sid:
             return False
-        exp = app.state.admin_sessions.get(sid)
-        if exp is None:
-            return False
-        if exp < db.now():
-            app.state.admin_sessions.pop(sid, None)
-            return False
-        return True
+        c = db.connect(settings.db_path)
+        try:
+            return sessions.ok(c, sid)
+        finally:
+            c.close()
+
+    def _new_session() -> str:
+        c = db.connect(settings.db_path)
+        try:
+            return sessions.mint(c, ADMIN_SESSION_TTL)
+        finally:
+            c.close()
+
+    def _revoke_all_sessions() -> None:
+        # A restart used to be what ended every sign-in. Sign-ins outlive a
+        # restart now (#131), so a reset and a passkey removal do it.
+        c = db.connect(settings.db_path)
+        try:
+            sessions.revoke_all(c)
+        finally:
+            c.close()
 
     def _admin_ok(request: Request) -> bool:
         auth = request.headers.get("authorization", "")
@@ -757,20 +774,22 @@ restart the service.</small></p>
         # ONLY that opaque id as an httpOnly, SameSite=Strict cookie (admin-gate v4:
         # the cookie is not the bearer token), and redirect to `/` so nothing
         # sensitive lingers in the address bar or history.
-        sid = secrets.token_urlsafe(32)
-        app.state.admin_sessions[sid] = db.now() + ADMIN_SESSION_TTL
+        sid = _new_session()
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(ADMIN_COOKIE, sid, httponly=True, samesite="strict",
                         path="/", max_age=ADMIN_SESSION_TTL)
         return resp
 
-    def _set_password(recovery: str, password: str, confirm: str):
+    def _set_password(recovery: str, password: str, confirm: str,
+                      revoke_all: bool = False):
         # Shared body of /enroll and /reset: BOTH require the out-of-band
         # recovery secret (the admin token). This is the gate that stops an
         # unauthenticated caller sharing loopback from setting its own password
         # and letting itself in — "gate the write, don't verify the writer."
         # Wrong/missing recovery → 401, no verifier written. On success, persist
-        # a durable scrypt verifier and log the browser straight in.
+        # a durable scrypt verifier and log the browser straight in. A reset
+        # ends every existing sign-in before minting this one (#131), so a
+        # stolen cookie dies with the old password.
         if not hmac.compare_digest(recovery, app.state.admin_token):
             return HTMLResponse(
                 _locked_page("Recovery secret is incorrect."),
@@ -788,6 +807,8 @@ restart the service.</small></p>
             auth.set_owner_password(c, password)
         finally:
             c.close()
+        if revoke_all:
+            _revoke_all_sessions()
         return _mint_session_redirect()
 
     @app.get("/", include_in_schema=False)
@@ -853,7 +874,8 @@ restart the service.</small></p>
               confirm: str = Form("")):
         # Recovery-gated password reset. Identical proof to enrollment: the
         # owner presents the out-of-band recovery secret, then a new password.
-        return _set_password(recovery, password, confirm)
+        # Every other browser is signed out.
+        return _set_password(recovery, password, confirm, revoke_all=True)
 
     @app.post("/logout", include_in_schema=False)
     def logout(request: Request):
@@ -862,8 +884,11 @@ restart the service.</small></p>
         # not just the browser that clicked Log out (admin-gate v4; v3's cookie WAS
         # the token, so "logout" could only ever clear one browser's copy,
         # never revoke a cookie an attacker had already captured).
-        sid = request.cookies.get(ADMIN_COOKIE, "")
-        app.state.admin_sessions.pop(sid, None)
+        c = con()
+        try:
+            sessions.revoke(c, request.cookies.get(ADMIN_COOKIE, ""))
+        finally:
+            c.close()
         resp = RedirectResponse("/", status_code=303)
         resp.delete_cookie(ADMIN_COOKIE, path="/")
         return resp
@@ -1030,8 +1055,7 @@ restart the service.</small></p>
         # Same session mint as a successful password login (#46 v4): fresh
         # random opaque sid, never client-derived — but as JSON, because the
         # caller is the lock page's fetch, which navigates on success itself.
-        sid = secrets.token_urlsafe(32)
-        app.state.admin_sessions[sid] = db.now() + ADMIN_SESSION_TTL
+        sid = _new_session()
         resp = JSONResponse({"ok": True})
         resp.set_cookie(ADMIN_COOKIE, sid, httponly=True, samesite="strict",
                         path="/", max_age=ADMIN_SESSION_TTL)
@@ -1054,11 +1078,16 @@ restart the service.</small></p>
 
     @app.delete("/webauthn/credentials/{cred_id}", include_in_schema=False,
                 dependencies=[Depends(_admin_auth)])
-    def webauthn_remove(cred_id: str):
+    def webauthn_remove(cred_id: str, request: Request):
         # Removing a passkey is operational auth state, like a password reset
         # (never ledger content). The device-side key remains; it simply
         # stops unlocking this service. The password always remains as the
         # fallback, so removal can never lock the owner out.
+        #
+        # It also signs out every other browser (#131). You remove a passkey
+        # when a phone is lost, and its sign-in has to go with it; a restart
+        # used to do that. A browser caller gets a fresh sign-in, the way a
+        # reset does. A bearer caller has no cookie to replace.
         c = con()
         try:
             removed = passkeys.remove_credential(c, cred_id)
@@ -1066,7 +1095,14 @@ restart the service.</small></p>
             c.close()
         if not removed:
             raise HTTPException(404, "no passkey with that id")
-        return {"ok": True}
+        browser = _session_ok(request.cookies.get(ADMIN_COOKIE, ""))
+        _revoke_all_sessions()
+        resp = JSONResponse({"ok": True})
+        if browser:
+            resp.set_cookie(ADMIN_COOKIE, _new_session(), httponly=True,
+                            samesite="strict", path="/",
+                            max_age=ADMIN_SESSION_TTL)
+        return resp
 
     @app.get("/app-links", include_in_schema=False,
              dependencies=[Depends(_admin_auth)])

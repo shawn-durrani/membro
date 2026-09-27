@@ -10,7 +10,7 @@ import time
 import pytest
 
 from memory_service import db as mdb
-from memory_service import episodic, erasers, ledger, restore
+from memory_service import episodic, erasers, ledger, restore, sessions
 
 
 def _fact(con, settings, text):
@@ -69,6 +69,28 @@ def test_restore_replays_erasures_made_after_the_snapshot(settings, con, no_serv
         rows = c.execute("SELECT kind, ref FROM erasures ORDER BY id").fetchall()
         assert [r["kind"] for r in rows] == ["fact", "message", "fact"]
         assert all(v["in_sync"] for v in mdb.fts_status(c).values())
+    finally:
+        c.close()
+
+
+def test_restore_ends_every_admin_session(settings, con, no_service):
+    """A snapshot can carry a session revoked after it was taken, such as a
+    stolen cookie a reset had ended. A restore must not bring it back, so it
+    ends every session (#131)."""
+    stolen = sessions.mint(con, 3600)
+    con.close()
+    snap = mdb.backup(settings)
+    c = mdb.connect(settings.db_path)
+    sessions.revoke_all(c)  # the reset that ended it
+    live = sessions.mint(c, 3600)
+    c.close()
+
+    restore.restore(settings, snap)
+    c = mdb.connect(settings.db_path)
+    try:
+        assert not sessions.ok(c, stolen)
+        assert not sessions.ok(c, live)
+        assert c.execute("SELECT COUNT(*) n FROM sessions").fetchone()["n"] == 0
     finally:
         c.close()
 

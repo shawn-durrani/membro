@@ -134,15 +134,15 @@ def test_trusted_host_reaches_the_lock_screen_but_not_the_ledger(tmp_path):
         assert probe().status_code == 403
 
 
-def test_trusted_host_with_a_live_session_may_use_the_app(tmp_path):
+def test_trusted_host_with_a_live_session_may_use_the_app(tmp_path,
+                                                          admin_sessions):
     app = _trusted_app(tmp_path)
     c = TestClient(app, base_url=TAILNET)
-    sid = "test-session-id"
-    app.state.admin_sessions[sid] = 1e12  # a session this process minted
+    sid = admin_sessions.plant(app)  # a session this service minted
     c.cookies.set("mm_admin", sid)
     assert c.get("/v1/health").status_code == 200
     # an expired session is not a session
-    app.state.admin_sessions[sid] = 1.0
+    admin_sessions.set_expiry(app, sid, 1.0)
     assert c.get("/v1/health").status_code == 403
 
 
@@ -154,14 +154,13 @@ def test_trusted_host_still_honours_the_bearer_token(tmp_path):
                  headers={"Authorization": "Bearer wrong"}).status_code == 403
 
 
-def test_cross_site_requests_are_refused_even_on_a_trusted_host(tmp_path):
+def test_cross_site_requests_are_refused_even_on_a_trusted_host(tmp_path,
+                                                              admin_sessions):
     """A malicious page that knows the tailnet name still cannot drive this
     API from its own origin."""
     app = _trusted_app(tmp_path)
     c = TestClient(app, base_url=TAILNET)
-    sid = "test-session-id"
-    app.state.admin_sessions[sid] = 1e12
-    c.cookies.set("mm_admin", sid)
+    c.cookies.set("mm_admin", admin_sessions.plant(app))
     assert c.get("/v1/health",
                  headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
     assert c.get("/", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403

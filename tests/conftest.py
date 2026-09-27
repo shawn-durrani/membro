@@ -1,6 +1,9 @@
+import hashlib
+
 import pytest
 
 from memory_service import db as db_mod
+from memory_service import sessions
 from memory_service.config import Settings
 
 
@@ -53,3 +56,44 @@ def sample_conversation(con):
     ]
     episodic.ingest(con, "multi-model-chat", "chat-1", msgs, title="Weekend plans")
     return msgs
+
+
+class _AdminSessions:
+    """Admin page sign-ins live in an app's database (#131). Tests that need
+    one without a login, or need to move its expiry, go through here."""
+
+    @staticmethod
+    def hash(sid):
+        return hashlib.sha256(sid.encode()).hexdigest()
+
+    def plant(self, app, expires_at=1e12):
+        c = db_mod.connect(app.state.settings.db_path)
+        try:
+            sid = sessions.mint(c, 60)
+        finally:
+            c.close()
+        self.set_expiry(app, sid, expires_at)
+        return sid
+
+    def set_expiry(self, app, sid, expires_at):
+        c = db_mod.connect(app.state.settings.db_path)
+        try:
+            c.execute("UPDATE sessions SET expires_at = ? WHERE sid_hash = ?",
+                      (expires_at, self.hash(sid)))
+            c.commit()
+        finally:
+            c.close()
+
+    def stored(self, app):
+        """sid hash -> expiry for every row."""
+        c = db_mod.connect(app.state.settings.db_path)
+        try:
+            return {r[0]: r[1] for r in
+                    c.execute("SELECT sid_hash, expires_at FROM sessions")}
+        finally:
+            c.close()
+
+
+@pytest.fixture
+def admin_sessions():
+    return _AdminSessions()

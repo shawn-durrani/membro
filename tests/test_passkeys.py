@@ -11,8 +11,9 @@ The acceptance surface here:
   assertion signed for one origin is refused on another.
 - A successful assertion mints the SAME kind of opaque, expiring, revocable
   session as a password login; a failed or replayed one mints nothing.
-- Credentials persist across a restart (durable settings table); in-flight
-  ceremonies and sessions do not (in-memory by design).
+- Credentials persist across a restart (durable settings table), and so do
+  sessions since #131; in-flight ceremonies do not (in-memory by design).
+- Removing a passkey signs out every other browser (#131).
 
 Tests run keyless and offline: the "authenticator" is a tiny software P-256
 passkey built on py_webauthn's own dependencies (cryptography, cbor2), signing
@@ -378,6 +379,41 @@ def test_removal_stops_unlocking_but_password_remains(tmp_path):
     c = _client(app)
     assert c.post("/login", data={"password": PASSWORD},
                   follow_redirects=False).status_code == 303
+
+
+def test_removal_signs_out_every_other_browser(tmp_path):
+    """Sessions outlive a restart now (#131), so removing the passkey of a
+    lost phone has to end that phone's session itself. A browser doing the
+    removal gets a fresh session; a bearer caller has none to replace."""
+    app = _app(tmp_path)
+    desk = _client(app)
+    desk.post("/enroll", data={"recovery": app.state.admin_token,
+                               "password": PASSWORD, "confirm": PASSWORD},
+              follow_redirects=False)
+    pk, _ = _enrol_passkey(desk)
+    phone = _client(app)
+    assert _passkey_login(phone, pk).status_code == 200
+    before = desk.cookies.get("mm_admin")
+    cid = desk.get("/webauthn/credentials").json()["credentials"][0]["id"]
+    assert desk.delete(f"/webauthn/credentials/{cid}").status_code == 200
+    assert desk.cookies.get("mm_admin") != before
+    assert desk.get("/v1/facts").status_code == 200
+    assert phone.get("/v1/facts").status_code == 401
+    old = _client(app)
+    old.cookies.set("mm_admin", before)
+    assert old.get("/v1/facts").status_code == 401
+
+    # a bearer caller removing one signs the browsers out, and gets no cookie
+    pk2, _ = _enrol_passkey(desk)
+    cid2 = desk.get("/webauthn/credentials").json()["credentials"][0]["id"]
+    r = _owner(app).delete(f"/webauthn/credentials/{cid2}")
+    assert r.status_code == 200 and "mm_admin" not in r.headers.get("set-cookie", "")
+    assert desk.get("/v1/facts").status_code == 401
+    # a miss revokes nothing
+    again = _client(app)
+    again.post("/login", data={"password": PASSWORD}, follow_redirects=False)
+    assert again.delete("/webauthn/credentials/nope").status_code == 404
+    assert again.get("/v1/facts").status_code == 200
 
 
 def test_stored_record_is_public_material_only(tmp_path):

@@ -87,7 +87,8 @@ includes voice: a clip you deleted stays deleted, and a person you forgot
 stays forgotten. At the end it lists any clip whose audio file is missing,
 by person and clip id. It keeps those clips, because nothing you erased
 explains them. Put the file back in `data/voice_anchors/`, or delete the
-clip. On the People page it's the one that won't play. The fleet runbook
+clip. On the People page it's the one that won't play. A restore also
+signs every browser out of the admin page. The fleet runbook
 (workbench `runbooks/membro-restore.md`) has the full procedure.
 `ops/install-supervisor.sh` installs a launchd agent; restart with
 `launchctl kickstart -k gui/$(id -u)/dev.membro.server`. Before a

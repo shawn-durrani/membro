@@ -7,7 +7,8 @@ restart. Slice 1 replaces it with a durable password:
 
 - A memory-hard scrypt verifier persists in the local store, so the SAME
   password unlocks a FRESH app instance on the same data directory (survives
-  restart) — while opaque in-memory sessions still do NOT survive restart.
+  restart). Since #131 the opaque sessions survive a restart too, stored as
+  hashes, and a reset ends every one of them.
 - First-run enrollment and reset require the out-of-band RECOVERY SECRET (the
   admin token). An unauthenticated caller sharing loopback — a sandboxed coding
   agent — cannot self-enroll: it never sees the terminal/.env secret.
@@ -171,19 +172,88 @@ def test_password_survives_a_fresh_app_instance(tmp_path):
     assert c.get("/v1/facts").status_code == 200
 
 
-def test_browser_sessions_do_not_survive_a_restart(tmp_path):
-    """Sessions are in-memory: a cookie minted by one instance is meaningless
-    to a fresh instance, even though the password persists."""
-    app1 = _app(tmp_path)
+def test_browser_sessions_survive_a_restart(tmp_path):
+    """Every deploy is a restart, and every restart used to sign every browser
+    out (#131). A cookie minted by one instance works on a fresh instance over
+    the same data, on loopback and on a trusted host alike."""
+    app1 = _app(tmp_path, trusted_hosts=["my-mac.my-tailnet.ts.net"])
     owner = _client(app1)
     _enroll(app1, owner)
     sid = owner.cookies.get("mm_admin")
     assert sid and owner.get("/v1/facts").status_code == 200
 
-    app2 = _app(tmp_path)
+    app2 = _app(tmp_path, trusted_hosts=["my-mac.my-tailnet.ts.net"])
     reused = _client(app2)
     reused.cookies.set("mm_admin", sid)
-    assert reused.get("/v1/facts").status_code == 401  # session did not survive
+    assert reused.get("/v1/facts").status_code == 200
+    phone = TestClient(app2, base_url="https://my-mac.my-tailnet.ts.net")
+    phone.cookies.set("mm_admin", sid)
+    assert phone.get("/v1/health").status_code == 200
+
+
+def test_only_a_hash_of_the_session_is_stored(tmp_path, admin_sessions):
+    """A copy of the database, or a backup, holds no usable cookie: only the
+    SHA-256 of the id, and that hash is not itself a cookie."""
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    sid = owner.cookies.get("mm_admin")
+    assert list(admin_sessions.stored(app)) == [admin_sessions.hash(sid)]
+    raw = b"".join(p.read_bytes() for p in (tmp_path / "data").glob("memory.db*"))
+    assert raw and sid.encode() not in raw
+    stolen = _client(app)
+    stolen.cookies.set("mm_admin", admin_sessions.hash(sid))
+    assert stolen.get("/v1/facts").status_code == 401
+
+
+@pytest.mark.parametrize("forge", [
+    lambda sid: sid[:-1] + ("A" if sid[-1] != "A" else "B"),  # one char off
+    lambda sid: sid + "x",                                    # extended
+    lambda sid: sid[:20],                                     # truncated
+    lambda sid: "forged",                                     # unknown
+    lambda sid: "x" * 5000,                                   # oversized
+])
+def test_a_tampered_or_unknown_cookie_is_refused(tmp_path, forge):
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    bad = _client(app)
+    bad.cookies.set("mm_admin", forge(owner.cookies.get("mm_admin")))
+    assert bad.get("/v1/facts").status_code == 401
+    assert "locked" in bad.get("/").text.lower()
+    assert owner.get("/v1/facts").status_code == 200
+
+
+def test_logout_stays_logged_out_across_a_restart(tmp_path):
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    sid = owner.cookies.get("mm_admin")
+    owner.post("/logout", follow_redirects=False)
+    stale = _client(_app(tmp_path))
+    stale.cookies.set("mm_admin", sid)
+    assert stale.get("/v1/facts").status_code == 401
+
+
+def test_a_restart_clears_sessions_that_ran_out(tmp_path, admin_sessions):
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    kept = owner.cookies.get("mm_admin")
+    gone = admin_sessions.plant(app, expires_at=1.0)
+    _app(tmp_path)
+    stored = admin_sessions.stored(app)
+    assert admin_sessions.hash(gone) not in stored
+    assert admin_sessions.hash(kept) in stored
+
+
+def test_a_new_login_clears_sessions_that_ran_out(tmp_path, admin_sessions):
+    app = _app(tmp_path)
+    _enroll(app, _client(app))
+    gone = admin_sessions.plant(app, expires_at=1.0)
+    _client(app).post("/login", data={"password": PASSWORD},
+                      follow_redirects=False)
+    assert admin_sessions.hash(gone) not in admin_sessions.stored(app)
 
 
 # ── recovery-gated reset ────────────────────────────────────────────────────
@@ -216,6 +286,44 @@ def test_reset_with_recovery_replaces_the_password(tmp_path):
                       follow_redirects=False).status_code == 303
     assert fresh.post("/login", data={"password": PASSWORD},
                       follow_redirects=False).status_code == 401
+
+
+def test_reset_signs_out_every_other_browser_for_good(tmp_path):
+    """A reset is how a stolen cookie is ended. It used to leave every other
+    session alive until a restart; with sessions on disk it ends them itself,
+    and the next start doesn't bring them back (#131)."""
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    thief = _client(app)
+    thief.cookies.set("mm_admin", owner.cookies.get("mm_admin"))
+    fixer = _client(app)
+    r = fixer.post("/reset", data={"recovery": app.state.admin_token,
+                                   "password": NEW_PASSWORD,
+                                   "confirm": NEW_PASSWORD},
+                   follow_redirects=False)
+    assert r.status_code == 303
+    assert owner.get("/v1/facts").status_code == 401
+    assert thief.get("/v1/facts").status_code == 401
+    assert fixer.get("/v1/facts").status_code == 200
+    after = _app(tmp_path)
+    stale = _client(after)
+    stale.cookies.set("mm_admin", owner.cookies.get("mm_admin"))
+    assert stale.get("/v1/facts").status_code == 401
+    kept = _client(after)
+    kept.cookies.set("mm_admin", fixer.cookies.get("mm_admin"))
+    assert kept.get("/v1/facts").status_code == 200
+
+
+def test_a_wrong_recovery_secret_signs_nobody_out(tmp_path):
+    app = _app(tmp_path)
+    owner = _client(app)
+    _enroll(app, owner)
+    _client(app).post("/reset", data={"recovery": "wrong",
+                                      "password": NEW_PASSWORD,
+                                      "confirm": NEW_PASSWORD},
+                      follow_redirects=False)
+    assert owner.get("/v1/facts").status_code == 200
 
 
 # ── no secret leakage anywhere an unauthenticated caller can reach ──────────
