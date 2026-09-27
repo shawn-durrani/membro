@@ -328,8 +328,8 @@ def build_report(out: Path, questions) -> dict:
 
     usage = summarise(out / "usage.jsonl")
     per_q = [c for qid, c in usage["by_question"].items() if qid in answered]
-    built = [r for r in results.values() if not r.get("reused_store")
-             and not r.get("error")]
+    ok = [r for r in results.values() if not r.get("error")]
+    built = [r for r in ok if not r.get("reused_store")]
     return {
         "questions": len(questions),
         "answered": len(answered & wanted),
@@ -353,15 +353,13 @@ def build_report(out: Path, questions) -> dict:
             "unpriced_models": usage["unpriced"],
         },
         "ledger": {
-            "facts_mean": _mean([r.get("facts") for r in built]),
-            "current_mean": _mean([r.get("current") for r in built]),
-            "quarantined_mean": _mean([r.get("quarantined") for r in built]),
+            "facts_mean": _mean([r.get("facts") for r in ok]),
+            "current_mean": _mean([r.get("current") for r in ok]),
+            "quarantined_mean": _mean([r.get("quarantined") for r in ok]),
             "mining_failures": sum(r.get("mining_failures") or 0 for r in built),
         },
         "seconds": {"build_mean": _mean([r.get("build_seconds") for r in built]),
-                    "answer_mean": _mean([r.get("answer_seconds")
-                                          for r in results.values()
-                                          if not r.get("error")])},
+                    "answer_mean": _mean([r.get("answer_seconds") for r in ok])},
     }
 
 

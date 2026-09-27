@@ -5,5 +5,5 @@
   grades the answer with LongMemEval's own prompts. Your real apps are
   never touched. A mock run is free and sends nothing off your computer.
   A paid run meters every model call and stops before the budget you give
-  it. At list prices a question costs about 35 US cents, most of it membro
+  it. At list prices a question costs about 34 US cents, most of it membro
   mining the history (#9).

@@ -78,13 +78,13 @@ least a dollar.
 
 ## What a run costs
 
-The measured cost is about 35 US cents a question with crossband's default
-seat, and about 88% of that is membro mining the question's chat history.
-All 500 questions come to about $175.
+A question costs about 34 US cents with crossband's default seat, and
+three quarters of that is membro mining the question's chat history and
+rebuilding its profile. All 500 questions come to about $172.
 [METHODOLOGY.md](METHODOLOGY.md#what-it-costs) has the breakdown by model.
 
-A question takes about three minutes, almost all of it mining. `--jobs 4`
-runs four questions at once and costs the same.
+A question takes just under three minutes, almost all of it mining.
+`--jobs 4` runs four questions at once and costs the same.
 
 `--stores DIR` keeps each question's mined membro and reuses it on later
 runs, which then pay only for the answer and the grading, about 8 cents a

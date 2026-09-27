@@ -153,8 +153,9 @@ def print_report(r: dict) -> None:
     print(f"ledger per question: {led['facts_mean']} facts, "
           f"{led['current_mean']} current, {led['quarantined_mean']} held; "
           f"mining failures {led['mining_failures']}")
-    print(f"seconds per question: build {r['seconds']['build_mean']}, "
-          f"answer {r['seconds']['answer_mean']}")
+    build = r["seconds"]["build_mean"]
+    print(f"seconds per question: build {'-' if build is None else build} "
+          f"(stores reused skip it), answer {r['seconds']['answer_mean']}")
     for qid in r["failed"]:
         print(f"  failed: {qid}")
 
