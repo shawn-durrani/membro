@@ -293,6 +293,8 @@
   .editor .fields { display: flex; gap: var(--space-2); flex-wrap: wrap;
                     margin: var(--space-2) 0 0; align-items: center; }
   label.inline { color: var(--dim); font-size: 12px; }
+  .person-rename { width: 120px; }
+  .clip-row { margin-top: 2px; }
   #toast {
     position: fixed; top: var(--space-4); right: var(--space-4); max-width: 380px; z-index: 10;
     padding: var(--space-3) var(--space-4); border-radius: var(--r-sm); font-size: 13px;
@@ -419,6 +421,18 @@
     .add-grid input[type=date], .danger-zone input, .danger-zone input#del-id { width: 100%; }
     /* stat cards: allow a tighter 2-up before dropping to 1-up */
     .stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    /* People: each person reads down the full width of the card. Their
+       details lose the browser's 40px indent, a line divides one person
+       from the next, and each box shares a line with its button. A clip's
+       player fits the card instead of running off its edge. */
+    #people-body .kv { padding: var(--space-3) 0; border-top: 1px solid var(--border); }
+    #people-body .kv:first-child { border-top: 0; padding-top: 0; }
+    #people-body dd { margin: var(--space-1) 0 0; }
+    #people-body .fields { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+    #people-body .fields > input, #people-body .fields > select { flex: 1 1 60%; width: auto; min-width: 0; }
+    #people-body .clip-row { margin-top: var(--space-3); row-gap: 2px; }
+    #people-body .clip-row > span { flex-basis: 100%; }
+    #people-body .clip-row > audio { flex: 1 1 0; min-width: 0; }
   }
 
   /* ---- touch screens: every field you type into is 16px ----
@@ -1433,7 +1447,7 @@ async function loadPeople() {
           <button class="danger" onclick="deleteUnused('${esc(p.slug)}', '${esc(p.display_name)}', ${p.unused_clips})">Delete ${p.unused_clips === 1 ? "it" : "them"}…</button>
         </div>` : ""}
         <div class="fields" style="margin-top:4px">
-          <input type="text" id="rn-${esc(p.slug)}" placeholder="rename" style="width:120px" aria-label="Rename ${esc(p.display_name)}">
+          <input type="text" id="rn-${esc(p.slug)}" class="person-rename" placeholder="rename" aria-label="Rename ${esc(p.display_name)}">
           <button onclick="renamePerson('${esc(p.slug)}')">Rename</button>
           ${others.length ? `<select id="mg-${esc(p.slug)}" aria-label="Merge ${esc(p.display_name)} into"><option value="">merge into…</option>${mergeOpts}</select>
           <button onclick="mergePerson('${esc(p.slug)}')">Merge</button>` : ""}
@@ -1505,7 +1519,7 @@ async function toggleClips(slug) {
   const rows = d.anchors || [];
   if (!rows.length) { box.innerHTML = '<span class="empty">No stored clips.</span>'; return; }
   box.innerHTML = rows.map(a => `
-    <div class="fields" style="margin-top:2px">
+    <div class="fields clip-row">
       <span style="color:var(--dim);font-size:12px">${a.seconds ? a.seconds.toFixed(1) + "s" : "clip"} · ${esc(a.source || "?")}</span>
       <audio controls preload="none" style="height:24px" src="/v1/persons/${encodeURIComponent(slug)}/anchors/${a.id}/file"></audio>
       <button class="danger" onclick="deleteClip('${esc(slug)}', ${a.id})">delete</button>
