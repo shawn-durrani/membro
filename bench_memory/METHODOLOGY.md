@@ -71,7 +71,11 @@ are years old.
 conversation history does not contain the answer, say plainly that you do
 not have that information rather than guessing." LongMemEval's 30
 unanswerable questions are marked correct only when the seat declines.
-`--no-hint` drops the sentence, to check how much it moves the score.
+`--no-hint` drops the sentence, to check how much it moves the score. On
+the 20 preference and multi-session questions from the sample, answered
+again from the same stores, dropping it made the seat search its saved
+chats less often, not more. Preference went from 1 of 10 to 0, and
+multi-session stayed at 4.
 
 **Crossband's app name.** Crossband writes to membro under the app name
 `multi-model-chat`. The throwaway membro trusts that name, as a membro
@@ -124,6 +128,46 @@ about the person, not the detail the grader's rubric wanted. Carrying
 preferences into every answer is the job the profile exists to do, so
 it's the clearest thing the sample found.
 
+### Keeping what's said in passing
+
+The miner now keeps what people mention in passing: what they own and
+use, what they've done, their home and their family. Reading the sample's
+preference and multi-session misses showed most had never become a fact.
+So the 20 questions of those two types were rebuilt from scratch on 29
+September, before and after the change, with fresh stores each time.
+
+| Question type | Before | After |
+|---|---:|---:|
+| single-session-preference | 1 of 10 | 4 of 10 |
+| multi-session | 4 of 10 | 6 of 10 |
+
+The after run also had four other fixes: longer history search excerpts,
+search that matches word endings, a roleplay check that reads only what
+people said, and tags read with or without brackets. So the rise isn't
+all the miner's.
+
+- Three preference answers came right because the fact they needed was
+  now mined: the editing software you use, a class you took, and new parts
+  on your bike.
+- Three multi-session answers came right because a history search now
+  shows the whole number: a price, a count of shoes, what two gifts cost.
+  The miner still leaves one-off numbers out, as it should.
+- One multi-session answer went wrong. The ledger held a doctor's name and
+  "an ENT specialist" as two facts, and the seat counted two doctors where
+  the history had one.
+
+The ledger nearly doubled, from 38.5 facts a history to 73.8. Most of the
+new facts are lasting ones: things people own and use, what they've done,
+their interests and their family. One-off detail, like a budget for one
+purchase or plans for this weekend, makes up about as large a share as
+before, so there's more of it in all. Fewer facts were held for review, 12
+across the 20 histories against 25.
+
+Four of the ten asides the misses turned on are still dropped: the phone
+you own, a new power bank, a cat that sheds, and new kitchen fittings.
+Each came up inside a request for advice about it. Three more were half
+kept, like three sisters without the brother.
+
 ## What it costs
 
 Every call in the sample went through the meter, 10,052 of them, and each
@@ -147,13 +191,17 @@ spent filling membro. The sample ran with `--jobs 4` in 43 minutes, so all
 time. Mining reads about 200,000 tokens a question, which is the history
 plus the ledger so far, once per conversation.
 
+Since the miner started keeping what's said in passing, building a store
+costs about a sixth more. On the 20 questions rebuilt on 29 September it
+came to 31 cents a question, against 27 before.
+
 Reusing kept stores with `--stores` drops the cost of a rerun to the seat
 and the grading, about 8 cents a question, or $39 for all 500.
 
 Membro's calls read nothing from Anthropic's prompt cache in a benchmark
 run. The part of a mining prompt that repeats from call to call is the
 miner's instructions and the question's ledger. A question's ledger holds
-about 50 facts at most, so that part stays under the 4,096 tokens Claude
+about 100 facts at most, so that part stays under the 4,096 tokens Claude
 Haiku 4.5 needs before it caches anything. A four-question run with
 `--seed 1` cost 37 cents a question with the cache layout and 37 without.
 
