@@ -40,13 +40,20 @@ def _conversation_lock(source_app: str, external_id: str) -> threading.Lock:
 # everything after the first colon. Only lines beginning with NEW are facts —
 # anything else is model chatter and is dropped (STRICT).
 _HEAD_RE = re.compile(r"^NEW\b(?P<attrs>[^:]*):\s*(?P<fact>.+)$", re.IGNORECASE)
-_SUPERSEDES_RE = re.compile(r"supersedes\s*=\s*\[?\s*(\d+(?:\s*,\s*\d+)*)\s*\]?", re.I)
-_IMPORTANCE_RE = re.compile(r"importance\s*=\s*(\d{1,2})", re.I)
-_EVENT_RE = re.compile(r"event\s*=\s*(\d{4}-\d{2}-\d{2})", re.I)
+# The template writes every value in angle brackets (src=<N>,
+# importance=<1-10>), and the model often copies them: src=<3>,
+# src=<msg 3>, importance=<7>, supersedes=<12>. Each tag reads the bracketed
+# value exactly as it reads the bare one (#145). A placeholder copied whole,
+# like event=<YYYY-MM-DD> or importance=<1-10>, still reads as no value.
+_OPEN = r"\s*=\s*[<\[]?\s*"
+_SUPERSEDES_RE = re.compile(
+    rf"supersedes{_OPEN}(\d+(?:\s*,\s*\d+)*)\s*[>\]]?", re.I)
+_IMPORTANCE_RE = re.compile(rf"importance{_OPEN}(\d{{1,2}})(?![\d-])", re.I)
+_EVENT_RE = re.compile(rf"event{_OPEN}(\d{{4}}-\d{{2}}-\d{{2}})", re.I)
 # The message this fact was derived from, as the [msg N] label the model echoes
 # back. It scopes event-date grounding to ONE turn's text so a date
 # living elsewhere in the chunk can't ground a fact it has nothing to do with.
-_SRC_RE = re.compile(r"src\s*=\s*(\d+)", re.I)
+_SRC_RE = re.compile(rf"src{_OPEN}(?:msg\s*)?(\d+)", re.I)
 
 # Explicit calendar dates are recognised by `walls.explicit_dates` — ONE
 # definition, because the same question ("is this date literally in the text?")
@@ -121,9 +128,10 @@ def _retry_importance(fact: str, settings) -> int | None:
     return min(9, max(1, int(m.group(1)))) if m else None
 
 
-# One retry answer line: FACT <k>: src=<N or none>.
-_SRC_FIX_RE = re.compile(r"^\s*FACT\s+(\d+)\s*:\s*src\s*=\s*(\d+|none)\s*$",
-                         re.I | re.M)
+# One retry answer line: FACT <k>: src=<N or none>, brackets optional.
+_SRC_FIX_RE = re.compile(
+    rf"^\s*FACT\s+(\d+)\s*:\s*src{_OPEN}(?:msg\s*)?(\d+|none)\s*[>\]]?\s*$",
+    re.I | re.M)
 
 
 def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
