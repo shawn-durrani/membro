@@ -37,7 +37,8 @@ def _pin_nominations(con, settings) -> list[dict]:
         "it out. Reply with ONLY the ids, comma-separated (e.g. 12, 47), or "
         "NONE.\n\n" + listing)
     try:
-        out = llm.utility_complete(prompt, settings, max_tokens=200)
+        out = llm.utility_complete(prompt, settings, max_tokens=200,
+                                   site="consolidate.pins")
     except Exception:  # keyless / provider down: the sweep still works
         log.info("pin nominations skipped — no utility model available")
         return []

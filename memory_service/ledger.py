@@ -279,6 +279,13 @@ def list_facts(con, status: str = "valid", query: str | None = None,
     return [_public(r) for r in con.execute(sql, params)]
 
 
+def valid_facts_from(con, floor_id: int) -> list[dict]:
+    """Every valid fact with an id at or above `floor_id`, oldest first."""
+    return [_public(r) for r in con.execute(
+        "SELECT * FROM facts WHERE invalidated_at IS NULL "
+        "AND quarantined_at IS NULL AND id >= ? ORDER BY id", (floor_id,))]
+
+
 def get_fact(con, fact_id: int) -> dict | None:
     row = con.execute("SELECT * FROM facts WHERE id=?", (fact_id,)).fetchone()
     return _public(row) if row else None

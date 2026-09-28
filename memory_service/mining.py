@@ -13,6 +13,7 @@ whichever turn happened to end the window.
 
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 from . import captions, db, episodic, ledger, llm, persons, recall, summary, walls
@@ -114,7 +115,8 @@ def _retry_importance(fact: str, settings) -> int | None:
         "Output exactly one line: importance=<N>\n\n"
         f"Fact: {fact}"
     )
-    out = llm.utility_complete(prompt, settings, max_tokens=50)
+    out = llm.utility_complete(prompt, settings, max_tokens=50,
+                               site="miner.importance-retry")
     m = _IMPORTANCE_RE.search(out or "")
     return min(9, max(1, int(m.group(1)))) if m else None
 
@@ -165,7 +167,8 @@ def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
         f"## Conversation excerpt\n{source_text}"
     )
     out = llm.utility_complete(prompt, settings,
-                               max_tokens=min(400, 60 + 15 * len(unbound)))
+                               max_tokens=min(400, 60 + 15 * len(unbound)),
+                               site="miner.src-retry")
     repairs: dict[int, int] = {}
     for m in _SRC_FIX_RE.finditer(out or ""):
         k, val = int(m.group(1)), m.group(2).lower()
@@ -334,7 +337,8 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
             new_msgs = _next_chunk(pending)
             if not new_msgs:
                 break
-            chunk = _distill_chunk(con, settings, source_app, conv, new_msgs)
+            chunk = _distill_chunk(con, settings, source_app, conv, new_msgs,
+                                   more_to_come=len(pending) > len(new_msgs))
             added += chunk["added"]
             quarantined += chunk["quarantined"]
             deduped += chunk.get("deduped", 0)
@@ -359,69 +363,98 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
         lock.release()
 
 
-# Speaker classes that count as HUMAN SPEECH worth mining (#31). Guest turns
-# mine even with the owner silent in the window — their facts land quarantined,
-# so nothing gains trust — but a window of only model turns and/or unrecognised
-# speaker classes skips the LLM exactly as model-only windows always have: an
-# unrecognised class is not known to be a human voice at all (it could be a
-# tool or a transcript artefact), so mining it as biography would guess.
-_HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown")
+# The recency window: the existing facts the miner is shown, so it neither
+# repeats one nor misses a supersede target. Prompt caching is a prefix match,
+# so the list is built to stay byte-identical from one mining call to the
+# next. It runs oldest first from a floor that moves in steps of WINDOW_STEP
+# ids, so it holds at least the WINDOW_FACTS newest valid facts (up to a
+# step's worth more just after the floor moves) and a new fact lands at the
+# end instead of shifting the start. A bucket of WINDOW_STEP ids is sealed
+# once every id in it is taken, and a sealed bucket's text changes only when
+# one of its facts is superseded, held, approved or edited. The instructions
+# and the sealed buckets are the prefix the next call reads from the cache.
+WINDOW_FACTS = 250
+WINDOW_STEP = 32
+_WINDOW_HEADER = "## Existing valid entries (with ids — do not repeat)\n"
+
+# A cache write costs a quarter more than a plain read, and it pays only when
+# another mining call reads it within the five minutes it lives. Mining comes
+# in bursts (a long backlog in several chunks, a bulk import, a benchmark run)
+# or one call at a time: crossband hands over one quiet chat per sweep, and
+# almost none of those calls start within five minutes of the last. So a call
+# marks the cache only during a burst: when this pass has another chunk to
+# mine, or the last mining call started under five minutes ago.
+MINER_CACHE_TTL = "5m"
+BURST_SECONDS = 300
+_last_mining_call = float("-inf")
+_last_call_guard = threading.Lock()
 
 
-def _distill_chunk(con, settings, source_app: str, conv: dict,
-                   new_msgs: list[dict]) -> dict:
-    if not any(walls.speaker_class(m["speaker"]) in _HUMAN_SPEAKERS
-               for m in new_msgs):
-        _advance(con, conv["id"], new_msgs[-1]["id"])
-        return {"added": 0, "quarantined": 0, "deduped": 0,
-                "refused_supersede": 0, "deferred_supersede": 0}
+def _in_burst(more_to_come: bool) -> bool:
+    global _last_mining_call
+    now = time.monotonic()
+    with _last_call_guard:
+        recent = now - _last_mining_call < BURST_SECONDS
+        _last_mining_call = now
+    return more_to_come or recent
 
-    # #31: does this window carry any speech that is NOT the owner's or a model
-    # seat's? If so, a fact with no valid src= binding cannot be attributed to
-    # the owner, and the fail-safe below holds it for review.
-    untrusted_speaker_present = any(
-        walls.speaker_trust_flag(m["speaker"]) for m in new_msgs)
 
-    source_text = _transcript(new_msgs, settings.user_name)
-    recent = ledger.list_facts(con, status="valid", limit=250)
-    candidates = {f["id"]: f for f in recent}
-    try:
-        # Reach beyond the recency window: facts relevant to THIS
-        # chunk's topics, however old, so a directly contradicted fact is
-        # still offered as a supersede target. Merge, don't replace — the
-        # recency window still gives the model everything freshly discussed,
-        # which the semantic pass isn't guaranteed to surface.
-        for f in recall.recall(con, settings, query=source_text[:SEMANTIC_QUERY_CHARS],
-                               limit=SEMANTIC_SUPERSEDE_CANDIDATES):
-            candidates.setdefault(f["id"], f)
-    except Exception:
-        pass  # semantic reach degrades; the recency window above still works
-    recent = sorted(candidates.values(), key=lambda f: f["id"], reverse=True)
-    recent_text = "\n".join(f"- [{f['id']}] {f['content']}" for f in recent) or "(empty)"
-    # The [msg N] labels in source_text map back to real messages here; a fact's
-    # src=N is validated against this before it can narrow event-date grounding.
-    idx_to_msg = {i: m for i, m in enumerate(new_msgs, start=1)}
-    # Guest guidance enters the prompt only when the window actually carries
-    # guest (or unrecognised) speech, so the everyday owner-only path pays
-    # nothing and its prompt is byte-identical to before (#31).
-    guest_rules = "" if not untrusted_speaker_present else (
-        "GUEST SPEAKERS: turns labelled \"(guest)\" are OTHER HUMANS in the "
-        f"session — never {settings.user_name} and never an AI participant. "
-        "Resolve pronouns PER SPEAKER: a guest's 'I' is that guest, not "
-        f"{settings.user_name}. Phrase a guest's fact in third person, naming "
-        "the guest (e.g. a guest called Sam saying 'I hate coriander' becomes "
-        f"'{settings.user_name}'s wife Sam dislikes coriander' when the "
-        "excerpt states that relationship, else 'Sam (a guest) dislikes "
-        f"coriander') — NEVER as a first-person fact about "
-        f"{settings.user_name}. Do not build a profile of a guest: extract a "
-        "guest's statement only when it matters to understanding "
-        f"{settings.user_name}'s world (family, close relationships, shared "
-        "plans, things that affect them). Speech from an unidentified speaker "
-        "may still be extracted, attributed to 'an unidentified guest'. Every "
-        "fact drawn from a guest's turn must carry src=<N> naming that "
-        "guest's own turn.\n")
-    prompt = (
-        f"You maintain a permanent memory ledger about {settings.user_name}. From the "
+def _fact_window(con) -> tuple[list[list[dict]], list[dict]]:
+    """The recency window as (sealed buckets, open facts), oldest first."""
+    nth = con.execute(
+        "SELECT id FROM facts WHERE invalidated_at IS NULL "
+        "AND quarantined_at IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?",
+        (WINDOW_FACTS - 1,)).fetchone()
+    floor = nth[0] // WINDOW_STEP * WINDOW_STEP if nth else 0
+    # Ids only grow, so every id below the next multiple of the step under
+    # MAX(id)+1 is already taken: no new fact can land in those buckets.
+    top = con.execute("SELECT COALESCE(MAX(id), 0) FROM facts").fetchone()[0]
+    seal = (top + 1) // WINDOW_STEP * WINDOW_STEP
+    buckets: dict[int, list[dict]] = {}
+    open_facts: list[dict] = []
+    for f in ledger.valid_facts_from(con, floor):
+        if f["id"] < seal:
+            buckets.setdefault(f["id"] // WINDOW_STEP, []).append(f)
+        else:
+            open_facts.append(f)
+    return [buckets[k] for k in sorted(buckets)], open_facts
+
+
+def _entry_parts(sealed: list[list[dict]], open_facts: list[dict],
+                 extras: list[dict], ttl: str | None) -> list[dict]:
+    """The existing-entries list as prompt parts: one per sealed bucket, with
+    a cache breakpoint after the last, then the open facts with another, then
+    the semantic extras, which differ per chunk and so come after both. A new
+    sealed bucket is a new part, so the next call finds the last call's
+    breakpoint one part back and writes only the new bucket."""
+    def lines(facts):
+        return "".join(f"- [{f['id']}] {f['content']}\n" for f in facts)
+
+    parts, head = [], _WINDOW_HEADER
+    for bucket in sealed:
+        parts.append({"text": head + lines(bucket)})
+        head = ""
+    if parts and ttl:
+        parts[-1]["cache"] = ttl
+    if open_facts:
+        parts.append({"text": head + lines(open_facts)})
+        if ttl:
+            parts[-1]["cache"] = ttl
+        head = ""
+    tail = head + lines(extras)
+    if not (sealed or open_facts or extras):
+        tail += "(empty)\n"
+    parts.append({"text": tail})
+    return parts
+
+
+def _miner_instructions(user_name: str) -> str:
+    """The miner's fixed instructions: the system prompt of every mining
+    call, the same bytes on every call for a given owner name, so they
+    lead the cached prefix. Guest guidance varies by window and travels
+    with the excerpt instead."""
+    return (
+        f"You maintain a permanent memory ledger about {user_name}. From the "
         "conversation excerpt below, extract durable facts worth remembering long-term. "
         "Capture ALL dimensions, not only the technical ones:\n"
         "- identity, work, projects, preferences, decisions, skills\n"
@@ -437,7 +470,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "detail:\n"
         "  1. You may extract AT MOST ONE concise active-thread/outcome fact per "
         "project per excerpt: what they're working on and why it matters (e.g. "
-        f"'{settings.user_name} is working on reducing Larkspur's request-cache "
+        f"'{user_name} is working on reducing Larkspur's request-cache "
         "cost'), OR a shipped/meaningful outcome (launched, shipped, picked an "
         "architecture, hit a real milestone).\n"
         "  2. NEVER extract the technical reasoning, diagnosis, root-cause "
@@ -456,7 +489,6 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "roleplay, persona, or interview-prep framing, or from an assistant's own "
         "'what do you know about me' summary; or anything already in the existing "
         "entries.\n"
-        f"{guest_rules}"
         "Each turn in the excerpt is prefixed with a [msg N] label. Every fact must "
         "carry src=<N> naming the SINGLE message it was drawn from — copy the label "
         "off that turn, do not count. If a fact draws on a few adjacent turns, cite "
@@ -490,12 +522,84 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "goal, a colleague's role); 8-9 = life-defining (a new job, a move, family, "
         "health). Most facts are 3-6; reserve 8-9 for genuinely major items. Never "
         "assign 10 — it is reserved for the owner to mark facts as permanent.\n"
-        "If there is nothing new, output exactly: NONE\n\n"
-        f"## Existing valid entries (with ids — do not repeat)\n{recent_text}\n\n"
-        f"## Conversation excerpt\n{source_text}"
+        "If there is nothing new, output exactly: NONE"
     )
-    out = llm.utility_complete(prompt, settings, max_tokens=1000)
-    valid_ids = {f["id"] for f in recent}
+
+
+# Speaker classes that count as HUMAN SPEECH worth mining (#31). Guest turns
+# mine even with the owner silent in the window — their facts land quarantined,
+# so nothing gains trust — but a window of only model turns and/or unrecognised
+# speaker classes skips the LLM exactly as model-only windows always have: an
+# unrecognised class is not known to be a human voice at all (it could be a
+# tool or a transcript artefact), so mining it as biography would guess.
+_HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown")
+
+
+def _distill_chunk(con, settings, source_app: str, conv: dict,
+                   new_msgs: list[dict], more_to_come: bool = False) -> dict:
+    if not any(walls.speaker_class(m["speaker"]) in _HUMAN_SPEAKERS
+               for m in new_msgs):
+        _advance(con, conv["id"], new_msgs[-1]["id"])
+        return {"added": 0, "quarantined": 0, "deduped": 0,
+                "refused_supersede": 0, "deferred_supersede": 0}
+
+    # #31: does this window carry any speech that is NOT the owner's or a model
+    # seat's? If so, a fact with no valid src= binding cannot be attributed to
+    # the owner, and the fail-safe below holds it for review.
+    untrusted_speaker_present = any(
+        walls.speaker_trust_flag(m["speaker"]) for m in new_msgs)
+
+    source_text = _transcript(new_msgs, settings.user_name)
+    sealed, open_facts = _fact_window(con)
+    window_ids = {f["id"] for bucket in sealed for f in bucket}
+    window_ids |= {f["id"] for f in open_facts}
+    extras: dict[int, dict] = {}
+    try:
+        # Reach beyond the recency window: facts relevant to THIS
+        # chunk's topics, however old, so a directly contradicted fact is
+        # still offered as a supersede target. Merge, don't replace — the
+        # recency window still gives the model everything freshly discussed,
+        # which the semantic pass isn't guaranteed to surface.
+        for f in recall.recall(con, settings, query=source_text[:SEMANTIC_QUERY_CHARS],
+                               limit=SEMANTIC_SUPERSEDE_CANDIDATES):
+            if f["id"] not in window_ids:
+                extras.setdefault(f["id"], f)
+    except Exception:
+        pass  # semantic reach degrades; the recency window above still works
+    # The [msg N] labels in source_text map back to real messages here; a fact's
+    # src=N is validated against this before it can narrow event-date grounding.
+    idx_to_msg = {i: m for i, m in enumerate(new_msgs, start=1)}
+    # Guest guidance enters the prompt only when the window actually carries
+    # guest (or unrecognised) speech, so the everyday owner-only path pays
+    # nothing (#31). It rides after the cached prefix, beside the excerpt it
+    # is about, so a guest window reads the same cache as any other.
+    guest_rules = "" if not untrusted_speaker_present else (
+        "GUEST SPEAKERS: turns labelled \"(guest)\" are OTHER HUMANS in the "
+        f"session — never {settings.user_name} and never an AI participant. "
+        "Resolve pronouns PER SPEAKER: a guest's 'I' is that guest, not "
+        f"{settings.user_name}. Phrase a guest's fact in third person, naming "
+        "the guest (e.g. a guest called Sam saying 'I hate coriander' becomes "
+        f"'{settings.user_name}'s wife Sam dislikes coriander' when the "
+        "excerpt states that relationship, else 'Sam (a guest) dislikes "
+        f"coriander') — NEVER as a first-person fact about "
+        f"{settings.user_name}. Do not build a profile of a guest: extract a "
+        "guest's statement only when it matters to understanding "
+        f"{settings.user_name}'s world (family, close relationships, shared "
+        "plans, things that affect them). Speech from an unidentified speaker "
+        "may still be extracted, attributed to 'an unidentified guest'. Every "
+        "fact drawn from a guest's turn must carry src=<N> naming that "
+        "guest's own turn.\n")
+    ttl = MINER_CACHE_TTL if _in_burst(more_to_come) else None
+    parts = _entry_parts(sealed, open_facts,
+                         [extras[i] for i in sorted(extras)], ttl)
+    parts[-1]["text"] += ("\n" + (guest_rules + "\n" if guest_rules else "")
+                          + f"## Conversation excerpt\n{source_text}")
+    system = {"text": _miner_instructions(settings.user_name)}
+    if ttl:
+        system["cache"] = ttl
+    out = llm.utility_complete(parts, settings, max_tokens=1000,
+                               site="miner", system=[system])
+    valid_ids = window_ids | set(extras)
     allow = ({w.lower() for w in settings.grounding_allowlist}
              | {settings.user_name.lower()}
              | persons.grounding_names(con))  # #57: names membro already holds

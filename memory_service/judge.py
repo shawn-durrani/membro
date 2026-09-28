@@ -121,7 +121,7 @@ def _judge_grounding(con, settings, fact) -> bool:
         "its excerpt or null. No other text.\n\n"
         f"## Transcript\n{window}")
     out = llm.utility_complete(prompt, settings, max_tokens=600,
-                               model=_model(settings))
+                               model=_model(settings), site="judge.grounding")
     spans = _json_object(out)
     if spans is None:
         return False
@@ -162,7 +162,8 @@ def _judge_persona(con, settings, fact) -> bool:
         "If unsure, answer ROLEPLAY.\n\n"
         f"## Transcript\n{window}")
     out = llm.utility_complete(prompt, settings, max_tokens=1300,
-                               model=_model(settings), thinking_budget=1024)
+                               model=_model(settings), thinking_budget=1024,
+                               site="judge.persona")
     words = re.findall(r"[A-Z]+", out.upper())
     if not words or words[-1] != "TECHNICAL":
         return False  # ROLEPLAY, unsure, or off-contract: label stands

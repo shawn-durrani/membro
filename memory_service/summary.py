@@ -186,8 +186,21 @@ def regenerate(con, settings) -> str:
                  "current state of each thread")
     entries = (f"## Durable entries\n{block(durable)}\n\n"
                f"## Active entries\n{block(active)}")
-    prompt = (
-        reading +
+    # The floor is a softer promise than the ceiling: it is asked for only
+    # when the entries can support it, and a draft still short after one
+    # expansion is kept. Fail short, never invented.
+    material = sum(len(f["content"].split()) for f in facts)
+    can_expand = bool(floor) and material >= floor * FILL_MATERIAL
+    # The draft and the expansion open with the same bytes, the reading rules
+    # and the entries, so the expansion reads them from the cache a few
+    # seconds later. Only a build that could expand marks them: a cache
+    # write costs a quarter more than a plain read, and a build that can't
+    # expand would never read it back.
+    shared = {"text": reading + entries}
+    if can_expand:
+        shared["cache"] = "5m"
+    prompt = [shared, {"text": (
+        "\n\n"
         "Write a structured profile summary organized "
         + headings +
         "Be faithful — merge "
@@ -199,37 +212,33 @@ def regenerate(con, settings) -> str:
         "drop per-fact detail, never a whole section (the later sections are "
         "the most current). The full ledger remains available to readers via "
         "a recall tool: leave out what does not fit, and invent nothing. "
-        "Reply with ONLY the profile.\n\n" + entries
-    )
+        "Reply with ONLY the profile.")}]
     # generous token ceiling: the WORD budget is enforced below by rewriting,
     # never by truncation — a truncated profile silently loses its LAST
     # sections (Goals, Recent Changes — the most current ones), which is far
     # worse than a long one
     max_tokens = max(8000, words * 4)
     text = llm.utility_complete(prompt, settings, max_tokens=max_tokens,
-                                model=settings.summary_model)
+                                model=settings.summary_model,
+                                site="summary.draft")
     passes = []  # the rewrite passes that shaped this version, in order
     drafted = len(text.split())
-    # The floor is a softer promise than the ceiling: it is asked for only
-    # when the entries can support it, and a draft still short after one
-    # expansion is kept. Fail short, never invented.
     if floor and drafted < floor:
-        material = sum(len(f["content"].split()) for f in facts)
-        if material >= floor * FILL_MATERIAL:
-            expand = (
-                reading + entries + "\n\n"
+        if can_expand:
+            expand = [shared, {"text": (
+                "\n\n"
                 f"The profile below is {drafted} words, under its target of "
                 f"at least {floor} words. Expand it to between {floor} and "
                 f"{words} words using ONLY the entries above: add the "
                 f"specifics you left out ({specifics}), keep every heading "
                 f"and section, keep no more than {per_section} words in any "
                 "one section, keep the latest-wins and provenance rules, "
-                "invent nothing. Reply with ONLY the profile.\n\n" + text
-            )
+                "invent nothing. Reply with ONLY the profile.\n\n" + text)}]
             try:
                 expanded = llm.utility_complete(expand, settings,
                                                 max_tokens=max_tokens,
-                                                model=settings.summary_model)
+                                                model=settings.summary_model,
+                                                site="summary.expand")
             except Exception:
                 expanded = ""  # the short-but-faithful draft is still valid
             # A reply shorter than the draft it was asked to expand dropped
@@ -264,7 +273,8 @@ def regenerate(con, settings) -> str:
         try:
             squeezed = llm.utility_complete(squeeze, settings,
                                             max_tokens=max_tokens,
-                                            model=settings.summary_model)
+                                            model=settings.summary_model,
+                                            site="summary.squeeze")
         except Exception:
             squeezed = ""  # the verbose-but-complete draft is still a valid summary
         if squeezed:

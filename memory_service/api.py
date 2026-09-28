@@ -72,7 +72,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, mining, passkeys, persons, recall, sessions, summary, viz, walls
+from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, llm, mining, passkeys, persons, recall, sessions, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -2036,6 +2036,7 @@ def main():
             f"refusing to bind {settings.host} without MEMORY_AUTH_TOKEN — "
             "this service holds personal data and ships no auth for loopback use only")
     app = create_app(settings)
+    llm.enable_usage_log()
     print(startup_banner(settings, app.state.admin_token,
                          auth.is_enrolled_path(settings.db_path)))
     uvicorn.run(app, host=settings.host, port=settings.port)
