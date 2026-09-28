@@ -416,8 +416,10 @@ pass:
 - Provenance is recorded only where it is real (2026-08-12). A mined fact
   carries `source_message_id` only when it was actually tied to one turn;
   a fact the miner could not bind is stored unbound (`source_message_id`
-  null) rather than pinned to whichever turn ended the mining window. In a
-  guest-present window such a fact is still held for review, unchanged.
+  null) rather than pinned to whichever turn ended the mining window.
+  `scripts/relink_unbound_facts.py` can bind one later, in a chat with no
+  guest speech, to the owner's own turn that clearly shares its wording.
+  In a guest-present window such a fact is still held for review, unchanged.
   When the miner supplies a missing binding on the corrective retry, that
   answer is now checked against the turn it names: a turn sharing none of
   the fact's wording, or one no more plausible than a guest's turn in the
