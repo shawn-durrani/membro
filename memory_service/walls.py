@@ -454,10 +454,15 @@ def in_scope(fact: str) -> bool:
     return not is_system_meta(fact)
 
 
-def check(fact: str, source_text: str, allowlist: set[str]) -> list[str]:
+def check(fact: str, source_text: str, allowlist: set[str],
+          framing_text: str | None = None) -> list[str]:
     """The three QUARANTINE walls (grounding, temporal grounding, source-trust).
     Returns flag descriptions; empty list = clean. System/meta scope is handled
-    separately by is_system_meta, which DROPS rather than quarantines."""
+    separately by is_system_meta, which DROPS rather than quarantines.
+
+    `framing_text` is what the source-trust wall reads, when it should read
+    less than the whole chunk. The miner passes only the turns people spoke,
+    so a model's own words ("Rehearse your set") can't make a chat roleplay."""
     flags = []
     missing = ungrounded_entities(fact, source_text, allowlist)
     if missing:
@@ -465,6 +470,6 @@ def check(fact: str, source_text: str, allowlist: set[str]) -> list[str]:
     when = ungrounded_temporal(fact, source_text)
     if when:
         flags.append("temporal: " + ", ".join(when) + " not stated in source chat")
-    if not source_trusted(source_text):
+    if not source_trusted(source_text if framing_text is None else framing_text):
         flags.append("source-trust: chat contains roleplay/persona/dossier framing")
     return flags
