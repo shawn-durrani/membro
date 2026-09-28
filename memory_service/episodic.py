@@ -245,6 +245,13 @@ def _fts_index_drifted(con) -> bool:
         con.execute("SELECT EXISTS(SELECT 1 FROM messages)").fetchone()[0])
 
 
+# Words of context around a match in each search hit. 64 is the most FTS5's
+# snippet() gives: it quietly treats anything larger as 64. At 24 a hit
+# stopped short of the number it was about ("only wearing two", "$200,000")
+# in three benchmark misses (#150). A hit averages about 330 characters.
+SNIPPET_TOKENS = 64
+
+
 def search(con, query: str, limit: int = 20) -> list[dict]:
     """FTS5 over the whole record — messages AND attachment text; LIKE fallback
     for FTS syntax edge cases AND for a drifted-empty index, which answers
@@ -258,11 +265,12 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
     try:
         rows = con.execute(
             "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
-            "snippet(messages_fts, 0, '>>', '<<', ' … ', 24) AS content, "
+            "snippet(messages_fts, 0, '>>', '<<', ' … ', ?) AS content, "
             "m.web_sources "
             "FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid "
             "JOIN conversations c ON c.id = m.conversation_id "
-            "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?", (match, limit))
+            "WHERE messages_fts MATCH ? ORDER BY rank LIMIT ?",
+            (SNIPPET_TOKENS, match, limit))
         hits = [dict(r) for r in rows]
         if not hits and _fts_index_drifted(con):
             log.warning(
@@ -274,12 +282,12 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
             arows = con.execute(
                 "SELECT 'file: ' || a.filename AS speaker, a.created_at, c.title, "
                 "c.external_id conversation_id, "
-                "snippet(attachments_fts, 0, '>>', '<<', ' … ', 24) AS content, "
+                "snippet(attachments_fts, 0, '>>', '<<', ' … ', ?) AS content, "
                 "'' AS web_sources "
                 "FROM attachments_fts JOIN attachments a ON a.id = attachments_fts.rowid "
                 "JOIN conversations c ON c.id = a.conversation_id "
                 "WHERE attachments_fts MATCH ? ORDER BY rank LIMIT ?",
-                (match, limit - len(hits)))
+                (SNIPPET_TOKENS, match, limit - len(hits)))
             hits += [dict(r) for r in arows]
         return _with_web_sources(hits)
     except Exception:
