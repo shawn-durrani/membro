@@ -26,15 +26,23 @@ def erase_fact(con, fact_id: int, journal_ts: float | None = None) -> dict | Non
 def erase_attachment(con, settings, att_id: int,
                      journal_ts: float | None = None) -> dict | None:
     """Row, FTS tombstone, journal; the file itself is unlinked only when no
-    other row references the same content-addressed bytes."""
-    row = con.execute("SELECT stored_name, extracted_text FROM attachments "
-                      "WHERE id=?", (att_id,)).fetchone()
+    other row references the same content-addressed bytes. A captioned
+    image's caption goes with it (FK cascade), and out of the index too."""
+    row = con.execute(
+        "SELECT a.stored_name, COALESCE(c.caption, a.extracted_text) AS indexed "
+        "FROM attachments a "
+        "LEFT JOIN attachment_captions c ON c.attachment_id = a.id "
+        "WHERE a.id=?", (att_id,)).fetchone()
     if not row:
         return None
-    # external-content FTS needs an explicit tombstone before the row goes
+    # External-content FTS needs an explicit tombstone before the row goes,
+    # carrying the exact text the index holds. For a captioned image that's
+    # the caption the attachment_captions_ai trigger swapped in, not the
+    # empty extracted_text: a tombstone with the wrong text removes nothing,
+    # and the caption's words would stay in the index after the row is gone.
     con.execute("INSERT INTO attachments_fts(attachments_fts, rowid, "
                 "extracted_text) VALUES('delete', ?, ?)",
-                (att_id, row["extracted_text"]))
+                (att_id, row["indexed"]))
     con.execute("DELETE FROM attachments WHERE id=?", (att_id,))
     shared = con.execute("SELECT 1 FROM attachments WHERE stored_name=? LIMIT 1",
                          (row["stored_name"],)).fetchone()

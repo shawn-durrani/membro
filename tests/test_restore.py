@@ -73,6 +73,41 @@ def test_restore_replays_erasures_made_after_the_snapshot(settings, con, no_serv
         c.close()
 
 
+def test_restore_keeps_an_erased_image_caption_out_of_search(settings, con, no_service):
+    """The snapshot holds the image, its caption, and the caption in the
+    index. Replaying the erasure must take all three, so a restore can't
+    bring back words from a photo the owner erased."""
+    from memory_service import captions
+    episodic.ingest(con, "multi-model-chat", "chat-img", [
+        {"external_id": "m1", "speaker": "user", "content": "a photo",
+         "created_at": 1700000000.0}], title="photos")
+    conv = episodic.get_conversation(con, "multi-model-chat", "chat-img")
+    episodic.add_attachment(con, settings, conv["id"], "m1", "shelf.png",
+                            "image/png", b"\x89PNG\r\n\x1a\n" + b"px" * 50)
+    captions.caption_pending(con, settings, conv["id"],
+                             vision=lambda *a, **k: "Two marblewood planks.")
+    att = con.execute("SELECT id FROM attachments").fetchone()["id"]
+    con.close()
+    snap = mdb.backup(settings)
+    c = mdb.connect(settings.db_path)
+    erasers.erase_attachment(c, settings, att)
+    c.close()
+
+    result = restore.restore(settings, snap)
+    assert result["replayed"]["attachment"] == 1
+    c = mdb.connect(settings.db_path)
+    try:
+        c.execute("CREATE VIRTUAL TABLE temp.att_terms "
+                  "USING fts5vocab(main, attachments_fts, 'instance')")
+        assert c.execute("SELECT COUNT(*) n FROM temp.att_terms "
+                         "WHERE term='marblewood'").fetchone()["n"] == 0
+        assert c.execute("SELECT COUNT(*) n FROM attachment_captions"
+                         ).fetchone()["n"] == 0
+        assert episodic.search(c, "marblewood") == []
+    finally:
+        c.close()
+
+
 def test_restore_ends_every_admin_session(settings, con, no_service):
     """A snapshot can carry a session revoked after it was taken, such as a
     stolen cookie a reset had ended. A restore must not bring it back, so it
