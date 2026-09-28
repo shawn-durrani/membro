@@ -259,6 +259,15 @@ SEMANTIC_QUERY_CHARS = 4000     # gist, not the whole chunk — the embeddings
                                 # endpoint has its own input-length ceiling
 
 
+def grounding_allow(con, settings) -> set[str]:
+    """The words the grounding wall and `walls.lexical_support` never count
+    as evidence: the owner's everyday nouns from config, the owner's own
+    name, and every name membro holds for a person (#57)."""
+    return ({w.lower() for w in settings.grounding_allowlist}
+            | {settings.user_name.lower()}
+            | persons.grounding_names(con))
+
+
 def _msg_body(m: dict) -> str:
     """The bounded text view of ONE message for mining: its content plus any
     attachment text, truncated to MSG_CHARS. Attachment text mines alongside the
@@ -663,9 +672,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     out = llm.utility_complete(parts, settings, max_tokens=1000,
                                site="miner", system=[system])
     valid_ids = window_ids | set(extras)
-    allow = ({w.lower() for w in settings.grounding_allowlist}
-             | {settings.user_name.lower()}
-             | persons.grounding_names(con))  # #57: names membro already holds
+    allow = grounding_allow(con, settings)
     # #35: in a guest-present window an unbound fact cannot be attributed to
     # the owner, so before judging anything, give the miner ONE batched
     # corrective retry for every fact whose src= is missing or names no real

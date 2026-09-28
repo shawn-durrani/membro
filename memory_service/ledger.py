@@ -144,33 +144,10 @@ def add_fact(con, content: str, settings, *, source: str = "user",
             return {"id": dup["id"], "quarantined": bool(dup["quarantined_at"]),
                     "duplicate": True}
     ts = db.now()
-    # #33 contract 1.2: a fact born from a message that carries a
-    # structured speaker identity links to that person when the identity
-    # is strong enough (persons.binding - human-confirmed always,
-    # voice-match at 0.8+, weaker never). Same hold rules either way:
-    # the link changes what review can say, never whether a fact is held.
-    person_id = None
-    row = None
+    prov = source_provenance(con, source_message_id)
+    person_id = prov["person_id"]
     webs = [str(w).strip().lower() for w in (web_sources or []) if str(w).strip()]
-    if source_message_id is not None:
-        row = con.execute("SELECT speaker, speaker_identity, web_sources "
-                          "FROM messages WHERE id=?",
-                          (source_message_id,)).fetchone()
-        if row and row["web_sources"]:
-            # #55: the mining path inherits the stamp from the turn itself,
-            # so the miner needs no knowledge of this rule.
-            try:
-                webs += [str(w).strip().lower()
-                         for w in json.loads(row["web_sources"]) if str(w).strip()]
-            except ValueError:
-                pass
-        if row and row["speaker_identity"]:
-            from . import persons as persons_mod
-            try:
-                person_id = persons_mod.binding(
-                    con, json.loads(row["speaker_identity"]))
-            except (ValueError, KeyError):
-                person_id = None
+    webs += prov["web_sources"]
     if reason is None and webs:
         shown = ", ".join(sorted(set(webs))[:5])[:300]
         reason = (f"web-derived: {shown} — a public page was read in this "
@@ -191,7 +168,8 @@ def add_fact(con, content: str, settings, *, source: str = "user",
             reason = f"{reason}; {clause}"
     if scope is None:
         from . import walls
-        speaker_cls = walls.speaker_class(row["speaker"]) if row is not None else None
+        speaker_cls = (walls.speaker_class(prov["speaker"]) if prov["found"]
+                       else None)
         from_guest = bool(guests) or speaker_cls in ("guest", "guest-unknown")
         scope = ("conversation" if from_guest and conversation_id is not None
                  else "global")
@@ -209,6 +187,91 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     con.commit()
     _spawn_embed(settings, cur.lastrowid, content)
     return {"id": cur.lastrowid, "quarantined": bool(reason), "scope": scope}
+
+
+def source_provenance(con, source_message_id: int | None) -> dict:
+    """What a fact takes from the message it's bound to: the turn's speaker,
+    the web domains stamped on it, and the person its speaker identity links
+    to. `add_fact` reads this for a fact born bound, and `bind_source` for
+    one bound later, so the two can't drift apart.
+
+    #55: the mining path inherits the web stamp from the turn itself, so the
+    miner needs no knowledge of that rule. #33 contract 1.2: a structured
+    speaker identity links the fact to that person when the identity is
+    strong enough (persons.binding - human-confirmed always, voice-match at
+    0.8+, weaker never). The link changes what review can say, never
+    whether a fact is held."""
+    out = {"found": False, "speaker": None, "web_sources": [],
+           "person_id": None}
+    if source_message_id is None:
+        return out
+    row = con.execute("SELECT speaker, speaker_identity, web_sources "
+                      "FROM messages WHERE id=?",
+                      (source_message_id,)).fetchone()
+    if row is None:
+        return out
+    out["found"] = True
+    out["speaker"] = row["speaker"]
+    if row["web_sources"]:
+        try:
+            out["web_sources"] = [str(w).strip().lower()
+                                  for w in json.loads(row["web_sources"])
+                                  if str(w).strip()]
+        except ValueError:
+            pass
+    if row["speaker_identity"]:
+        from . import persons as persons_mod
+        try:
+            out["person_id"] = persons_mod.binding(
+                con, json.loads(row["speaker_identity"]))
+        except (ValueError, KeyError):
+            out["person_id"] = None
+    return out
+
+
+def bind_refusal(con, message_id: int) -> str | None:
+    """Why `bind_source` won't bind a fact to this message, or None.
+
+    A fact born bound takes more from its turn than the link. A web stamp
+    holds it for review, a speaker identity links it to a person, and a
+    guest's or unrecognised speaker's turn makes the miner hold it and
+    scopes it to its chat. A late binding may change the link and the date
+    and nothing else, so a turn that would bring any of those is refused."""
+    prov = source_provenance(con, message_id)
+    if not prov["found"]:
+        return "no such message"
+    if walls.speaker_trust_flag(prov["speaker"]):
+        return "the turn is a guest's or an unrecognised speaker's"
+    if prov["web_sources"]:
+        return "the turn carries a web stamp, which would hold the fact"
+    if prov["person_id"] is not None:
+        return "the turn's speaker identity would link the fact to a person"
+    return None
+
+
+def bind_source(con, fact_id: int, message_id: int,
+                event_date: float | None = None) -> bool:
+    """Record the message an unbound fact came from, and the calendar day
+    that message grounds for it when the caller found one (#146).
+
+    Only the link and the date change. Raises ValueError when the message
+    would bring anything else (see `bind_refusal`). Returns False unless
+    the fact is valid, has no source yet, and comes from the message's own
+    conversation. The caller commits, so a batch lands in one transaction."""
+    refusal = bind_refusal(con, message_id)
+    if refusal:
+        raise ValueError(refusal)
+    sets, params = ["source_message_id=?"], [message_id]
+    if event_date is not None:
+        sets.append("event_date=?")
+        params.append(event_date)
+    cur = con.execute(
+        f"UPDATE facts SET {', '.join(sets)} WHERE id=? "
+        "AND source_message_id IS NULL AND invalidated_at IS NULL "
+        "AND quarantined_at IS NULL AND conversation_id="
+        "(SELECT conversation_id FROM messages WHERE id=?)",
+        (*params, fact_id, message_id))
+    return cur.rowcount > 0
 
 
 SCOPES = ("global", "conversation")
