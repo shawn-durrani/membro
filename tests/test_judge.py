@@ -175,3 +175,32 @@ def test_model_call_never_holds_the_write_lock(con, settings, monkeypatch):
     assert out["cleared"] == 2
     assert _fact(con, first)["quarantined_at"] is None
     assert _fact(con, second)["quarantined_at"] is None
+
+
+def test_a_judged_fact_can_still_be_erased(settings, fake_llm):
+    """The judge's attempt row points at the fact. The owner's eraser must
+    still take the fact, and the attempt row with it."""
+    from fastapi.testclient import TestClient
+
+    from memory_service import db
+    from memory_service.api import create_app
+    app = create_app(settings)
+    con = db.connect(settings.db_path)
+    try:
+        settings.judge_pass = True
+        cid, mids = _conv(con, ["I toured the zephyrline factory today"])
+        fid = _held(con, cid, mids[0], GROUND)
+        fake_llm["response"] = '{"Zephyrline": "toured the zephyrline factory"}'
+        assert judge.run_pass(con, settings)["cleared"] == 1
+    finally:
+        con.close()
+    auth = {"Authorization": f"Bearer {app.state.admin_token}"}
+    with TestClient(app, base_url="http://127.0.0.1", headers=auth) as client:
+        assert client.delete(f"/v1/facts/{fid}").json() == {"deleted": fid}
+    con = db.connect(settings.db_path)
+    try:
+        assert _fact(con, fid) is None
+        assert con.execute("SELECT COUNT(*) FROM judge_attempts").fetchone()[0] == 0
+        assert con.execute("SELECT ref FROM erasures").fetchone()[0] == f"fact:{fid}"
+    finally:
+        con.close()

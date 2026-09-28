@@ -15,6 +15,9 @@ from . import db
 
 
 def erase_fact(con, fact_id: int, journal_ts: float | None = None) -> dict | None:
+    # The judge's attempt row references the fact, and with foreign keys on
+    # it would refuse the delete. It holds an id and a time, nothing else.
+    con.execute("DELETE FROM judge_attempts WHERE fact_id=?", (fact_id,))
     cur = con.execute("DELETE FROM facts WHERE id=?", (fact_id,))
     if not cur.rowcount:
         return None
