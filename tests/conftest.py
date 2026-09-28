@@ -38,12 +38,17 @@ def con(settings):
 def fake_llm(monkeypatch):
     """Route utility_complete to a canned response; no network in tests.
     `queue` serves multi-call flows (e.g. draft → rewrite) one reply at a
-    time; `fail_when_empty` makes the call after the queue raise instead."""
+    time; `fail_when_empty` makes the call after the queue raise instead.
+    `prompts` holds each call as one string, system text first, the way the
+    compatible branch sends it; `requests` holds the parts as passed."""
+    from memory_service import llm
     state = {"response": "NONE", "prompts": [], "models": [], "queue": [],
-             "fail_when_empty": False}
+             "fail_when_empty": False, "requests": []}
 
     def _fake(prompt, settings, max_tokens=1000, model=None, **kw):
-        state["prompts"].append(prompt)
+        state["prompts"].append(llm.prompt_text(prompt, kw.get("system")))
+        state["requests"].append({"prompt": prompt, "system": kw.get("system"),
+                                  "site": kw.get("site")})
         state["models"].append(model)
         state.setdefault("kwargs", []).append(kw)
         if state["queue"]:

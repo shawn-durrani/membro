@@ -150,6 +150,13 @@ plus the ledger so far, once per conversation.
 Reusing kept stores with `--stores` drops the cost of a rerun to the seat
 and the grading, about 8 cents a question, or $39 for all 500.
 
+Membro's calls read nothing from Anthropic's prompt cache in a benchmark
+run. The part of a mining prompt that repeats from call to call is the
+miner's instructions and the question's ledger. A question's ledger holds
+about 50 facts at most, so that part stays under the 4,096 tokens Claude
+Haiku 4.5 needs before it caches anything. A four-question run with
+`--seed 1` cost 37 cents a question with the cache layout and 37 without.
+
 ## How LongMemEval fits membro
 
 LongMemEval tests whether an assistant can recover any detail from a long

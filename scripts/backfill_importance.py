@@ -87,7 +87,7 @@ def main() -> int:
             entries = "\n".join(f"{f['id']} | {f['content']}" for f in batch)
             out = llm.utility_complete(
                 PROMPT.format(user=settings.user_name, entries=entries),
-                settings, max_tokens=1000)
+                settings, max_tokens=1000, site="backfill.importance")
             scores = parse_scores(out or "")
             wanted = {f["id"] for f in batch}
             for fid in wanted:

@@ -40,9 +40,9 @@ lookups made on a model's behalf rather than your own inspection.
 
 ## What is capped, and what is not
 
-"Cap" means several different things here and **only two of them are real
-limits**: how much of one long message the miner reads, and how many cards
-the profile folds.
+"Cap" means several different things here and **only three of them are
+real limits**: how much of one long message the miner reads, how much of
+the ledger it's shown, and how many cards the profile folds.
 
 ### Storage: never capped
 The ledger holds unlimited cards. Nothing is ever dropped, deleted, or aged out by
@@ -60,6 +60,15 @@ including inside attached files. Long or long-idle conversations are mined
 in windows of **120 messages / ~350,000 characters**, each window advancing a
 watermark so an interrupted run resumes where it stopped instead of
 re-reading (or overflowing) what it already mined. Both bounds exist because what the miner reads has to fit in one model call.
+
+### What the miner is shown of the ledger: bounded (a real limit)
+The miner sees your existing cards, so it won't repeat one and can mark a
+card that a new fact updates. It gets at least your **250 newest** valid
+cards, oldest first, and up to **40 older cards** that match the chat's
+topic. The newest list starts from a card number that moves in steps of
+32, so it can hold a few dozen more than 250. That keeps its start the
+same from one call to the next, so a burst of mining calls can share a
+prompt cache.
 
 ### Reading the ledger yourself (the admin UI): paged rather than capped
 The ledger table fetches a page at a time (200 rows) for browser performance, then
