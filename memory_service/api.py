@@ -651,6 +651,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if enrolled is None:
             enrolled = _enrolled()
         msg = f'<p class="err">{error}</p>' if error else ""
+        # The fields sit in a .9em label, so they'd be 14.4px, and iOS Safari
+        # zooms into any field under 16px and stays zoomed. The coarse-pointer
+        # rule holds them at 16px on a phone.
         head = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>membro — locked</title>
@@ -662,7 +665,8 @@ button{padding:.6em 1.2em;margin-top:.6em;font-size:1em} details{margin-top:1.6e
 summary{padding:.4em 0;cursor:pointer}
 label{display:block;margin-top:.6em;font-size:.9em}
 small{color:#a1a1aa}
-@media (max-width:480px){body{margin:1.5em auto}button{width:100%}}</style>
+@media (max-width:480px){body{margin:1.5em auto}button{width:100%}}
+@media (pointer:coarse){input{font-size:16px}}</style>
 </head><body>
 <h1>membro admin — locked</h1>
 <p>This page holds your durable memory — exact facts, review queue, edit/delete.</p>
