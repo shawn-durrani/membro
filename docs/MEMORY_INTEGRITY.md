@@ -63,6 +63,8 @@ summary, flagged low-confidence), never silently trusted. A human clears the que
 3. **Source-trust**: biography is not mined from roleplay / persona / interview-prep
    framing, or from an assistant's own "what do you know about me" dossier. This
    catches the *seed* (steps 1–2) even when the proper noun *is* present in the source.
+   The check reads what the people in the chat said. A model's own advice, like
+   "rehearse your set", doesn't make a chat roleplay.
 
 4. **System-meta (a drop rather than a quarantine)**: a "fact" about this memory
    system's own machinery or the AI tooling itself ("the memory ledger quarantined

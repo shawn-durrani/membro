@@ -241,3 +241,18 @@ def test_forgotten_person_names_leave_the_allowlist(con, settings):
     con.execute("UPDATE persons SET forgotten_at=1 WHERE slug='p-t3'")
     con.commit()
     assert "marisol" not in persons.grounding_names(con)
+
+
+def test_framing_text_narrows_only_source_trust():
+    # The miner passes the people's turns as framing_text: a model's word
+    # can't mark the chat, and grounding still reads the whole chunk.
+    src = ("Alex: I work at Initech.\n\n"
+           "claude: Rehearse your set before the open mic.")
+    assert walls.check("Alex works at Initech.", src, set(),
+                       framing_text="I work at Initech.") == []
+    flags = walls.check("Alex works at Globex.", src, set(),
+                        framing_text="I work at Initech.")
+    assert len(flags) == 1 and "grounding" in flags[0]
+    assert any("source-trust" in f for f in walls.check(
+        "Alex works at Initech.", src, set(),
+        framing_text="Pretend you are a recruiter. I work at Initech."))

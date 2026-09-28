@@ -568,6 +568,13 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         walls.speaker_trust_flag(m["speaker"]) for m in new_msgs)
 
     source_text = _transcript(new_msgs, settings.user_name)
+    # Roleplay framing is judged on what the people in the chat said (#148).
+    # A model seat's advice ("Rehearse your set") never makes the person's
+    # own words roleplay. Every other speaker class still counts, so an
+    # unrecognised speaker's framing holds facts, as before.
+    framing_text = "\n\n".join(
+        _msg_body(m) for m in new_msgs
+        if walls.speaker_class(m["speaker"]) != "model")
     # Both lists hold only what this conversation may see (#139), so another
     # chat's guest fact can neither pass as a repeat nor be superseded here.
     sealed, open_facts = _fact_window(con, conv["id"])
@@ -756,10 +763,10 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
             # chat it came from, so nothing is lost except a claim we cannot
             # support.
             source_message_id = None
-        # The walls (grounding/source-trust/scope) still read the whole chunk:
-        # a fact may legitimately synthesise across turns, and the date-borrowing fix is about the
-        # event date only — narrowing the walls here would be scope creep.
-        flags = walls.check(fact, source_text, allow)
+        # Grounding and temporal grounding still read the whole chunk: a fact
+        # may legitimately synthesise across turns, and the date-borrowing fix
+        # is about the event date only. Source trust reads the people's turns.
+        flags = walls.check(fact, source_text, allow, framing_text=framing_text)
         # #31: source-trust for WHO SPOKE. A fact bound to a guest's turn, an
         # unidentified speaker's, or an unrecognised speaker class's is held
         # for review with the speaker named in the reason — the same posture
