@@ -83,6 +83,16 @@ def test_erase_removes_the_row_and_search_stays_honest(client, settings):
                        json={"query": "kakapo"}).json()["hits"] == []
     assert len(client.post("/v1/search",
                            json={"query": "kea"}).json()["hits"]) == 1
+    # and from the index itself: a search joins back to live rows, so it
+    # would hide words the tombstone failed to remove
+    con = mdb.connect(settings.db_path)
+    try:
+        con.execute("CREATE VIRTUAL TABLE temp.msg_terms "
+                    "USING fts5vocab(main, messages_fts, 'instance')")
+        assert con.execute("SELECT COUNT(*) FROM temp.msg_terms "
+                           "WHERE term='kakapo'").fetchone()[0] == 0
+    finally:
+        con.close()
     h = client.get("/v1/health").json()
     assert h["status"] == "ok" and h["db"]["fts_in_sync"] is True
     assert client.delete(f"/v1/messages/{mid}").status_code == 404

@@ -840,8 +840,9 @@ image/binary kind), the message it arrived with, and the ledger facts mined
 from that conversation.
 `DELETE /v1/attachments/{id}`: the attachments twin of the facts eraser:
 human-initiated via the danger zone, the only delete path; content-addressed
-bytes are unlinked only when no other row references them. Journals to
-`erasures` like every eraser.
+bytes are unlinked only when no other row references them. The file leaves
+the search index with its row, and an image takes its caption with it.
+Journals to `erasures` like every eraser.
 
 ### Messages
 

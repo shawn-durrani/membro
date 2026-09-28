@@ -19,9 +19,10 @@ human erasers on the admin surface: fact, file, and message.
 `test_message_erase.py` pins the message one. The erase is owner-gated
 and single-row; search and health stay accurate afterwards; live facts
 mined from an erased message resurface for review instead of vanishing;
-attachments are counted, not cascaded. Every eraser journals a
-content-free `erasures` row, so what was erased is gone and that it was
-erased is not.
+attachments are counted, not cascaded. An erased image leaves no caption
+behind, in its table or in the search index (`test_captions.py`). Every
+eraser journals a content-free `erasures` row, so what was erased is gone
+and that it was erased is not.
 
 **Person records.** Owner-set names survive client updates. An alias can
 never be reassigned to a different person, and a model speaker label can

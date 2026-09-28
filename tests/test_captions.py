@@ -196,3 +196,50 @@ def test_human_attachment_delete_cascades_the_caption(con, settings):
     con.execute("DELETE FROM attachments")  # what api.py's eraser does
     con.commit()
     assert con.execute("SELECT COUNT(*) FROM attachment_captions").fetchone()[0] == 0
+
+
+def _indexed_rowids(con, word):
+    """Every rowid the attachment index holds this word for, read from the
+    index itself. A search joins its hits back to live rows and would hide
+    a leftover, so this asks the index directly."""
+    con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.att_terms "
+                "USING fts5vocab(main, attachments_fts, 'instance')")
+    return {r[0] for r in con.execute(
+        "SELECT doc FROM temp.att_terms WHERE term = ?", (word,))}
+
+
+def test_erasing_an_image_takes_its_caption_out_of_search(con, settings):
+    """The index holds a captioned image's caption, not its empty
+    extracted_text. The eraser must tombstone that text, or the caption's
+    words outlive the image in the index."""
+    from memory_service import erasers
+    conv = _ingest_photo_chat(con, settings)
+    captions.caption_pending(
+        con, settings, conv["id"],
+        vision=lambda *a, **k: "Three marblewood planks beside a track saw.")
+    att = con.execute("SELECT id FROM attachments").fetchone()["id"]
+    assert _indexed_rowids(con, "marblewood") == {att}
+    assert episodic.search(con, "marblewood")
+
+    assert erasers.erase_attachment(con, settings, att)["deleted"] == att
+
+    assert _indexed_rowids(con, "marblewood") == set()
+    assert con.execute("SELECT rowid FROM attachments_fts "
+                       "WHERE attachments_fts MATCH 'marblewood'").fetchall() == []
+    assert episodic.search(con, "marblewood") == []
+    assert con.execute("SELECT COUNT(*) FROM attachment_captions").fetchone()[0] == 0
+    con.execute("INSERT INTO attachments_fts(attachments_fts) VALUES('integrity-check')")
+
+
+def test_erasing_a_document_still_takes_its_text_out_of_search(con, settings):
+    """The uncaptioned case keeps working: a document's own text leaves."""
+    from memory_service import erasers
+    conv = _ingest_photo_chat(con, settings)
+    episodic.add_attachment(con, settings, conv["id"], "m1", "notes.txt",
+                            "text/plain", b"Glue the marblewood edging first.")
+    att = con.execute("SELECT id FROM attachments WHERE filename='notes.txt'"
+                      ).fetchone()["id"]
+    assert _indexed_rowids(con, "marblewood") == {att}
+    erasers.erase_attachment(con, settings, att)
+    assert _indexed_rowids(con, "marblewood") == set()
+    con.execute("INSERT INTO attachments_fts(attachments_fts) VALUES('integrity-check')")
