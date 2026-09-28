@@ -462,8 +462,8 @@ as revealing as the exact-row ledger reads gated above.
               "web_sources": ["example.com"]}]}`
 `limit` defaults to 20, maximum 500 (422 outside 1–500). `title` is the
 conversation's title as last ingested (empty string if the client never sent
-one); `content` is an FTS snippet with `>>match<<` markers, not the whole
-message. `web_sources` (1.4) is the list stored with the message on
+one); `content` is an FTS snippet of up to 64 words around the match, with
+`>>match<<` markers, not the whole message. `web_sources` (1.4) is the list stored with the message on
 ingest, empty for a turn that read no web page and for hits from files.
 A client that shows a hit to a model should mark a stamped hit as
 untrusted, the same way it marks a live fetch.
