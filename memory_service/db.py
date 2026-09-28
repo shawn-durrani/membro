@@ -74,8 +74,12 @@ CREATE TABLE IF NOT EXISTS messages(
   UNIQUE(conversation_id, external_id)
 );
 
+-- The porter tokenizer indexes each word by its stem, so a search for
+-- "sister" finds "sisters" and "packed" finds "packing". An index built with
+-- another tokenizer is rebuilt at startup (repair_fts).
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-  content, content='messages', content_rowid='id');
+  content, content='messages', content_rowid='id',
+  tokenize='porter unicode61');
 
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
   INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
@@ -100,7 +104,8 @@ CREATE TABLE IF NOT EXISTS attachments(
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS attachments_fts USING fts5(
-  extracted_text, content='attachments', content_rowid='id');
+  extracted_text, content='attachments', content_rowid='id',
+  tokenize='porter unicode61');
 
 CREATE TRIGGER IF NOT EXISTS attachments_ai AFTER INSERT ON attachments BEGIN
   INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.id, new.extracted_text);
@@ -394,14 +399,28 @@ def init(settings) -> None:
 # while a plain COUNT(*) on the fts table still read through to the base
 # table's row count.)
 FTS_TABLES = (("messages", "messages_fts"), ("attachments", "attachments_fts"))
+# The tokenizer SCHEMA declares for both indexes. An index built with any
+# other (every store made before stemming, #152) counts as out of sync.
+FTS_TOKENIZE = "porter unicode61"
+_TOKENIZE_RE = re.compile(r"tokenize\s*=\s*['\"]([^'\"]*)['\"]", re.I)
+
+
+def _fts_tokenizer(con: sqlite3.Connection, fts: str) -> str:
+    """The tokenizer an FTS5 table was created with, as its CREATE statement
+    declares it; FTS5's default, "unicode61", when it declares none."""
+    row = con.execute("SELECT sql FROM sqlite_master WHERE name=?",
+                      (fts,)).fetchone()
+    m = _TOKENIZE_RE.search(row[0] if row and row[0] else "")
+    return " ".join(m.group(1).split()) if m else "unicode61"
 
 
 def fts_status(con: sqlite3.Connection) -> dict:
     """Row-count comparison between each base table and its external-content
     FTS5 index's `_docsize` shadow table (see note above — NOT a plain
     COUNT(*) on the fts5 table, which reads through to the base table and
-    would always claim to be in sync). Tables that don't exist yet
-    (older/partial schema) are skipped rather than raising."""
+    would always claim to be in sync), plus the index's tokenizer. Tables
+    that don't exist yet (older/partial schema) are skipped rather than
+    raising."""
     status = {}
     for base, fts in FTS_TABLES:
         try:
@@ -410,25 +429,59 @@ def fts_status(con: sqlite3.Connection) -> dict:
                 f"SELECT COUNT(*) FROM {fts}_docsize").fetchone()[0]
         except sqlite3.OperationalError:
             continue
+        tok = _fts_tokenizer(con, fts)
         status[fts] = {"base_table": base, "base_rows": base_n,
-                       "fts_rows": fts_n, "in_sync": base_n == fts_n}
+                       "fts_rows": fts_n, "tokenizer": tok,
+                       "in_sync": base_n == fts_n and tok == FTS_TOKENIZE}
     return status
 
 
 def repair_fts(con: sqlite3.Connection) -> dict:
     """Idempotent: rebuild any external-content FTS5 index whose row count
-    disagrees with its base table. A no-op (no writes) when everything is
-    already in sync. Returns {"checked": [...], "repaired": [...]} — never
-    touches `messages`/`attachments` themselves, only their derived index."""
+    disagrees with its base table, or that was built with another tokenizer.
+    A no-op (no writes) when everything is already in sync. Returns
+    {"checked": [...], "repaired": [...]} — never touches
+    `messages`/`attachments` themselves, only their derived index.
+
+    A tokenizer can't be changed in place, so a stale one is dropped and
+    SCHEMA recreates it (every statement there is IF NOT EXISTS, so nothing
+    else changes). Dropping an external-content index drops only the index.
+    A rebuild reads `attachments.extracted_text`, so the image captions the
+    `attachment_captions_ai` trigger indexed in its place are put back."""
     status = fts_status(con)
+    stale = [fts for fts, s in status.items()
+             if s["tokenizer"] != FTS_TOKENIZE]
+    if stale:
+        for fts in stale:
+            con.execute(f"DROP TABLE {fts}")
+        con.executescript(SCHEMA)
     repaired = []
     for fts, s in status.items():
         if not s["in_sync"]:
             con.execute(f"INSERT INTO {fts}({fts}) VALUES('rebuild')")
+            if fts == "attachments_fts":
+                _reindex_captions(con)
             repaired.append(fts)
     if repaired:
         con.commit()
     return {"checked": list(status), "repaired": repaired}
+
+
+def _reindex_captions(con: sqlite3.Connection) -> None:
+    """Swap each captioned attachment's rebuilt entry for its caption, as the
+    `attachment_captions_ai` trigger did when the caption arrived."""
+    try:
+        rows = con.execute(
+            "SELECT c.attachment_id, a.extracted_text, c.caption "
+            "FROM attachment_captions c "
+            "JOIN attachments a ON a.id = c.attachment_id").fetchall()
+    except sqlite3.OperationalError:
+        return  # older/partial schema: no captions table, nothing to put back
+    for att_id, text, caption in rows:
+        con.execute("INSERT INTO attachments_fts(attachments_fts, rowid, "
+                    "extracted_text) VALUES('delete', ?, ?)", (att_id, text))
+        con.execute("INSERT INTO attachments_fts(rowid, extracted_text) "
+                    "VALUES (?, ?)", (att_id, caption))
 
 
 def now() -> float:

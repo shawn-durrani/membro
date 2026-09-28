@@ -12,9 +12,10 @@ generic terms, while everything else (recall, the fact ledger) is unaffected.
 
 This script is a standalone way to check/fix that on an already-running
 instance without waiting for (or forcing) a restart. It is safe to run any
-number of times: `fts_status` only rebuilds a table when its row count
-disagrees with its base table, and `INSERT INTO <fts>(<fts>) VALUES('rebuild')`
-touches only the derived index, never `messages`/`attachments` themselves.
+number of times: `repair_fts` only rebuilds a table when its row count
+disagrees with its base table, or when it was built with a tokenizer other
+than the one SCHEMA declares, and a rebuild touches only the derived index,
+never `messages`/`attachments` themselves.
 
 Usage:
   .venv/bin/python scripts/rebuild_fts.py [--data-dir PATH] [--check]
@@ -55,7 +56,8 @@ def main() -> int:
         for fts, s in status.items():
             mark = "OK" if s["in_sync"] else "OUT OF SYNC"
             print(f"  {fts}: {s['fts_rows']} indexed rows vs "
-                  f"{s['base_rows']} in {s['base_table']} — {mark}")
+                  f"{s['base_rows']} in {s['base_table']}, tokenizer "
+                  f"{s['tokenizer']!r} — {mark}")
         if not out_of_sync:
             print("all FTS indexes in sync; nothing to do")
             return 0

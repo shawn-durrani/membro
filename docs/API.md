@@ -450,10 +450,12 @@ content for a conversation. Async.
 
 ### Verbatim search
 
-`POST /search`: verbatim FTS over the episodic record. **Requires the owner
-credential (`Authorization: Bearer` or the admin session cookie), even on
-loopback**: search returns verbatim transcript snippets, which are at least
-as revealing as the exact-row ledger reads gated above.
+`POST /search`: verbatim FTS over the episodic record. Words match on their
+stem, so "sister" finds "sisters" and "packed" finds "packing".
+**Requires the owner credential (`Authorization: Bearer` or the admin
+session cookie), even on loopback**: search returns verbatim transcript
+snippets, which are at least as revealing as the exact-row ledger reads
+gated above.
 ```json
 {"query": "...", "limit": 20}
 ```
