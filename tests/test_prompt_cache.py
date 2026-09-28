@@ -1,5 +1,6 @@
 """Prompt caching: where the breakpoints go, and that the prefix they close
-is the same bytes from one call to the next.
+is the same bytes from one call to the next. The miner's list of existing
+facts also keeps to the chat's scope, checked here in the same requests.
 
 Every request here goes through the real utility_complete into a stand-in
 Anthropic client, so what is checked is the request body the API would get.
@@ -11,7 +12,9 @@ import time
 
 import pytest
 
-from memory_service import episodic, ledger, llm, mining, summary
+from memory_service import episodic, ledger, llm, mining, recall, summary
+
+_real_recall = recall.recall   # the api fixture stubs it; the scope tests put it back
 
 
 class _Usage:
@@ -352,6 +355,139 @@ def test_the_cached_prefix_carries_nothing_volatile(con, settings, api,
         assert not pattern.search(entries), pattern.pattern
     listed = [int(i) for i in re.findall(r"^- \[(\d+)\]", entries, re.M)]
     assert listed == sorted(listed) and len(listed) == 100
+
+
+# ---------------------------------------------------------------- the chat's scope
+
+APP = "multi-model-chat"
+
+
+def _say(con, chat, speaker, text):
+    """One more turn in `chat`. Returns (the chat's id, the turn's id)."""
+    n = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    episodic.ingest(con, APP, chat, [
+        {"external_id": f"t{n}", "speaker": speaker, "content": text,
+         "created_at": 1700000000.0 + n}], title=chat)
+    row = con.execute("SELECT id, conversation_id FROM messages "
+                      "ORDER BY id DESC LIMIT 1").fetchone()
+    return row["conversation_id"], row["id"]
+
+
+def _guest_fact(con, settings, chat, text, **kw):
+    """A guest's fact drawn from their own turn in `chat`, as it stands once
+    approved: valid, and bound to that chat."""
+    cid, mid = _say(con, chat, "guest:Sam", "Sam here, just dropping in.")
+    f = ledger.add_fact(con, text, settings, source="chat", origin_agent=APP,
+                        source_app=APP, conversation_id=cid,
+                        source_message_id=mid, **kw)
+    assert f["scope"] == "conversation" and not f["quarantined"]
+    return f["id"]
+
+
+def _text(req) -> str:
+    system, content = _blocks(req)
+    return "".join(b["text"] for b in list(system) + list(content))
+
+
+def _listed(req) -> list[int]:
+    return [int(i) for i in re.findall(r"^- \[(\d+)\]", _text(req), re.M)]
+
+
+def test_another_chats_guest_fact_never_reaches_the_miner(con, settings, api,
+                                                          monkeypatch):
+    """Not in the recency window, not among the on-topic facts, and a fact
+    said here can't mark it replaced."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mining.recall, "recall", _real_recall)
+    _ledger(con, settings, 40)                           # ids 1-40
+    theirs = _guest_fact(con, settings, "room-b",
+                         "Sam (a guest) is planning a kitchen renovation in "
+                         "Fairhaven.", event_date=1690000000.0)   # the newest
+    _say(con, "c1", "user", "I booked the kitchen renovation for spring.")
+    api.replies = [f"NEW src=1 supersedes={theirs} importance=5: Alex booked "
+                   "the kitchen renovation for spring."]
+    mining.distill(con, settings, APP, "c1", regenerate=False)
+    req = api.requests[0]
+    assert "Fairhaven" not in _text(req)
+    assert _listed(req) == list(range(1, 41))            # the owner's facts, all
+    assert ledger.get_fact(con, theirs)["invalidated_at"] is None
+
+
+def test_this_chats_guest_facts_reach_its_own_miner(con, settings, api,
+                                                    monkeypatch):
+    """A recent one rides the recency window. One older than the window's
+    floor is still reached by the topic search, which names this chat."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(mining.recall, "recall", _real_recall)
+    monkeypatch.setattr(mining, "WINDOW_FACTS", 20)
+    older = _guest_fact(con, settings, "c1",
+                        "Sam (a guest) is renovating a kitchen too.")    # id 1
+    _ledger(con, settings, 100)                          # ids 2-101, floor 64
+    recent = _guest_fact(con, settings, "c1",
+                         "Sam (a guest) is a carpenter by trade.")       # id 102
+    _say(con, "c1", "user", "I booked the kitchen renovation for spring.")
+    _in_burst(monkeypatch)
+    mining.distill(con, settings, APP, "c1", regenerate=False)
+    content = _blocks(api.requests[0])[1]
+    assert content[-2]["text"].endswith(
+        f"- [{recent}] Sam (a guest) is a carpenter by trade.\n")
+    assert content[-1]["text"].startswith(
+        f"- [{older}] Sam (a guest) is renovating a kitchen too.\n")
+
+
+def test_every_chat_counts_its_window_from_the_same_floor(con, settings,
+                                                          monkeypatch):
+    """The floor counts global facts only. A chat with many facts of its own
+    starts where every other chat does, so they share the first buckets."""
+    monkeypatch.setattr(mining, "WINDOW_FACTS", 20)
+    _ledger(con, settings, 64)                           # ids 1-64
+    room, _ = _say(con, "room", "user", "Sam is staying over this week.")
+    other, _ = _say(con, "other", "user", "Nothing much to report today.")
+    for i in range(36):                                  # ids 65-100
+        ledger.add_fact(con, f"Sam (a guest) mentioned plant pot number {i}.",
+                        settings, conversation_id=room, scope="conversation")
+    ours, theirs = mining._fact_window(con, room), mining._fact_window(con, other)
+    assert ours[0][0] == theirs[0][0]                    # ids 32-63
+    assert ours[0][0][0]["id"] == 32
+    bound = {f["id"] for b in ours[0] for f in b} | {f["id"] for f in ours[1]}
+    assert set(range(65, 101)) <= bound
+    seen = {f["id"] for b in theirs[0] for f in b} | {f["id"] for f in theirs[1]}
+    assert seen == set(range(32, 65))
+
+
+def test_the_prefix_holds_across_calls_in_a_chat_with_guest_facts(
+        con, settings, api, monkeypatch):
+    """Between two calls in one chat, another chat gains a guest fact, the
+    owner gains a fact and this chat gains one. The sealed buckets, this
+    chat's own fact among them, are the same bytes, and the open part only
+    grows at its end."""
+    _ledger(con, settings, 40)                           # ids 1-40
+    ours = _guest_fact(con, settings, "c1",
+                       "Sam (a guest) is a carpenter by trade.")         # id 41
+    for i in range(30):                                  # ids 42-71
+        ledger.add_fact(con, f"Alex keeps later note {i} about the shed.",
+                        settings)
+    _say(con, "c1", "user", "I booked the kitchen renovation for spring.")
+    _in_burst(monkeypatch)
+    mining.distill(con, settings, APP, "c1", regenerate=False)
+    _guest_fact(con, settings, "room-b",
+                "Sam (a guest) grows tomatoes in Fairhaven.")            # id 72
+    ledger.add_fact(con, "Alex keeps a spare key under the mat.", settings)
+    also_ours = _guest_fact(con, settings, "c1",
+                            "Sam (a guest) is building a bookshelf.")    # id 74
+    _say(con, "c1", "user", "We picked the tiles for the kitchen at last.")
+    mining.distill(con, settings, APP, "c1", regenerate=False)
+    first, second = api.requests
+    s1, c1 = _blocks(first)
+    s2, c2 = _blocks(second)
+    assert s1 == s2
+    assert _marked(c1) == _marked(c2) == [1, 2]
+    assert c1[:2] == c2[:2]                              # ids 1-31, 32-63
+    assert f"- [{ours}] Sam (a guest) is a carpenter" in c1[1]["text"]
+    assert c2[2]["text"] == c1[2]["text"] + (
+        "- [73] Alex keeps a spare key under the mat.\n"
+        f"- [{also_ours}] Sam (a guest) is building a bookshelf.\n")
+    assert "Fairhaven" not in _text(second)
 
 
 # ---------------------------------------------------------------- the summary
