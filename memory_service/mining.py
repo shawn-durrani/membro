@@ -40,11 +40,12 @@ def _conversation_lock(source_app: str, external_id: str) -> threading.Lock:
 # everything after the first colon. Only lines beginning with NEW are facts —
 # anything else is model chatter and is dropped (STRICT).
 _HEAD_RE = re.compile(r"^NEW\b(?P<attrs>[^:]*):\s*(?P<fact>.+)$", re.IGNORECASE)
-# The template writes every value in angle brackets (src=<N>,
-# importance=<1-10>), and the model often copies them: src=<3>,
-# src=<msg 3>, importance=<7>, supersedes=<12>. Each tag reads the bracketed
-# value exactly as it reads the bare one (#145). A placeholder copied whole,
-# like event=<YYYY-MM-DD> or importance=<1-10>, still reads as no value.
+# The template once wrote every value in angle brackets (src=<N>,
+# importance=<1-10>), and the model often copied them: src=<3>,
+# src=<msg 3>, importance=<7>, supersedes=<12>. The template now writes bare
+# values (#136), and each tag still reads a bracketed value exactly as it
+# reads the bare one (#145). A placeholder copied whole, like
+# event=<YYYY-MM-DD> or importance=<1-10>, still reads as no value.
 _OPEN = r"\s*=\s*[<\[]?\s*"
 _SUPERSEDES_RE = re.compile(
     rf"supersedes{_OPEN}(\d+(?:\s*,\s*\d+)*)\s*[>\]]?", re.I)
@@ -470,18 +471,46 @@ def _miner_instructions(user_name: str) -> str:
     """The miner's fixed instructions: the system prompt of every mining
     call, the same bytes on every call for a given owner name, so they
     lead the cached prefix. Guest guidance varies by window and travels
-    with the excerpt instead."""
+    with the excerpt instead.
+
+    What's said in passing is kept (#136): what the person owns and uses,
+    what they've done, their home and their family, even as an aside in a
+    chat about something else. One-off numbers still aren't. Each example
+    fact names an invented place or person, so an example the model copies
+    into a chat that never mentions it is held by the grounding wall."""
     return (
         f"You maintain a permanent memory ledger about {user_name}. From the "
         "conversation excerpt below, extract durable facts worth remembering long-term. "
         "Capture ALL dimensions, not only the technical ones:\n"
-        "- identity, work, projects, preferences, decisions, skills\n"
+        "- identity, work, projects, preferences, decisions, skills, and their age\n"
         "- PEOPLE & RELATIONSHIPS: who matters to them and durable facts about those "
-        "people (family, friends, colleagues — names, ages, needs, roles). Not name-drops.\n"
+        "people (family, friends, colleagues — names, ages, needs, roles), including "
+        "how many siblings or children they have. Not name-drops.\n"
         "- GOALS & DIRECTION: what they're working toward or worried about over time. "
         "Not passing moods.\n"
-        "The test is DURABILITY (still true in ~6 months), not topic — keep durable "
-        "relationships and goals; drop transient feelings and chit-chat.\n"
+        "- WHAT THEY OWN AND USE: devices, vehicles, gear, software and tools they "
+        "own or use regularly (the laptop they work on, the car they drive, the app "
+        "they log their runs in).\n"
+        "- WHAT THEY'VE DONE: courses and classes they took, trips, events they went "
+        "to, hobbies they practise, work done on things they own (a pottery course "
+        "they finished, new tyres on their car).\n"
+        "- HOME: where and how they live, their pets, and what's in their home (a dog "
+        "that needs two walks a day, a courtyard garden, a new gas cooktop).\n"
+        "SAID IN PASSING COUNTS. People mention these things as an aside while asking "
+        "about something else ('by the way, my daughter starts school next year', "
+        "'the dent in my Corolla'). The aside is often the most lasting thing in the "
+        "excerpt: extract it even when the rest of the chat is a one-off task. Judge "
+        "the excerpt on its own. The existing entries are listed so you don't repeat "
+        "one and can mark one as updated, never to decide what kind of fact is worth "
+        "keeping.\n"
+        "The test is DURABILITY: is it still true, or still worth knowing, in ~6 "
+        "months? The car they drive, a pet, a course they took, their siblings and "
+        "their age all pass. Drop transient feelings, chit-chat, the AI's own suggestions, "
+        "and the details of a one-off task: what one purchase cost, how many of "
+        "something they packed for one trip, a price they looked up, today's plans. "
+        "When a lasting fact comes wrapped in a one-off number, keep the fact and drop "
+        f"the number: 'my daughter Maya's $60 football boots' gives '{user_name} has a "
+        "daughter, Maya, who plays football'.\n"
         "PROJECT / BUILDER CONVERSATIONS get a stricter two-level rule, "
         "because this ledger is biography, not an engineering log — the full "
         "transcript already exists, searchable, for anyone who needs the technical "
@@ -508,23 +537,28 @@ def _miner_instructions(user_name: str) -> str:
         "'what do you know about me' summary; or anything already in the existing "
         "entries.\n"
         "Each turn in the excerpt is prefixed with a [msg N] label. Every fact must "
-        "carry src=<N> naming the SINGLE message it was drawn from — copy the label "
-        "off that turn, do not count. If a fact draws on a few adjacent turns, cite "
-        "the one that states the fact most directly (and, if dating, the one that "
-        "states the date).\n"
-        "Output one fact per line in exactly one of these formats:\n"
-        "NEW src=<N> importance=<1-10>: <fact as a plain sentence>\n"
-        "NEW src=<N> supersedes=<id> importance=<1-10>: <fact that replaces/contradicts "
-        "existing entry <id>>\n"
-        "(use supersedes when the new fact updates or contradicts a listed entry — the "
-        "old entry is kept as history, not deleted)\n"
+        "carry src= with the number of the SINGLE message it was drawn from — copy "
+        "the number off that turn's label, do not count. If a fact draws on a few "
+        "adjacent turns, cite the one that states the fact most directly (and, if "
+        "dating, the one that states the date).\n"
+        "Output one fact per line, with every value written bare, never in brackets. "
+        "A fact drawn from [msg 4] with importance 5 is written:\n"
+        f"NEW src=4 importance=5: {user_name} plays the cello in the Wattlebrook "
+        "Community Orchestra.\n"
+        "When a new fact updates or contradicts a listed entry, add supersedes= with "
+        "that entry's id (the old entry is kept as history, not deleted). A fact from "
+        "[msg 7] replacing entry 12 is written:\n"
+        f"NEW src=7 supersedes=12 importance=6: {user_name} now works four days a week "
+        "at Tallowood Library.\n"
         "DATING: by default a fact is dated to this conversation. If — and only if — "
         "the excerpt states an EXPLICIT CALENDAR DATE for when the fact's event "
         "actually happened (e.g. 'June 30', 'on the 13th of July', '2026-07-11'), add "
-        "event=<YYYY-MM-DD> so the fact is dated to that day — and make sure src=<N> "
-        "points to the very message that states that date, because the date is only "
-        "honoured when it literally appears in that one message:\n"
-        "NEW src=<N> event=<YYYY-MM-DD> importance=<1-10>: <fact>\n"
+        "event= with that date as YYYY-MM-DD so the fact is dated to that day — and "
+        "make sure src= points to the very message that states that date, because the "
+        "date is only honoured when it literally appears in that one message. A fact "
+        "from [msg 2], which says the race was on the 13th of July 2026, is written:\n"
+        f"NEW src=2 event=2026-07-13 importance=4: {user_name} ran the Kestrel Bay half "
+        "marathon on the 13th of July 2026.\n"
         "NEVER use event= for relative or vague times ('last week', 'a couple weeks "
         "ago', 'recently'), and NEVER guess or infer a date. If no explicit calendar "
         "date is written in the excerpt, omit event= entirely.\n"
@@ -534,12 +568,13 @@ def _miner_instructions(user_name: str) -> str:
         "source's own qualifier verbatim — 'on Saturday, about nine days away' stays "
         "exactly that. A reader can resolve it against the fact's date; a wrong "
         "resolution is permanent.\n"
-        "importance is how much this fact matters to understanding the person "
-        "long-term, NOT how often it came up. Anchors: 1-2 = mundane detail (a tool "
-        "preference, a one-off errand); 4-6 = notable (a project decision, a stated "
-        "goal, a colleague's role); 8-9 = life-defining (a new job, a move, family, "
-        "health). Most facts are 3-6; reserve 8-9 for genuinely major items. Never "
-        "assign 10 — it is reserved for the owner to mark facts as permanent.\n"
+        "importance is a whole number from 1 to 9: how much this fact matters to "
+        "understanding the person long-term, NOT how often it came up. Anchors: 1-3 = "
+        "a small lasting detail (a gadget they own, a course they took); 4-6 = "
+        "notable (a project decision, a stated goal, a colleague's role); 8-9 = "
+        "life-defining (a new job, a move, family, health). Most facts are 3-6; "
+        "reserve 8-9 for genuinely major items. Never assign 10 — it is reserved for "
+        "the owner to mark facts as permanent.\n"
         "If there is nothing new, output exactly: NONE"
     )
 
@@ -615,8 +650,8 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         f"{settings.user_name}'s world (family, close relationships, shared "
         "plans, things that affect them). Speech from an unidentified speaker "
         "may still be extracted, attributed to 'an unidentified guest'. Every "
-        "fact drawn from a guest's turn must carry src=<N> naming that "
-        "guest's own turn.\n")
+        "fact drawn from a guest's turn must carry src= with the number of "
+        "that guest's own turn.\n")
     ttl = MINER_CACHE_TTL if _in_burst(more_to_come) else None
     parts = _entry_parts(sealed, open_facts,
                          [extras[i] for i in sorted(extras)], ttl)
