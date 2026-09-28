@@ -194,16 +194,54 @@ def messages_after(con, conversation_id: int, after_id: int = 0) -> list[dict]:
         (conversation_id, after_id))]
 
 
+# Words of context around a match in each search hit. 64 is the most FTS5's
+# snippet() gives: it quietly treats anything larger as 64. At 24 a hit
+# stopped short of the number it was about ("only wearing two", "$200,000")
+# in three benchmark misses (#150). A hit averages about 330 characters.
+SNIPPET_TOKENS = 64
+
+
 def _like_fallback(con, words, limit) -> list[dict]:
     """The bounded non-FTS path: first word, substring match, newest first.
-    Serves FTS syntax edge cases and a drifted index alike."""
+    Serves FTS syntax edge cases and a drifted index alike. Each hit carries
+    the same excerpt the FTS path gives, cut around the match."""
     rows = con.execute(
         "SELECT m.speaker, m.created_at, c.title, c.external_id conversation_id, "
-        "substr(m.content, 1, 200) AS content, m.web_sources "
+        "m.content, m.web_sources "
         "FROM messages m JOIN conversations c ON c.id = m.conversation_id "
         "WHERE m.content LIKE ? ORDER BY m.id DESC LIMIT ?",
         (f"%{words[0]}%", limit))
-    return _with_web_sources([dict(r) for r in rows])
+    hits = [dict(r) for r in rows]
+    for h in hits:
+        h["content"] = _excerpt(h["content"], words[0])
+    return _with_web_sources(hits)
+
+
+_WORD = re.compile(r"\S+")
+
+
+def _excerpt(text: str, needle: str, size: int = SNIPPET_TOKENS) -> str:
+    """Up to `size` words of `text` around the first case-insensitive
+    `needle`, shaped like snippet()'s output: the match inside `>>` `<<`,
+    the words around it centred on it, and ' … ' where the text goes on.
+    A needle LIKE matched through a wildcard isn't found here, and the
+    excerpt is then the message's opening words."""
+    spans = [m.span() for m in _WORD.finditer(text)]
+    if not spans:
+        return text
+    hit = re.search(re.escape(needle), text, re.I) if needle else None
+    at = 0
+    if hit:
+        at = next(i for i, (a, b) in enumerate(spans) if b > hit.start())
+    first = max(0, min(at - (size - 1) // 2, len(spans) - size))
+    last = min(len(spans), first + size)
+    lo, hi = spans[first][0], spans[last - 1][1]
+    if hit and lo <= hit.start() and hit.end() <= hi:
+        body = (text[lo:hit.start()] + ">>" + text[hit.start():hit.end()]
+                + "<<" + text[hit.end():hi])
+    else:
+        body = text[lo:hi]
+    return (" … " if first else "") + body + (" … " if last < len(spans) else "")
 
 
 def _with_web_sources(hits: list[dict]) -> list[dict]:
@@ -243,13 +281,6 @@ def _fts_index_drifted(con) -> bool:
         return False  # older/partial schema: nothing provable, no fallback
     return bool(
         con.execute("SELECT EXISTS(SELECT 1 FROM messages)").fetchone()[0])
-
-
-# Words of context around a match in each search hit. 64 is the most FTS5's
-# snippet() gives: it quietly treats anything larger as 64. At 24 a hit
-# stopped short of the number it was about ("only wearing two", "$200,000")
-# in three benchmark misses (#150). A hit averages about 330 characters.
-SNIPPET_TOKENS = 64
 
 
 def search(con, query: str, limit: int = 20) -> list[dict]:
