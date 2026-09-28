@@ -129,6 +129,27 @@ defence). If a name is ubiquitous in *your* life (your employer, your town),
 add it here so it's never flagged. This lives in config rather than code
 deliberately, because which nouns are ubiquitous differs for every owner.
 
+### What a mining call costs
+
+Each mining call sends the miner's instructions, a list of your existing
+facts and the new part of the chat. The instructions and the list are
+laid out to stay the same from one call to the next. When calls come in a
+burst, such as a long backlog or an import, each one after the first
+reads that shared part from Anthropic's prompt cache at a tenth of the
+price. A call on its own, minutes after the last one, doesn't ask for the
+cache. An entry lives five minutes and costs a quarter more to write, so it
+would expire unread. Claude Haiku 4.5 caches only a shared part of 4,096
+tokens or more, which the list reaches at about 50 facts.
+
+A profile build works the same way. Its expansion pass reads the entries
+its draft sent a few seconds earlier.
+
+Every model call writes one line to `data/service.log`. It names the call
+site, such as `miner` or `summary.draft`, and the model. It gives the
+tokens sent, written to the cache and read from it, never any text. It
+ends with that site's share of input read from the cache since the
+service started.
+
 ## Recall & embeddings
 
 | Setting | Default | What it does |
