@@ -38,6 +38,25 @@ Browsing the ledger *directly* (the admin page's Ledger table, or the
 read-only admin MCP tools) is not logged today; the access log covers
 lookups made on a model's behalf rather than your own inspection.
 
+## What the miner keeps
+
+The miner keeps facts about you that should still hold in six months or
+so. That's who you are and your age, your work and projects, what you like,
+what you've decided and what you're working towards. It's the people in
+your life, down to how many brothers and sisters you have. It's also what
+you own and use, what you've done, and your home and pets.
+
+Most of that comes up in passing. You mention your car while asking about
+tyres, or your sister while planning a gift. The miner keeps the aside even
+when the rest of the chat is a one-off task. It judges each chat on its
+own. It's shown your cards only so it won't repeat one and can update one.
+
+It leaves out passing moods, chit-chat and the AI's own suggestions. It
+also leaves out the details of a one-off task, like what one purchase cost
+or how many shoes you packed for a trip. When a lasting fact comes with a
+one-off number, it keeps the fact and drops the number. It never keeps
+facts about the AIs or about membro itself, or biography from roleplay.
+
 ## What is capped, and what is not
 
 "Cap" means several different things here and **only three of them are
