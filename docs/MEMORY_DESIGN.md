@@ -63,12 +63,17 @@ re-reading (or overflowing) what it already mined. Both bounds exist because wha
 
 ### What the miner is shown of the ledger: bounded (a real limit)
 The miner sees your existing cards, so it won't repeat one and can mark a
-card that a new fact updates. It gets at least your **250 newest** valid
-cards, oldest first, and up to **40 older cards** that match the chat's
-topic. The newest list starts from a card number that moves in steps of
-32, so it can hold a few dozen more than 250. That keeps its start the
-same from one call to the next, so a burst of mining calls can share a
-prompt cache.
+card that a new fact updates. It's shown the cards a recall from that chat
+would find: the ones every chat can see, and the ones bound to this chat.
+A card bound to another chat, such as one drawn from a guest's words there,
+never reaches it. It gets at least the **250 newest** valid cards every
+chat can see, oldest first, plus this chat's own cards from the same
+start. It also gets up to **40 older cards** that match the chat's topic.
+The newest list starts from a card number that moves in steps of 32, so it
+can hold a few dozen more than 250. That keeps its start the same from one
+call to the next, so a burst of mining calls can share a prompt cache. Only
+the cards every chat can see decide that start, so every chat's list
+begins at the same card.
 
 ### Reading the ledger yourself (the admin UI): paged rather than capped
 The ledger table fetches a page at a time (200 rows) for browser performance, then

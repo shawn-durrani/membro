@@ -367,12 +367,19 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
 # repeats one nor misses a supersede target. Prompt caching is a prefix match,
 # so the list is built to stay byte-identical from one mining call to the
 # next. It runs oldest first from a floor that moves in steps of WINDOW_STEP
-# ids, so it holds at least the WINDOW_FACTS newest valid facts (up to a
-# step's worth more just after the floor moves) and a new fact lands at the
+# ids, so it holds at least the WINDOW_FACTS newest valid global facts (up to
+# a step's worth more just after the floor moves) and a new fact lands at the
 # end instead of shifting the start. A bucket of WINDOW_STEP ids is sealed
 # once every id in it is taken, and a sealed bucket's text changes only when
-# one of its facts is superseded, held, approved or edited. The instructions
-# and the sealed buckets are the prefix the next call reads from the cache.
+# one of its facts is superseded, held, approved, edited or rebound. The
+# instructions and the sealed buckets are the prefix the next call reads from
+# the cache.
+#
+# The window shows what recall would show this conversation (#139): the
+# global facts and the ones bound to it, never another conversation's. The
+# floor counts global facts only, so a bound fact never moves it and every
+# conversation's window starts at the same id. Two conversations share every
+# sealed bucket before the first one holding a fact bound to either.
 WINDOW_FACTS = 250
 WINDOW_STEP = 32
 _WINDOW_HEADER = "## Existing valid entries (with ids — do not repeat)\n"
@@ -399,11 +406,14 @@ def _in_burst(more_to_come: bool) -> bool:
     return more_to_come or recent
 
 
-def _fact_window(con) -> tuple[list[list[dict]], list[dict]]:
-    """The recency window as (sealed buckets, open facts), oldest first."""
+def _fact_window(con, conversation_id: int | None = None
+                 ) -> tuple[list[list[dict]], list[dict]]:
+    """The recency window as (sealed buckets, open facts), oldest first, of
+    the facts `conversation_id` may see. With none given, global only."""
     nth = con.execute(
         "SELECT id FROM facts WHERE invalidated_at IS NULL "
-        "AND quarantined_at IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?",
+        "AND quarantined_at IS NULL AND scope='global' "
+        "ORDER BY id DESC LIMIT 1 OFFSET ?",
         (WINDOW_FACTS - 1,)).fetchone()
     floor = nth[0] // WINDOW_STEP * WINDOW_STEP if nth else 0
     # Ids only grow, so every id below the next multiple of the step under
@@ -412,7 +422,7 @@ def _fact_window(con) -> tuple[list[list[dict]], list[dict]]:
     seal = (top + 1) // WINDOW_STEP * WINDOW_STEP
     buckets: dict[int, list[dict]] = {}
     open_facts: list[dict] = []
-    for f in ledger.valid_facts_from(con, floor):
+    for f in ledger.valid_facts_from(con, floor, conversation_id):
         if f["id"] < seal:
             buckets.setdefault(f["id"] // WINDOW_STEP, []).append(f)
         else:
@@ -550,7 +560,9 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         walls.speaker_trust_flag(m["speaker"]) for m in new_msgs)
 
     source_text = _transcript(new_msgs, settings.user_name)
-    sealed, open_facts = _fact_window(con)
+    # Both lists hold only what this conversation may see (#139), so another
+    # chat's guest fact can neither pass as a repeat nor be superseded here.
+    sealed, open_facts = _fact_window(con, conv["id"])
     window_ids = {f["id"] for bucket in sealed for f in bucket}
     window_ids |= {f["id"] for f in open_facts}
     extras: dict[int, dict] = {}
@@ -561,7 +573,8 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         # recency window still gives the model everything freshly discussed,
         # which the semantic pass isn't guaranteed to surface.
         for f in recall.recall(con, settings, query=source_text[:SEMANTIC_QUERY_CHARS],
-                               limit=SEMANTIC_SUPERSEDE_CANDIDATES):
+                               limit=SEMANTIC_SUPERSEDE_CANDIDATES,
+                               conversation_id=conv["id"]):
             if f["id"] not in window_ids:
                 extras.setdefault(f["id"], f)
     except Exception:

@@ -279,11 +279,25 @@ def list_facts(con, status: str = "valid", query: str | None = None,
     return [_public(r) for r in con.execute(sql, params)]
 
 
-def valid_facts_from(con, floor_id: int) -> list[dict]:
-    """Every valid fact with an id at or above `floor_id`, oldest first."""
+def scope_filter(conversation_id: int | None) -> tuple[str, tuple]:
+    """The SQL clause (and its args) for the facts one conversation may see
+    (#72): the global ones, plus those bound to `conversation_id`, membro's
+    internal id. With no conversation, global only. Recall and the miner's
+    list both read through this, so a bound fact stays in its own chat."""
+    if conversation_id is not None:
+        return " AND (scope='global' OR conversation_id=?)", (conversation_id,)
+    return " AND scope='global'", ()
+
+
+def valid_facts_from(con, floor_id: int,
+                     conversation_id: int | None = None) -> list[dict]:
+    """Every valid fact with an id at or above `floor_id` that
+    `conversation_id` may see, oldest first."""
+    scope_sql, scope_args = scope_filter(conversation_id)
     return [_public(r) for r in con.execute(
         "SELECT * FROM facts WHERE invalidated_at IS NULL "
-        "AND quarantined_at IS NULL AND id >= ? ORDER BY id", (floor_id,))]
+        "AND quarantined_at IS NULL AND id >= ?" + scope_sql + " ORDER BY id",
+        (floor_id, *scope_args))]
 
 
 def get_fact(con, fact_id: int) -> dict | None:

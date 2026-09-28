@@ -5,7 +5,7 @@ Quarantined facts are always excluded; superseded excluded unless asked for
 hiding the old facts — ranking, not resolution.
 """
 
-from . import db, embeddings
+from . import db, embeddings, ledger
 
 SEMANTIC_FLOOR = 0.25
 PARAPHRASE_CUTOFF = 0.93
@@ -27,12 +27,7 @@ def recall(con, settings, query: str = "", limit: int = 10,
     internal id. A fact bound to a conversation is recalled only from that
     one; with no conversation given, only global facts come back."""
     query = (query or "").strip()
-    if conversation_id is not None:
-        scope_sql = " AND (scope='global' OR conversation_id=?)"
-        scope_args: tuple = (conversation_id,)
-    else:
-        scope_sql = " AND scope='global'"
-        scope_args = ()
+    scope_sql, scope_args = ledger.scope_filter(conversation_id)
     if not query:
         rows = con.execute(
             "SELECT * FROM facts WHERE quarantined_at IS NULL" + scope_sql
