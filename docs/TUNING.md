@@ -63,7 +63,12 @@ says whether it was expanded or squeezed.
 **`summary_model`**: the profile is the most-read document in the system
 (every model, every round) and rebuilds are rare, so it defaults to a
 stronger model than the fact miner. Any Anthropic (`claude-*`) or OpenAI
-model name works; the needed API key must be set.
+model name works; the needed API key must be set. Claude Sonnet 5 and the
+newer models think before they write, and the thinking shares the
+profile's room. Each build call gets 16,000 tokens, or four per word of
+the budget if that's more. You pay for what the model writes, not for the
+room. A build that still runs out keeps the profile you had, and the
+service log says why.
 
 **The profile's headings are not a setting.** The profile keeps a fixed spine
 (Identity, Preferences, Relationships & People at the top; Goals & Active
@@ -73,7 +78,9 @@ build"…). Topics appear when they earn space and dissolve as they fade. Why
 the spine is fixed is in [MEMORY_DESIGN.md](MEMORY_DESIGN.md). A
 `summary_emergent_topics` value left in your config is ignored.
 
-**Importance and permanence.** The miner scores the facts it extracts
+### Importance and permanence
+
+The miner scores the facts it extracts
 from conversations 1–9: how much a fact matters to understanding you
 long-term. Facts you save by hand, facts saved by an external tool, and
 imported ones arrive **unscored**: they show no score in the ledger

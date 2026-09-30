@@ -747,7 +747,8 @@ Empty on a summary generated before this shipped (older `summary_sources` rows
 simply have no `provenance` key; the field defaults to `[]`).
 `POST /summary/regenerate`: async rebuild of the live profile. Not gated,
 so any local process can trigger it (see "Open on loopback, and what that
-means").
+means"). A rebuild the model doesn't finish fails the job with the reason,
+and the live profile stays as it was.
 
 ## Maintenance
 

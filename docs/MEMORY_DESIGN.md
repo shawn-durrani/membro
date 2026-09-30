@@ -168,7 +168,11 @@ Truncation is never used because it silently amputates the last sections
 back to the complete-but-verbose draft, so a failed rewrite can leave the
 profile over budget but never incomplete, and the admin page shows the
 actual word count next to the budget so you can see the promise being
-kept. **Rebuilds are never destructive**: every generated profile is kept in
+kept. The writer also checks how each reply ended. A draft the model didn't
+finish, because it ran out of room, is never saved: the profile you had
+stays, and the service log says why. A rewrite that stops short is thrown
+away the same way, and the draft it started from stays.
+**Rebuilds are never destructive**: every generated profile is kept in
 an append-only version history, and any earlier version can be restored from
 the admin page if a rebuild reads worse than what it replaced; this is the
 same never-delete standard the ledger holds facts to.

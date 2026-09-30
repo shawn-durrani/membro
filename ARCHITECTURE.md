@@ -89,3 +89,7 @@ first, so it is never used. A draft under its floor
 (`memory_summary_fill` of the budget) gets one expand pass from the
 same entries, only when they carry the words to support it. A thin
 ledger keeps its short profile.
+
+A reply the model didn't finish is never saved. A cut-off draft keeps
+the profile you had, and a cut-off rewrite keeps the draft it started
+from.
