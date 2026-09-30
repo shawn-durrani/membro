@@ -769,7 +769,7 @@ the owner credential, even on loopback.**
 can start an open async operation but cannot poll its result.
 `result` is the only place an async operation's output lands, and it stays
 `null` until `status` is `ok`; its shape depends on `kind`. A distill
-returns mining counts: `{"added", "quarantined"}` always, plus up to three
+returns mining counts: `{"added", "quarantined"}` always, plus up to four
 only-when-nonzero keys:
 
 - `deduped`: a re-mine was collapsed.
@@ -778,6 +778,9 @@ only-when-nonzero keys:
   history and never retire newer truth.
 - `deferred_supersede`: a held-for-review fact proposed a replacement.
   Quarantine cannot alter canon, so the proposal waits for human review.
+- `unmined`: messages left unmined because the model refused them, or
+  still couldn't finish its reply with more room. Their words stay in the
+  chat's history, and the service log names each one.
 
 Or, if another
 distill of the same conversation was already in flight, `{"added": 0,

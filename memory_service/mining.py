@@ -11,12 +11,24 @@ to one turn is stored UNBOUND (`source_message_id` NULL), never pinned to
 whichever turn happened to end the window.
 """
 
+import logging
 import re
 import threading
 import time
 from datetime import datetime, timezone
 
 from . import captions, db, episodic, ledger, llm, persons, recall, summary, walls
+
+log = logging.getLogger("memory_service.mining")
+
+
+def _log_cut_off(what: str, e: "llm.CutOffError", then: str) -> None:
+    """One line for a model reply that didn't finish: which call, why it
+    stopped, and what happens instead. Never any chat text. A warning,
+    because the service sets no logging up and an info line goes nowhere."""
+    log.warning("mining: the %s stopped before it finished (stop reason %s, "
+                "cap %d tokens on %s); %s",
+                what, e.stop_reason, e.max_tokens, e.model, then)
 
 # Per-conversation distill locks. A distill run reads the conversation's
 # `mined_upto` watermark once, then mines everything after it. Two runs for the
@@ -123,8 +135,14 @@ def _retry_importance(fact: str, settings) -> int | None:
         "Output exactly one line: importance=<N>\n\n"
         f"Fact: {fact}"
     )
-    out = llm.utility_complete(prompt, settings, max_tokens=50,
-                               site="miner.importance-retry")
+    try:
+        out = llm.utility_complete(prompt, settings, max_tokens=50,
+                                   site="miner.importance-retry")
+    except llm.CutOffError as e:
+        # Half a score is no score: the fact is held for review, the same
+        # as when the retry answers with no number at all.
+        _log_cut_off("importance retry", e, "the fact is held for review")
+        return None
     m = _IMPORTANCE_RE.search(out or "")
     return min(9, max(1, int(m.group(1)))) if m else None
 
@@ -175,9 +193,15 @@ def _retry_src_bindings(unbound: list[tuple[int, str]], source_text: str,
         f"## Facts needing their source turn\n{listing}\n\n"
         f"## Conversation excerpt\n{source_text}"
     )
-    out = llm.utility_complete(prompt, settings,
-                               max_tokens=min(400, 60 + 15 * len(unbound)),
-                               site="miner.src-retry")
+    try:
+        out = llm.utility_complete(prompt, settings,
+                                   max_tokens=min(400, 60 + 15 * len(unbound)),
+                                   site="miner.src-retry")
+    except llm.CutOffError as e:
+        # No answer from a reply cut short: every fact it covers stays
+        # unbound, and the caller's fail-safe holds each one.
+        _log_cut_off("src retry", e, "its facts are held for review")
+        return {}
     repairs: dict[int, int] = {}
     for m in _SRC_FIX_RE.finditer(out or ""):
         k, val = int(m.group(1)), m.group(2).lower()
@@ -258,6 +282,11 @@ SEMANTIC_SUPERSEDE_CANDIDATES = 40
 SEMANTIC_QUERY_CHARS = 4000     # gist, not the whole chunk — the embeddings
                                 # endpoint has its own input-length ceiling
 
+# The room for the miner's fact lines, and the one bigger try a single
+# message gets when its lines don't fit. About 20 facts fit in 1,000.
+MINER_TOKENS = 1000
+MINER_ROOMY_TOKENS = 4000
+
 
 def grounding_allow(con, settings) -> set[str]:
     """The words the grounding wall and `walls.lexical_support` never count
@@ -316,12 +345,12 @@ def _view_len(m: dict) -> int:
     return min(n, MSG_CHARS)
 
 
-def _next_chunk(msgs: list[dict]) -> list[dict]:
-    """Up to CHUNK_MSGS messages within a CHUNK_CHARS transcript budget
+def _next_chunk(msgs: list[dict], limit: int = CHUNK_MSGS) -> list[dict]:
+    """Up to `limit` messages within a CHUNK_CHARS transcript budget
     (counting each message's truncated view incl. attachment text); always
     at least one."""
     chunk, chars = [], 0
-    for m in msgs[:CHUNK_MSGS]:
+    for m in msgs[:limit]:
         chars += _view_len(m)
         if chunk and chars > CHUNK_CHARS:
             break
@@ -348,15 +377,44 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
         # blocks the text mining that follows.
         captions.caption_pending(con, settings, conv["id"])
         att_by_msg = episodic.attachments_for_conversation(con, conv["id"])
+        # A miner reply cut short is never read as the chunk's facts. The
+        # chunk is mined again in halves, since fewer messages need fewer
+        # lines, and the smaller size holds for the rest of this run. A
+        # single message gets one more try with MINER_ROOMY_TOKENS. One the
+        # model still won't finish, or refuses, is left unmined with a
+        # warning, so one message can't stop the rest of the chat.
+        limit, roomy, unmined = CHUNK_MSGS, False, 0
         while True:
             pending = episodic.messages_after(con, conv["id"], conv["mined_upto"])
             for m in pending:
                 m["attachments"] = att_by_msg.get(m["external_id"], [])
-            new_msgs = _next_chunk(pending)
+            new_msgs = _next_chunk(pending, limit)
             if not new_msgs:
                 break
-            chunk = _distill_chunk(con, settings, source_app, conv, new_msgs,
-                                   more_to_come=len(pending) > len(new_msgs))
+            try:
+                chunk = _distill_chunk(
+                    con, settings, source_app, conv, new_msgs,
+                    more_to_come=len(pending) > len(new_msgs),
+                    max_tokens=MINER_ROOMY_TOKENS if roomy else MINER_TOKENS)
+            except llm.CutOffError as e:
+                if len(new_msgs) > 1:
+                    limit = len(new_msgs) // 2
+                    _log_cut_off(f"miner on {len(new_msgs)} messages", e,
+                                 f"mining them {limit} at a time")
+                    continue
+                if e.stop_reason == "max_tokens" and not roomy:
+                    roomy = True
+                    _log_cut_off("miner on one message", e,
+                                 f"trying once more with {MINER_ROOMY_TOKENS}")
+                    continue
+                _log_cut_off(f"miner on message {new_msgs[0]['id']}", e,
+                             "it stays in the chat's history, unmined")
+                _advance(con, conv["id"], new_msgs[0]["id"])
+                conv["mined_upto"] = new_msgs[0]["id"]
+                roomy = False
+                unmined += 1
+                continue
+            roomy = False
             added += chunk["added"]
             quarantined += chunk["quarantined"]
             deduped += chunk.get("deduped", 0)
@@ -376,6 +434,9 @@ def distill(con, settings, source_app: str, conversation_external_id: str,
             result["refused_supersede"] = refused
         if deferred:
             result["deferred_supersede"] = deferred
+        if unmined:
+            # Messages the miner wouldn't finish or refused, left unmined.
+            result["unmined"] = unmined
         return result
     finally:
         lock.release()
@@ -598,7 +659,8 @@ _HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown")
 
 
 def _distill_chunk(con, settings, source_app: str, conv: dict,
-                   new_msgs: list[dict], more_to_come: bool = False) -> dict:
+                   new_msgs: list[dict], more_to_come: bool = False,
+                   max_tokens: int = MINER_TOKENS) -> dict:
     if not any(walls.speaker_class(m["speaker"]) in _HUMAN_SPEAKERS
                for m in new_msgs):
         _advance(con, conv["id"], new_msgs[-1]["id"])
@@ -669,7 +731,10 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     system = {"text": _miner_instructions(settings.user_name)}
     if ttl:
         system["cache"] = ttl
-    out = llm.utility_complete(parts, settings, max_tokens=1000,
+    # A reply cut short raises CutOffError here, before anything is written,
+    # and distill() mines the chunk again in smaller pieces. The two retries
+    # below catch their own, so this is the only one that leaves.
+    out = llm.utility_complete(parts, settings, max_tokens=max_tokens,
                                site="miner", system=[system])
     valid_ids = window_ids | set(extras)
     allow = grounding_allow(con, settings)

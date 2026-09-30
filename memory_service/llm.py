@@ -31,8 +31,10 @@ FINISHED = frozenset({"end_turn", "stop_sequence", "stop"})
 
 
 class CutOffError(RuntimeError):
-    """A reply the model didn't finish. Carries the model, the stop reason
-    and the cap, never the text."""
+    """A reply the model didn't finish: out of room, refused, or stopped
+    for any other reason. Every call raises it rather than hand back part
+    of an answer. Carries the model, the stop reason and the cap, never
+    the text."""
 
     def __init__(self, model: str, stop_reason: str, max_tokens: int):
         self.model = model
@@ -47,6 +49,71 @@ def _check_finished(model: str, stop_reason, max_tokens: int) -> None:
     # stands. Anthropic always reports one.
     if stop_reason is not None and stop_reason not in FINISHED:
         raise CutOffError(model, stop_reason, max_tokens)
+
+
+# How each Claude model handles thinking. The newer ones think before they
+# answer when a request leaves `thinking` out, and the thinking comes out
+# of the same max_tokens as the answer, so a short task's small cap can run
+# out before a word of the answer is written. Each entry is the value that
+# turns thinking off (None: leaving `thinking` out already does; CANNOT: it
+# can't be turned off) and whether the model takes a fixed thinking budget.
+# The longest matching name wins, so claude-sonnet-5-5 isn't read as
+# claude-sonnet-5. A name not listed here is taken to be a newer model that
+# always may think, which is safe on any model: the request leaves
+# `thinking` out and the cap gets room for it.
+CANNOT = "cannot"
+_THINKING = {
+    "claude-3": (None, True),
+    "claude-haiku-4": (None, True),
+    "claude-sonnet-4": (None, True),
+    "claude-opus-4": (None, True),
+    "claude-sonnet-4-6": (None, True),
+    "claude-opus-4-6": (None, True),
+    "claude-opus-4-7": (None, False),
+    "claude-opus-4-8": (None, False),
+    "claude-sonnet-5": ({"type": "disabled"}, False),
+    "claude-opus-5": ({"type": "disabled"}, False),
+    "claude-sonnet-5-5": ({"type": "between_tools"}, False),
+    "claude-opus-5-5": (CANNOT, False),
+    "claude-fable-5": (CANNOT, False),
+    "claude-mythos": (CANNOT, False),
+}
+# The room a call gets on top of its own cap when the model may think
+# first. You pay for the tokens written, not the room.
+THINKING_ROOM = 4000
+
+
+def thinking_support(model: str) -> tuple:
+    """(what turns thinking off, takes a fixed budget) for a Claude model."""
+    for name in sorted(_THINKING, key=len, reverse=True):
+        if model == name or model.startswith(name + "-"):
+            return _THINKING[name]
+    return (CANNOT, False)
+
+
+def _thinking_request(model: str, max_tokens: int, thinking: str,
+                      thinking_budget: int | None) -> tuple[int, dict]:
+    """The cap and the `thinking` field for one call.
+
+    "off" is for the short jobs that answer in a fixed format: thinking is
+    turned off where the model allows it, and where it doesn't, the cap
+    gets THINKING_ROOM on top. A `thinking_budget` asks for a little
+    thinking first: a fixed budget inside the cap where the model takes
+    one, else adaptive thinking with THINKING_ROOM on top. "default" sends
+    nothing, so the model does what it does by default. A model that
+    doesn't think unless asked gets exactly the request it always got."""
+    off, budgeted = thinking_support(model)
+    if thinking_budget:
+        if budgeted:
+            budget = max(1024, min(thinking_budget, max_tokens - 1))
+            return max_tokens, {"thinking": {"type": "enabled",
+                                             "budget_tokens": budget}}
+        return max_tokens + THINKING_ROOM, {"thinking": {"type": "adaptive"}}
+    if thinking == "default" or off is None:
+        return max_tokens, {}
+    if off == CANNOT:
+        return max_tokens + THINKING_ROOM, {}
+    return max_tokens, {"thinking": dict(off)}
 
 
 # One client per process per provider (mirroring embeddings.py): a fresh
@@ -188,35 +255,32 @@ def utility_complete(prompt, settings, max_tokens: int = 1000,
                      model: str | None = None,
                      thinking_budget: int | None = None, *,
                      system=None, site: str = "utility",
-                     must_finish: bool = False) -> str:
-    """One text completion. `thinking_budget` (#58) buys the claude branch
-    extended thinking (minimum 1024, and it must stay under max_tokens);
-    the compatible branch ignores it — local servers have no such knob.
+                     thinking: str = "off") -> str:
+    """One text completion. `max_tokens` is the room the answer needs.
+    `thinking` and `thinking_budget` say whether the model may think first
+    (see _thinking_request); the compatible branch ignores both, since
+    local servers have no such knob.
 
     `prompt` and `system` are strings or lists of parts (see TTLS above).
-    `site` names the caller in the usage log line. With `must_finish`, a
-    reply the model didn't finish raises CutOffError instead of coming back
-    as text; without it, a caller gets whatever text there is, as before."""
+    `site` names the caller in the usage log line. A reply the model didn't
+    finish raises CutOffError, so no caller ever reads part of an answer
+    as the whole of one."""
     model = model or settings.miner_model
     if model.startswith("claude"):
         if not os.environ.get("ANTHROPIC_API_KEY"):
             raise MissingKeyError(f"utility model {model} needs ANTHROPIC_API_KEY")
-        extra = {}
-        if thinking_budget:
-            budget = max(1024, min(thinking_budget, max_tokens - 1))
-            extra["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        cap, extra = _thinking_request(model, max_tokens, thinking,
+                                       thinking_budget)
         if system:
             extra["system"] = _blocks(system)
         # A plain string goes as it always has, so an uncached call's
         # request is unchanged.
         content = prompt if isinstance(prompt, str) else _blocks(prompt)
         resp = _client("anthropic").messages.create(
-            model=model, max_tokens=max_tokens,
+            model=model, max_tokens=cap,
             messages=[{"role": "user", "content": content}], **extra)
         _record_usage(site, model, getattr(resp, "usage", None))
-        if must_finish:
-            _check_finished(model, getattr(resp, "stop_reason", None),
-                            max_tokens)
+        _check_finished(model, getattr(resp, "stop_reason", None), cap)
         return "".join(b.text for b in resp.content if b.type == "text").strip()
     _check_openai_key(model, settings)
     messages = [{"role": "user", "content": prompt_text(prompt)}]
@@ -225,9 +289,8 @@ def utility_complete(prompt, settings, max_tokens: int = 1000,
     resp = _client("openai", settings).chat.completions.create(
         model=model, max_completion_tokens=max_tokens, messages=messages)
     _record_usage(site, model, getattr(resp, "usage", None))
-    if must_finish:
-        _check_finished(model, getattr(resp.choices[0], "finish_reason", None),
-                        max_tokens)
+    _check_finished(model, getattr(resp.choices[0], "finish_reason", None),
+                    max_tokens)
     return (resp.choices[0].message.content or "").strip()
 
 
@@ -238,6 +301,8 @@ def utility_vision(prompt: str, images: list[tuple[str, str]], settings,
 
     Same routing, key checks, and loud keyless failure as utility_complete —
     a caption run must never silently no-op and pretend images were seen.
+    Thinking is off where the model allows it, and a reply the model didn't
+    finish raises CutOffError, as there.
     """
     model = model or settings.miner_model
     if model.startswith("claude"):
@@ -247,10 +312,12 @@ def utility_vision(prompt: str, images: list[tuple[str, str]], settings,
                     "source": {"type": "base64", "media_type": mime, "data": b64}}
                    for mime, b64 in images]
         content.append({"type": "text", "text": prompt})
+        cap, extra = _thinking_request(model, max_tokens, "off", None)
         resp = _client("anthropic").messages.create(
-            model=model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": content}])
+            model=model, max_tokens=cap,
+            messages=[{"role": "user", "content": content}], **extra)
         _record_usage(site, model, getattr(resp, "usage", None))
+        _check_finished(model, getattr(resp, "stop_reason", None), cap)
         return "".join(b.text for b in resp.content if b.type == "text").strip()
     _check_openai_key(model, settings)
     content = [{"type": "image_url",
@@ -261,4 +328,6 @@ def utility_vision(prompt: str, images: list[tuple[str, str]], settings,
         model=model, max_completion_tokens=max_tokens,
         messages=[{"role": "user", "content": content}])
     _record_usage(site, model, getattr(resp, "usage", None))
+    _check_finished(model, getattr(resp.choices[0], "finish_reason", None),
+                    max_tokens)
     return (resp.choices[0].message.content or "").strip()

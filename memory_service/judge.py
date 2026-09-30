@@ -17,7 +17,8 @@ Provenance holds (speaker-trust, guest attribution, mcp:*, external
 write, web-derived) are never eligible; those walls stay deterministic.
 The judge is off by default (`judge_pass`), looks at a row at most once
 per day, and any failure - no span, span not found, weak affinity, parse
-error, missing key, dead endpoint - leaves the row exactly as it was.
+error, a reply cut short or refused, missing key, dead endpoint - leaves
+the row exactly as it was.
 """
 
 from __future__ import annotations
@@ -161,6 +162,9 @@ def _judge_persona(con, settings, fact) -> bool:
         "or model about software.\n"
         "If unsure, answer ROLEPLAY.\n\n"
         f"## Transcript\n{window}")
+    # A little thinking first: a fixed budget on a model that takes one,
+    # adaptive thinking with room of its own on one that doesn't. The llm
+    # layer decides from the model's name, so any judge_model works.
     out = llm.utility_complete(prompt, settings, max_tokens=1300,
                                model=_model(settings), thinking_budget=1024,
                                site="judge.persona")

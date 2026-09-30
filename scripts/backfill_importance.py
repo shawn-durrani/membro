@@ -85,9 +85,15 @@ def main() -> int:
         for i in range(0, len(rows), BATCH):
             batch = rows[i:i + BATCH]
             entries = "\n".join(f"{f['id']} | {f['content']}" for f in batch)
-            out = llm.utility_complete(
-                PROMPT.format(user=settings.user_name, entries=entries),
-                settings, max_tokens=1000, site="backfill.importance")
+            try:
+                out = llm.utility_complete(
+                    PROMPT.format(user=settings.user_name, entries=entries),
+                    settings, max_tokens=1000, site="backfill.importance")
+            except llm.CutOffError as e:
+                # A reply cut short scores nothing: the batch stays NULL.
+                print(f"  batch {i // BATCH + 1}: skipped, {e}", flush=True)
+                skipped += len(batch)
+                continue
             scores = parse_scores(out or "")
             wanted = {f["id"] for f in batch}
             for fid in wanted:

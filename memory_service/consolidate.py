@@ -39,6 +39,12 @@ def _pin_nominations(con, settings) -> list[dict]:
     try:
         out = llm.utility_complete(prompt, settings, max_tokens=200,
                                    site="consolidate.pins")
+    except llm.CutOffError as e:
+        # A list cut short could name a wrong id, so none are offered.
+        log.warning("pin nominations skipped: the model stopped before it "
+                    "finished (stop reason %s, cap %d tokens on %s)",
+                    e.stop_reason, e.max_tokens, e.model)
+        return []
     except Exception:  # keyless / provider down: the sweep still works
         log.info("pin nominations skipped — no utility model available")
         return []
