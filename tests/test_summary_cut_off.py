@@ -215,22 +215,15 @@ def test_a_bigger_budget_gets_more_room(con, settings, api):
 
 # ---------------------------------------------------------------- the llm layer
 
-def test_must_finish_raises_with_the_reason_and_no_text(settings, api):
+def test_a_cut_off_reply_raises_with_the_reason_and_no_text(settings, api):
     api.replies = [(CUT, "max_tokens")]
     with pytest.raises(llm.CutOffError) as err:
         llm.utility_complete("hi", settings, max_tokens=500,
-                             model="claude-sonnet-5", must_finish=True)
+                             model="claude-sonnet-5", thinking="default")
     e = err.value
     assert (e.model, e.stop_reason, e.max_tokens) == (
         "claude-sonnet-5", "max_tokens", 500)
     assert "canoe" not in str(e)
-
-
-def test_other_callers_still_get_the_text(settings, api):
-    """Only a caller that asks is refused a cut-off reply. The miner, the
-    judge and the rest behave as they did."""
-    api.replies = [(CUT, "max_tokens")]
-    assert llm.utility_complete("hi", settings) == CUT
 
 
 class _OpenAI:
@@ -270,7 +263,6 @@ def test_the_compatible_branch_reads_finish_reason(tmp_path, monkeypatch,
     s = Settings(data_dir=tmp_path / "d", llm_base_url="http://127.0.0.1:1/v1")
     if cut:
         with pytest.raises(llm.CutOffError, match=f"stop reason {finish}"):
-            llm.utility_complete("hi", s, model="qwen3", must_finish=True)
+            llm.utility_complete("hi", s, model="qwen3")
     else:
-        assert llm.utility_complete("hi", s, model="qwen3",
-                                    must_finish=True) == CUT
+        assert llm.utility_complete("hi", s, model="qwen3") == CUT

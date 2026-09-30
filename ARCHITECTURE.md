@@ -92,4 +92,6 @@ ledger keeps its short profile.
 
 A reply the model didn't finish is never saved. A cut-off draft keeps
 the profile you had, and a cut-off rewrite keeps the draft it started
-from.
+from. The same holds for every model call. A miner reply cut short or
+refused is mined again in smaller pieces, and a retry cut short counts as
+no answer, so its fact is held for review.

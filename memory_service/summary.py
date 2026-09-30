@@ -28,7 +28,9 @@ FILL_MATERIAL = 2.0
 # out, and the thinking comes out of the same cap as the profile. At 8,000
 # it used up the cap on 2 of 20 benchmark builds, and both profiles stopped
 # mid-sentence. Those models refuse a fixed thinking budget, so the cap is
-# the lever. You pay for the tokens written, not the cap, so a build that
+# the lever. The profile is the one job that keeps the model's own
+# thinking (thinking="default"); the short jobs turn it off where they can.
+# You pay for the tokens written, not the cap, so a build that
 # finishes early costs the same. 16,000 stays under the Anthropic SDK's
 # limit for a call that doesn't stream (about 21,000), and under the
 # 16,384-token output limit of the smaller OpenAI models.
@@ -240,7 +242,7 @@ def regenerate(con, settings) -> str:
     try:
         text = llm.utility_complete(prompt, settings, max_tokens=max_tokens,
                                     model=settings.summary_model,
-                                    site="summary.draft", must_finish=True)
+                                    site="summary.draft", thinking="default")
     except llm.CutOffError as e:
         # Nothing is written before the draft, so the profile every chat
         # reads is still the last finished one.
@@ -267,7 +269,7 @@ def regenerate(con, settings) -> str:
                                                 max_tokens=max_tokens,
                                                 model=settings.summary_model,
                                                 site="summary.expand",
-                                                must_finish=True)
+                                                thinking="default")
             except llm.CutOffError as e:
                 _log_cut_off("expansion pass", e, "the draft stays")
                 expanded = ""
@@ -307,7 +309,7 @@ def regenerate(con, settings) -> str:
                                             max_tokens=max_tokens,
                                             model=settings.summary_model,
                                             site="summary.squeeze",
-                                            must_finish=True)
+                                            thinking="default")
         except llm.CutOffError as e:
             # A cut-off squeeze is shorter than the draft because it lost
             # its last sections, not because it was tightened.

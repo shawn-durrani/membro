@@ -109,6 +109,22 @@ proposes; granting permanence is always your action.
 mined facts feel off, a stronger model here helps, at real cost, since it
 reads whole conversations.
 
+Claude Sonnet 5 and the newer models think before they answer unless a
+request turns it off. The thinking comes out of the same room as the
+answer. The miner, its two retries, captions, the sweep and the judge all
+answer in a fixed format, so membro turns thinking off for them where the
+model allows it. On a model that always thinks, each of those calls gets
+4,000 more tokens of room. The judge's roleplay check still thinks a
+little first. It gets a fixed budget on a model that takes one, and the
+model's own thinking on one that doesn't.
+
+Every call checks how its reply ended, and a reply cut short or refused
+is never read as an answer. When the miner runs out of room, it mines the
+same messages again in halves. A single message gets one more try with
+4,000 tokens. A message the model still can't finish, or refuses, is left
+unmined. The service log names its message number and the reason. Its
+words stay in the chat's history.
+
 **`llm_base_url`** points every non-claude model name at an
 OpenAI-compatible server, such as Ollama's `http://127.0.0.1:11434/v1`.
 With it set, no API key is needed and nothing leaves your machine for
