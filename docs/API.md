@@ -459,7 +459,7 @@ session cookie), even on loopback**: search returns verbatim transcript
 snippets, which are at least as revealing as the exact-row ledger reads
 gated above.
 ```json
-{"query": "...", "limit": 20}
+{"query": "...", "limit": 20, "origin": "http"}
 ```
 → `{"hits": [{"conversation_id": "...", "title": "...", "speaker": "...",
               "content": "...", "created_at": "...",
@@ -473,6 +473,12 @@ cuts its excerpt the same way. `web_sources` (1.4) is the list stored with the m
 ingest, empty for a turn that read no web page and for hits from files.
 A client that shows a hit to a model should mark a stamped hit as
 untrusted, the same way it marks a live fetch.
+`origin` is an access-log label only, the same as on `/recall`, and it
+changes nothing about what comes back. Send `auto` for a search a client
+ran on the user's behalf, and leave it at `http` for one a model asked
+for. It's an optional field added on 2026-09-30 within 1.8. An older
+service ignores it, so a client can send it without checking the
+version.
 
 ### Ingest watermark
 
@@ -1021,10 +1027,11 @@ recalls, history searches, and per-round summary fetches, feeding the live view.
 characters), so this is the one `/viz/*` route that hands readable text to an
 unauthenticated loopback caller.
 Each event is `{ts, kind, origin, query}`: `kind` is `recall | search | summary`;
-`origin` is `http`, `auto` (an ambient recall a client fired on the user's
-behalf; `POST /recall` accepts an additive `origin` field, added 2026-07-11),
-or `mcp:<client-name>` (MCP adapter processes write the same log, so external
-tools' lookups appear too). The `access_log` table is
+`origin` is `http`, `auto` (an ambient recall or a history search a client
+fired on the user's behalf), or `mcp:<client-name>`. `POST /recall` has
+taken an additive `origin` field since 2026-07-11, and `POST /search`
+since 2026-09-30. MCP adapter processes write the same log under
+`mcp:<client-name>`, so external tools' lookups appear too. The `access_log` table is
 append-only like the ledger: each row records when, what was asked, and which
 facts came back (ids + scores); the service never updates or deletes a row.
 

@@ -127,6 +127,10 @@ class DistillBody(BaseModel):
 class SearchBody(BaseModel):
     query: str
     limit: int = Field(20, ge=1, le=500)
+    # access-log label (additive, within contract 1.8, #164), recall's own:
+    # "auto" marks a search a client ran on the user's behalf, vs a model
+    # choosing to search
+    origin: str = Field("http", pattern=r"^[a-z][a-z0-9:_-]{0,31}$")
 
 
 class FactBody(BaseModel):
@@ -1242,7 +1246,8 @@ restart the service.</small></p>
         try:
             hits = episodic.search(c, body.query, body.limit)
             if body.query:  # persists; also feeds the /math live view
-                access.record(c, "search", body.query, count=len(hits))
+                access.record(c, "search", body.query, origin=body.origin,
+                              count=len(hits))
         finally:
             c.close()
         return {"hits": hits}

@@ -50,6 +50,23 @@ def test_recall_origin_field_lands_in_log(settings):
         assert r.status_code == 422
 
 
+def test_search_origin_field_lands_in_log(settings, sample_conversation, con):
+    """A search a client runs on the user's behalf tags itself origin=auto,
+    as an ambient recall does, so the live view doesn't read it as a model
+    choosing to search (#164). It changes nothing about the hits."""
+    con.close()  # fixture opened it; the client owns the DB from here
+    with _client(settings) as client:
+        plain = client.post("/v1/search", json={"query": "Initech"}).json()
+        auto = client.post("/v1/search", json={"query": "Initech",
+                                               "origin": "auto"}).json()
+        assert auto == plain and auto["hits"]
+        events = client.get("/v1/viz/recalls?after=0").json()["events"]
+        assert [(e["kind"], e["origin"]) for e in events] == [
+            ("search", "http"), ("search", "auto")]
+        r = client.post("/v1/search", json={"query": "x", "origin": "BAD ORIGIN!"})
+        assert r.status_code == 422
+
+
 def test_log_survives_restart(settings):
     """The point of persistence: a new app instance still sees old events."""
     with _client(settings) as client:
