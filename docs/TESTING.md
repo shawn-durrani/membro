@@ -20,7 +20,9 @@ human erasers on the admin surface: fact, file, and message.
 and single-row; search and health stay accurate afterwards; live facts
 mined from an erased message resurface for review instead of vanishing;
 attachments are counted, not cascaded. An erased image leaves no caption
-behind, in its table or in the search index (`test_captions.py`). Every
+behind, in its table or in the search index (`test_captions.py`). So no
+search can match it or show its caption's words again
+(`test_search_captions.py`). Every
 eraser journals a content-free `erasures` row, so what was erased is gone
 and that it was erased is not.
 

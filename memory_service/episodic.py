@@ -17,6 +17,7 @@ import io
 import logging
 import os
 import re
+import sqlite3
 
 from . import db
 
@@ -244,6 +245,44 @@ def _excerpt(text: str, needle: str, size: int = SNIPPET_TOKENS) -> str:
     return (" … " if first else "") + body + (" … " if last < len(spans) else "")
 
 
+CAPTION_LABEL = " (image caption)"
+
+
+def _with_caption_excerpts(hits: list[dict], match: str) -> list[dict]:
+    """A captioned image is indexed by its caption, but snippet() reads the
+    attachment's own text, which is empty for an image, so its hit came back
+    blank (#160). Each caption hit gets its excerpt cut from the caption
+    instead, and a speaker label saying that's what it is. An erased image's
+    caption goes with its row, so there's nothing left here to cut from."""
+    captions = {h["attachment_id"]: h["caption"] for h in hits
+                if h["caption"] is not None}
+    cut = _caption_snippets(captions, match) if captions else {}
+    for h in hits:
+        att, caption = h.pop("attachment_id"), h.pop("caption")
+        if caption is not None:
+            h["content"] = cut.get(att) or _excerpt(caption, "")
+            h["speaker"] += CAPTION_LABEL
+    return hits
+
+
+def _caption_snippets(captions: dict[int, str], match: str) -> dict[int, str]:
+    """snippet() over each caption, from a throwaway in-memory index with the
+    search index's own tokenizer. The excerpt is then exactly what a message
+    hit gets: the same window, the same stemmed matches marked, the same
+    ellipses. Keyed by attachment id."""
+    mem = sqlite3.connect(":memory:")
+    try:
+        mem.execute("CREATE VIRTUAL TABLE cap USING fts5(caption, "
+                    f"tokenize='{db.FTS_TOKENIZE}')")
+        mem.executemany("INSERT INTO cap(rowid, caption) VALUES(?, ?)",
+                        captions.items())
+        return dict(mem.execute(
+            "SELECT rowid, snippet(cap, 0, '>>', '<<', ' … ', ?) FROM cap "
+            "WHERE cap MATCH ?", (SNIPPET_TOKENS, match)))
+    finally:
+        mem.close()
+
+
 def _with_web_sources(hits: list[dict]) -> list[dict]:
     """Contract 1.4 (#84): every hit carries `web_sources`, the domains the
     authoring round read from, as a list (empty when the turn read no web
@@ -288,7 +327,8 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
     for FTS syntax edge cases AND for a drifted-empty index, which answers
     zero rows without raising and would otherwise read as a genuine
     no-match. Attachment hits are labeled `file: <name>` in the speaker slot
-    so callers can render them without a schema change."""
+    so callers can render them without a schema change, and a hit on an
+    image's caption `file: <name> (image caption)`."""
     words = [w for w in (query or "").split() if w.strip()]
     if not words:
         return []
@@ -314,12 +354,13 @@ def search(con, query: str, limit: int = 20) -> list[dict]:
                 "SELECT 'file: ' || a.filename AS speaker, a.created_at, c.title, "
                 "c.external_id conversation_id, "
                 "snippet(attachments_fts, 0, '>>', '<<', ' … ', ?) AS content, "
-                "'' AS web_sources "
+                "'' AS web_sources, a.id AS attachment_id, cap.caption "
                 "FROM attachments_fts JOIN attachments a ON a.id = attachments_fts.rowid "
                 "JOIN conversations c ON c.id = a.conversation_id "
+                "LEFT JOIN attachment_captions cap ON cap.attachment_id = a.id "
                 "WHERE attachments_fts MATCH ? ORDER BY rank LIMIT ?",
                 (SNIPPET_TOKENS, match, limit - len(hits)))
-            hits += [dict(r) for r in arows]
+            hits += _with_caption_excerpts([dict(r) for r in arows], match)
         return _with_web_sources(hits)
     except Exception:
         return _like_fallback(con, words, limit)
