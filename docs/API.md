@@ -432,8 +432,10 @@ pass:
 of the episodic record: bytes stored whole (content-addressed under
 `data/attachments/`), text extracted (text/* fully; PDFs via pypdf,
 best-effort) into FTS so `/search` and mining see it; hits from files carry
-`speaker: "file: <name>"`. Attachments attach even to already-ingested
-(skipped) messages, so backfilling old conversations is a plain re-ingest.
+`speaker: "file: <name>"`. An image has no text of its own, so once a
+distill captions it, the caption is searched in its place. Attachments
+attach even to already-ingested (skipped) messages, so backfilling old
+conversations is a plain re-ingest.
 Append-only and immutable like messages; the `attached` count is new rows
 (idempotent re-sends count 0).
 
@@ -469,8 +471,11 @@ conversation's title as last ingested (empty string if the client never sent
 one); `content` is up to 64 words around the match, with `>>match<<`
 markers, not the whole message. A search that falls back to plain substring
 matching, while the index is out of step or for a query FTS can't parse,
-cuts its excerpt the same way. `web_sources` (1.4) is the list stored with the message on
-ingest, empty for a turn that read no web page and for hits from files.
+cuts its excerpt the same way. A hit on an image's caption is cut from the
+caption the same way too. Its speaker says what it is:
+`file: <name> (image caption)`. `web_sources` (1.4) is the list stored
+with the message on ingest, empty for a turn that read no web page and for
+hits from files.
 A client that shows a hit to a model should mark a stamped hit as
 untrusted, the same way it marks a live fetch.
 `origin` is an access-log label only, the same as on `/recall`, and it
