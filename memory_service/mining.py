@@ -283,7 +283,10 @@ SEMANTIC_QUERY_CHARS = 4000     # gist, not the whole chunk — the embeddings
                                 # endpoint has its own input-length ceiling
 
 # The room for the miner's fact lines, and the one bigger try a single
-# message gets when its lines don't fit. About 20 facts fit in 1,000.
+# message gets when its lines don't fit. About 20 facts fit in 1,000. A
+# model that thinks by default gets llm.THINKING_ROOM on top of either. In
+# 933 Sonnet 5.5 benchmark calls the thinking never passed about 525
+# tokens, and the lines never passed about 560.
 MINER_TOKENS = 1000
 MINER_ROOMY_TOKENS = 4000
 
@@ -731,11 +734,14 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
     system = {"text": _miner_instructions(settings.user_name)}
     if ttl:
         system["cache"] = ttl
-    # A reply cut short raises CutOffError here, before anything is written,
+    # The miner may think first on a model that does by default, as it was
+    # benchmarked, with THINKING_ROOM on top of the room for its lines. A
+    # reply cut short raises CutOffError here, before anything is written,
     # and distill() mines the chunk again in smaller pieces. The two retries
     # below catch their own, so this is the only one that leaves.
     out = llm.utility_complete(parts, settings, max_tokens=max_tokens,
-                               site="miner", system=[system])
+                               site="miner", system=[system],
+                               thinking="allowed")
     valid_ids = window_ids | set(extras)
     allow = grounding_allow(con, settings)
     # #35: in a guest-present window an unbound fact cannot be attributed to

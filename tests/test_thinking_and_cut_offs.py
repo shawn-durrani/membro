@@ -191,6 +191,38 @@ def _excerpt_turns(req) -> int:
     return text.split("## Conversation excerpt\n", 1)[1].count("[msg ")
 
 
+@pytest.mark.parametrize("model, cap", [
+    ("claude-haiku-4-5", 1000),
+    ("claude-sonnet-4-6", 1000),
+    ("claude-opus-4-8", 1000),
+    ("claude-sonnet-5", 1000 + ROOM),
+    ("claude-opus-5", 1000 + ROOM),
+    ("claude-sonnet-5-5", 1000 + ROOM),
+    ("claude-opus-5-5", 1000 + ROOM),
+    ("claude-sonnet-7", 1000 + ROOM),
+])
+def test_the_miner_may_think_with_room_of_its_own(con, settings, api, model,
+                                                  cap):
+    """The miner runs as it was benchmarked on 29 September: a model that
+    thinks by default does, and the thinking gets room on top of the
+    1,000 tokens for the fact lines."""
+    _chat(con, [("user", CANOE)])
+    api.replies = [(CANOE_FACT, "end_turn")]
+    _mine(con, settings.model_copy(update={"miner_model": model}))
+    (req,) = api.requests
+    assert "thinking" not in req
+    assert req["max_tokens"] == cap
+
+
+def test_haiku_mines_with_the_request_it_always_got(con, settings, api):
+    _chat(con, [("user", CANOE)])
+    api.replies = [(CANOE_FACT, "end_turn")]
+    _mine(con, settings)
+    (req,) = api.requests
+    assert set(req) == {"model", "max_tokens", "messages", "system"}
+    assert (req["model"], req["max_tokens"]) == ("claude-haiku-4-5", 1000)
+
+
 def test_a_cut_off_miner_reply_is_mined_again_in_halves(con, s55, api):
     msgs = _chat(con, [("user", CANOE),
                        ("user", "The varnish goes on next weekend.")])
@@ -203,8 +235,8 @@ def test_a_cut_off_miner_reply_is_mined_again_in_halves(con, s55, api):
     ]
     _mine(con, s55)
     assert [_excerpt_turns(r) for r in api.requests] == [2, 1, 1]
-    assert api.requests[0]["thinking"] == {"type": "between_tools"}
-    assert api.requests[0]["max_tokens"] == 1000
+    assert "thinking" not in api.requests[0]
+    assert api.requests[0]["max_tokens"] == 1000 + ROOM
     assert sorted(f["content"] for f in _facts(con)) == [
         "Alex is restoring a cedar canoe at the lake.",
         "Alex is varnishing the canoe."]
@@ -216,7 +248,7 @@ def test_thinking_that_ate_the_cap_gets_one_roomy_try(con, s55, api):
     api.replies = [("", "max_tokens", "thinking"), (CANOE_FACT, "end_turn")]
     _mine(con, s55)
     assert [r["max_tokens"] for r in api.requests] == [
-        mining.MINER_TOKENS, mining.MINER_ROOMY_TOKENS]
+        mining.MINER_TOKENS + ROOM, mining.MINER_ROOMY_TOKENS + ROOM]
     assert [f["content"] for f in _facts(con)] == [
         "Alex is restoring a cedar canoe at the lake."]
     assert _mined_upto(con) == msgs[-1]["id"]
