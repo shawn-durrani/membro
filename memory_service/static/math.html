@@ -996,10 +996,12 @@ function initTrace() {
             // Real timing, not theater: pulse each layer at the actual offset
             // between its event and the batch's first (server timestamps).
             // "Went deep" means a model CHOSE to reach the ledger — ambient
-            // (origin=auto) recalls the chat fires per-message are shown, but
+            // (origin=auto) recalls the chat fires per-message, and the
+            // searches of past chats it runs itself (#164), are shown, but
             // as preparation, and never auto-trace.
             const deep = d.events.filter((e) => e.kind !== "summary" && e.origin !== "auto");
             const ambient = d.events.some((e) => e.origin === "auto");
+            const autoSearch = d.events.some((e) => e.origin === "auto" && e.kind === "search");
             const t0 = d.events[0].ts;
             const offset = (e) => Math.min(2000, Math.max(0, (e.ts - t0) * 1000));
             const summaryEv = d.events.find((e) => e.kind === "summary");
@@ -1025,8 +1027,10 @@ function initTrace() {
               }
             } else if (ambient) {
               flash("layer-ledger", 400);
-              $("layer-status").textContent =
-                "ambient recall prepared context \u2014 no model chose to dig deeper";
+              $("layer-status").textContent = (autoSearch
+                ? "the chat app searched past chats to prepare context"
+                : "ambient recall prepared context") +
+                " \u2014 no model chose to dig deeper";
             } else {
               $("layer-status").textContent =
                 "answered from the summary \u2014 no deep reach needed";
