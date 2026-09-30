@@ -100,8 +100,10 @@ def _thinking_request(model: str, max_tokens: int, thinking: str,
     gets THINKING_ROOM on top. A `thinking_budget` asks for a little
     thinking first: a fixed budget inside the cap where the model takes
     one, else adaptive thinking with THINKING_ROOM on top. "default" sends
-    nothing, so the model does what it does by default. A model that
-    doesn't think unless asked gets exactly the request it always got."""
+    nothing, so the model does what it does by default. "allowed" sends
+    nothing too, and a model that thinks by default gets THINKING_ROOM on
+    top, so its thinking can't crowd out the answer. A model that doesn't
+    think unless asked gets exactly the request it always got."""
     off, budgeted = thinking_support(model)
     if thinking_budget:
         if budgeted:
@@ -111,6 +113,8 @@ def _thinking_request(model: str, max_tokens: int, thinking: str,
         return max_tokens + THINKING_ROOM, {"thinking": {"type": "adaptive"}}
     if thinking == "default" or off is None:
         return max_tokens, {}
+    if thinking == "allowed":
+        return max_tokens + THINKING_ROOM, {}
     if off == CANNOT:
         return max_tokens + THINKING_ROOM, {}
     return max_tokens, {"thinking": dict(off)}

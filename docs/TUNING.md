@@ -111,12 +111,15 @@ reads whole conversations.
 
 Claude Sonnet 5 and the newer models think before they answer unless a
 request turns it off. The thinking comes out of the same room as the
-answer. The miner, its two retries, captions, the sweep and the judge all
-answer in a fixed format, so membro turns thinking off for them where the
-model allows it. On a model that always thinks, each of those calls gets
-4,000 more tokens of room. The judge's roleplay check still thinks a
-little first. It gets a fixed budget on a model that takes one, and the
-model's own thinking on one that doesn't.
+answer. The miner itself thinks on a model that does by default, because
+that's how it was measured. It gets 4,000 tokens for thinking on top of
+the 1,000 for its facts. On the Sonnet 5.5 benchmark its thinking never
+passed about 525 tokens. The miner's two retries, captions, the sweep and
+the judge's witness check answer in a fixed format. Membro turns thinking
+off for them where the model allows it. On a model that always thinks,
+each of those calls gets 4,000 more tokens of room. The judge's roleplay
+check still thinks a little first. It gets a fixed budget on a model that
+takes one, and the model's own thinking on one that doesn't.
 
 Every call checks how its reply ended, and a reply cut short or refused
 is never read as an answer. When the miner runs out of room, it mines the
