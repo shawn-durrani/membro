@@ -23,6 +23,25 @@ BUDGET_TOLERANCE = 1.2  # accept up to 20% over budget; beyond that, one rewrite
 # nothing to expand into, and a model asked to fill a range the entries
 # cannot fill reaches for filler; a short profile is the better outcome.
 FILL_MATERIAL = 2.0
+# The least room a build call gets, in tokens (#163). Claude Sonnet 5 and
+# the newer models think before they write when a request leaves `thinking`
+# out, and the thinking comes out of the same cap as the profile. At 8,000
+# it used up the cap on 2 of 20 benchmark builds, and both profiles stopped
+# mid-sentence. Those models refuse a fixed thinking budget, so the cap is
+# the lever. You pay for the tokens written, not the cap, so a build that
+# finishes early costs the same. 16,000 stays under the Anthropic SDK's
+# limit for a call that doesn't stream (about 21,000), and under the
+# 16,384-token output limit of the smaller OpenAI models.
+MIN_TOKENS = 16000
+
+
+def _log_cut_off(step: str, e, kept: str) -> None:
+    """One line for a build step the model didn't finish: which step, why it
+    stopped, and what stays. Never any profile text. A warning, because the
+    service sets no logging up and an info line from here goes nowhere."""
+    log.warning("summary: the %s stopped before it finished (stop reason %s, "
+                "cap %d tokens on %s); %s",
+                step, e.stop_reason, e.max_tokens, e.model, kept)
 
 
 def provenance_tag(fact: dict) -> str:
@@ -217,10 +236,19 @@ def regenerate(con, settings) -> str:
     # never by truncation — a truncated profile silently loses its LAST
     # sections (Goals, Recent Changes — the most current ones), which is far
     # worse than a long one
-    max_tokens = max(8000, words * 4)
-    text = llm.utility_complete(prompt, settings, max_tokens=max_tokens,
-                                model=settings.summary_model,
-                                site="summary.draft")
+    max_tokens = max(MIN_TOKENS, words * 4)
+    try:
+        text = llm.utility_complete(prompt, settings, max_tokens=max_tokens,
+                                    model=settings.summary_model,
+                                    site="summary.draft", must_finish=True)
+    except llm.CutOffError as e:
+        # Nothing is written before the draft, so the profile every chat
+        # reads is still the last finished one.
+        _log_cut_off("draft", e, "the previous profile stays")
+        raise RuntimeError(
+            f"the profile writer stopped before it finished (stop reason "
+            f"{e.stop_reason}, cap {e.max_tokens} tokens on {e.model}); "
+            "the previous profile stays") from e
     passes = []  # the rewrite passes that shaped this version, in order
     drafted = len(text.split())
     if floor and drafted < floor:
@@ -238,7 +266,11 @@ def regenerate(con, settings) -> str:
                 expanded = llm.utility_complete(expand, settings,
                                                 max_tokens=max_tokens,
                                                 model=settings.summary_model,
-                                                site="summary.expand")
+                                                site="summary.expand",
+                                                must_finish=True)
+            except llm.CutOffError as e:
+                _log_cut_off("expansion pass", e, "the draft stays")
+                expanded = ""
             except Exception:
                 expanded = ""  # the short-but-faithful draft is still valid
             # A reply shorter than the draft it was asked to expand dropped
@@ -274,7 +306,13 @@ def regenerate(con, settings) -> str:
             squeezed = llm.utility_complete(squeeze, settings,
                                             max_tokens=max_tokens,
                                             model=settings.summary_model,
-                                            site="summary.squeeze")
+                                            site="summary.squeeze",
+                                            must_finish=True)
+        except llm.CutOffError as e:
+            # A cut-off squeeze is shorter than the draft because it lost
+            # its last sections, not because it was tightened.
+            _log_cut_off("squeeze pass", e, "the complete draft stays")
+            squeezed = ""
         except Exception:
             squeezed = ""  # the verbose-but-complete draft is still a valid summary
         if squeezed:

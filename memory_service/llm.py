@@ -23,6 +23,32 @@ class MissingKeyError(RuntimeError):
     pass
 
 
+# How a reply ends when the model finished it: "end_turn" and
+# "stop_sequence" from Anthropic, "stop" from an OpenAI-compatible server.
+# Anything else is a reply cut short: out of room ("max_tokens", "length"),
+# refused, or past the context window.
+FINISHED = frozenset({"end_turn", "stop_sequence", "stop"})
+
+
+class CutOffError(RuntimeError):
+    """A reply the model didn't finish. Carries the model, the stop reason
+    and the cap, never the text."""
+
+    def __init__(self, model: str, stop_reason: str, max_tokens: int):
+        self.model = model
+        self.stop_reason = stop_reason
+        self.max_tokens = max_tokens
+        super().__init__(f"{model} stopped before it finished (stop reason "
+                         f"{stop_reason}, cap {max_tokens} tokens)")
+
+
+def _check_finished(model: str, stop_reason, max_tokens: int) -> None:
+    # A server that reports no reason at all can't be checked, so its reply
+    # stands. Anthropic always reports one.
+    if stop_reason is not None and stop_reason not in FINISHED:
+        raise CutOffError(model, stop_reason, max_tokens)
+
+
 # One client per process per provider (mirroring embeddings.py): a fresh
 # SDK client per call paid a new TLS handshake for every mining/summary call.
 # Both SDK clients are thread-safe; jobs threads share them. The key checks
@@ -161,13 +187,16 @@ def enable_usage_log() -> None:
 def utility_complete(prompt, settings, max_tokens: int = 1000,
                      model: str | None = None,
                      thinking_budget: int | None = None, *,
-                     system=None, site: str = "utility") -> str:
+                     system=None, site: str = "utility",
+                     must_finish: bool = False) -> str:
     """One text completion. `thinking_budget` (#58) buys the claude branch
     extended thinking (minimum 1024, and it must stay under max_tokens);
     the compatible branch ignores it — local servers have no such knob.
 
     `prompt` and `system` are strings or lists of parts (see TTLS above).
-    `site` names the caller in the usage log line."""
+    `site` names the caller in the usage log line. With `must_finish`, a
+    reply the model didn't finish raises CutOffError instead of coming back
+    as text; without it, a caller gets whatever text there is, as before."""
     model = model or settings.miner_model
     if model.startswith("claude"):
         if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -185,6 +214,9 @@ def utility_complete(prompt, settings, max_tokens: int = 1000,
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": content}], **extra)
         _record_usage(site, model, getattr(resp, "usage", None))
+        if must_finish:
+            _check_finished(model, getattr(resp, "stop_reason", None),
+                            max_tokens)
         return "".join(b.text for b in resp.content if b.type == "text").strip()
     _check_openai_key(model, settings)
     messages = [{"role": "user", "content": prompt_text(prompt)}]
@@ -193,6 +225,9 @@ def utility_complete(prompt, settings, max_tokens: int = 1000,
     resp = _client("openai", settings).chat.completions.create(
         model=model, max_completion_tokens=max_tokens, messages=messages)
     _record_usage(site, model, getattr(resp, "usage", None))
+    if must_finish:
+        _check_finished(model, getattr(resp.choices[0], "finish_reason", None),
+                        max_tokens)
     return (resp.choices[0].message.content or "").strip()
 
 
