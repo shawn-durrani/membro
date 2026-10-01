@@ -66,27 +66,41 @@ git config core.hooksPath .githooks
 
 ## Writing documentation
 
-Budgets, not taste. `tests/test_doc_style.py` enforces the hard limits;
-the rest is review. The house reference is a 15.5-word average sentence
-with 4% of sentences over 35 words.
+Write a page the way you'd explain membro to a smart friend who's never
+seen it, and if you wouldn't say a sentence like that, rewrite it until
+you would. Write in Australian English, use contractions, call the reader
+"you", and pick short words over long ones. Keep the average sentence
+under 18 words, with fewer than one in ten over 35. A paragraph is one
+thought and opens with its point. A caveat gets a sentence of its own.
+When you bring in something from outside the app, say what it is in a
+sentence and link its own documentation. Don't announce a count
+before a list, and don't end a paragraph on a line that sounds good.
+Keep design metaphors out of [docs/API.md](docs/API.md), so nobody has
+to read the design essay to use the wire contract. README.md is the page
+to measure against.
 
-- One claim per sentence. Average under 18 words, and keep sentences over
-  35 words under 10% of a document.
-- No em-dashes. Australian English. Plain English over jargon.
-- Caveats earn their own sentence. Appending a limitation to every claim
-  is how the important ones stop reading as important.
-- Antithesis ("X, not Y", "rather than", "instead of") is a tool, not a
-  cadence. If deleting the "not Y" half loses no information, delete it.
-- Never announce your own honesty. "Stated plainly", "the honest reason":
-  delete the phrase, keep the fact.
-- Issue numbers and bug history go in the CHANGELOG and the issue.
-  Reference prose says what is true now.
-- Do not narrate a document's own structure or edit history. Nobody read
-  the previous version.
-- A table cell holds a value and a sentence, not a section.
-- Headings every 30 to 50 lines, so a section can be navigated.
-- One design metaphor at most, and never in [docs/API.md](docs/API.md):
-  a wire contract must not need the design essay read first.
+`tests/test_doc_style.py` checks the mechanical part. Every markdown
+file in the repo is held to the same ceilings: no em-dash, no sentence
+over 55 words, no table cell over 45 words, and a heading at least
+every 50 lines of prose. A doc rewritten in the voice is listed in
+`CONVERTED` in that file, and those docs also keep to these rules:
+
+- no dashes and no semicolons
+- one colon per sentence, and only to introduce a list, a command or a
+  quoted value
+- bracketed asides under eight words, and no sentence starting with one
+- capitals only for acronyms
+- none of the filler words the test names
+- no sentence that announces a count before the list
+- contrasts, such as "X, not Y", kept rare
+- no history and no issue numbers, which belong in the changelog and
+  the issue
+- no pointers to the page itself
+- no sentence opening with "So" or "Because"
+
+When you rewrite a doc, add its path to `CONVERTED` in the same pull
+request, and the suite tells you what's left. Test files are
+different, because a test names the issue it guards.
 
 ## Releasing
 
