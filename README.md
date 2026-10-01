@@ -14,26 +14,22 @@ flowchart LR
   A("Your chat apps")
   R[("Every message,<br/>word for word")]
   M("The miner")
-  C{"Do its names, dates<br/>and source check out?"}
+  C{"Passes<br/>the checks?"}
   L[("The ledger")]
-  Q["Your review queue"]
+  Q["Your review<br/>queue"]
   Y(["You"])
-  P["The profile"]
-  S("Your models")
   A -- "each chat" --> R
-  R -- "read after the chat" --> M
+  R -- "after the chat" --> M
   M -- "new facts" --> C
   C -- "yes" --> L
   C -- "no" --> Q
-  Y -- "approve or dismiss" --> Q
+  Y -- "approve" --> Q
   Q -- "approved" --> L
-  L -- "rebuilt into" --> P
-  P -- "in every prompt" --> S
-  L -- "recall" --> S
-  R -- "search" --> S
+  L -- "profile, recall" --> A
+  R -- "search" --> A
   classDef node fill:#d4d4d8,stroke:#757575,color:#18181b
   classDef hero fill:#38bdf8,stroke:#0284c7,color:#18181b,stroke-width:2px
-  class A,R,M,C,Q,Y,P,S node
+  class A,R,M,C,Q,Y node
   class L hero
 ```
 
