@@ -237,6 +237,7 @@ def test_long_docs_stay_navigable():
 
 CONVERTED = {
     "README.md",
+    "ARCHITECTURE.md",
 }
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
