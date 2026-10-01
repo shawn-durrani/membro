@@ -140,6 +140,8 @@ and `test_restore.py`.
 - External writes, from any MCP client, are quarantined when they're
   created, whatever they claim to be. That's the same rule, constrain
   the write, applied to who wrote it.
+### Dates are never guessed
+
 - A mined fact's event date is the date the fact is about. It's kept
   only when the miner names the single message it drew the fact from,
   and that message's text holds an explicit calendar date for it. A date
@@ -155,6 +157,8 @@ and `test_restore.py`.
   words like "tomorrow" and "next Saturday", and intervals written in
   digits, like "in 9 days". An interval in words, like "in nine days",
   isn't caught.
+### Sources are real, and repeats collapse
+
 - A card's source turn is recorded only when it's real. A mined card
   points at one message only when the miner named that message. In a
   window with a guest or an unidentified speaker, a card with no source
