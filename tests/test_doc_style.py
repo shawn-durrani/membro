@@ -235,7 +235,9 @@ def test_long_docs_stay_navigable():
 # rule below holds it. Everything above runs on every markdown file.
 # ---------------------------------------------------------------------------
 
-CONVERTED = set()
+CONVERTED = {
+    "README.md",
+}
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
 # is not one of these reads as shouting. Add one when a converted doc needs it;
