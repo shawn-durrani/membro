@@ -241,6 +241,7 @@ CONVERTED = {
     "SECURITY.md",
     "CONTRIBUTING.md",
     "docs/MEMORY_DESIGN.md",
+    "docs/MEMORY_INTEGRITY.md",
 }
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
