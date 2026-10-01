@@ -1,7 +1,7 @@
 fastapi>=0.141.1
 uvicorn>=0.53.0
 pydantic>=2.13.5
-anthropic>=1.7.0
+anthropic>=1.8.0
 openai>=2.54.0,<3
 # The MCP SDK both MCP servers here are built on. On the 2.x line, where
 # FastMCP became MCPServer. Capped at <3 because a major release can remove
