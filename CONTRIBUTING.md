@@ -1,72 +1,83 @@
 # Contributing
 
-Membro is solo-maintained, built primarily for the maintainer's own
-use. Issues and PRs are welcome; response times vary.
+Membro is maintained by one person and built first for their own use.
+Issues and pull requests are welcome, and replies can take a while.
 
 ## Setup
 
 ```sh
 git clone https://github.com/shawn-durrani/membro.git
 cd membro
-./start.sh                      # venv + deps + server on 127.0.0.1:8901
-.venv/bin/python -m pytest -q   # full suite, no API keys needed
+./start.sh                      # venv, deps, serve on 127.0.0.1:8901
+.venv/bin/python -m pytest -q   # the whole suite, no API keys needed
 ```
 
-The suite must pass with no keys configured; CI runs keyless. A change
-that needs a key needs a keyless fallback. If the service runs under
-launchd, restart it with
-`launchctl kickstart -k gui/$(id -u)/dev.membro.server`.
+The suite has to pass with no API keys set, because CI runs it keyless.
+If a change only works with a key, give it a keyless fallback. If the
+service runs under launchd, restart it with this command.
+
+```sh
+launchctl kickstart -k gui/$(id -u)/dev.membro.server
+```
 
 ## How work lands
 
-Every change is a PR linked to its issue, CI green, landed by
-squash-merge with `Fixes #N`. The issue records why, the PR records
-what changed, and whoever comes next reconstructs the reasoning from
-the link. Branch from `main`, never off another open PR: squash-merging
-the first would orphan the second.
+Every change is a PR linked to its issue. It needs CI green, and it
+lands by squash-merge with `Fixes #N` in the message. The issue records
+why, and the PR records what changed. Whoever comes next can rebuild the
+reasoning from the link between them. Branch from `main`,
+never off another open PR. Squash-merging the first would orphan the
+second.
 
-One caveat when reading code comments: issue numbers in code that
-predates the 2026-08-06 public release refer to a private tracker that
-did not come with the repo. Read them as design-history labels, not
-links; the reasoning around them stands alone. They are rewritten
-opportunistically when a file is touched (#8), and a number can also
-name a real issue here by coincidence - `git blame` settles which
-tracker a comment meant.
+Some issue numbers in code comments point at a private tracker from
+before the public release on 6 August 2026, and that tracker didn't come
+with the repo. Read those numbers as labels, and the reasoning around
+them stands on its own. They're rewritten when someone touches the file.
+A number can also match a real issue here by chance, and `git blame`
+tells you which tracker a comment meant.
 
-## Rules
+## Ground rules
 
-- Tests accompany behaviour changes.
-- User-visible changes get one new file under `changelog.d/`, not an
-  edit to `CHANGELOG.md`. Name it `<issue>-<slug>.md` and write the
-  finished entry: one `- ` paragraph in the changelog's voice, with
-  continuation lines indented two spaces. Entries fold into the
-  changelog at release, so two open PRs never touch the same line.
-- No real personal data in any diff. Fixtures use the documented
-  synthetic roster (see the PR template); any name outside it is a
-  review question. Enable the leak scanner once per clone:
+- Tests come with behaviour changes.
+- A change a person can see gets one new file under `changelog.d/`, and
+  `CHANGELOG.md` stays untouched. Name the file `<issue>-<slug>.md`. The
+  check accepts any lowercase words joined by hyphens, and the file has
+  to end with a newline. Write the finished entry, which is one `- `
+  paragraph in the changelog's voice, with continuation lines indented
+  two spaces. Entries fold into the changelog at release, so two open
+  PRs never touch the same line.
+- No real personal data in any diff. Fixtures use the synthetic roster
+  in the PR template, and any name outside it is a question for review.
+  Turn on the leak scanner once per clone:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-  Optionally copy `secret-scan-local.example` to `.secret-scan-local`
-  (gitignored) with patterns for your own names and places. The scanner
-  has three classes: key shapes, infrastructure identifiers, and
-  personal content matched against that local deny-list. The third
-  class only runs if you made the file, and it is never a completeness
-  proof either way, so content must still be synthetic by
-  construction. A green scan is not publication clearance.
-  The script is a byte-for-byte copy of crossband's, the fleet's
-  canonical scanner, and `tests/test_secret_scan.py` fails when the copy
-  differs. Do not patch it here: land the fix in crossband, then copy
-  the file across and commit it, from a local checkout or with
-  `curl -fsSL https://raw.githubusercontent.com/shawn-durrani/crossband/main/scripts/secret-scan.sh -o scripts/secret-scan.sh`.
+  You can copy `secret-scan-local.example` to `.secret-scan-local`,
+  which is gitignored, and fill it with patterns for your own names and
+  places. The scanner looks for key shapes, for identifiers of a real
+  machine or person like tailnet names, home folder paths and email
+  addresses, and for the patterns in your own list. It checks your list
+  only if you made the file. No scan proves a diff is clean, so write
+  content that's made up from the start. A green scan isn't clearance
+  to publish.
+- `scripts/secret-scan.sh` is a byte for byte copy of crossband's, the
+  fleet's one scanner, and `tests/test_secret_scan.py` fails when the
+  copy drifts. Don't patch it here. Land the fix in crossband, then copy
+  the file across and commit it, from a local checkout or with this
+  command.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shawn-durrani/crossband/main/scripts/secret-scan.sh -o scripts/secret-scan.sh
+```
+
 - The scope boundaries in [ARCHITECTURE.md](ARCHITECTURE.md) are
-  deliberate.
+  settled, and that page says why. Read it before you widen one.
 
 ## Writing documentation
 
-Write a page the way you'd explain membro to a smart friend who's never
+Write a page the way you'd explain Membro to a smart friend who's never
 seen it, and if you wouldn't say a sentence like that, rewrite it until
 you would. Write in Australian English, use contractions, call the reader
 "you", and pick short words over long ones. Keep the average sentence
@@ -104,22 +115,24 @@ different, because a test names the issue it guards.
 
 ## Releasing
 
-Versions are ordinary semantic versions in the 0.x range: no stability
-promise yet. `memory_service.__version__` is the single source, and the
-HTTP `contract_version` moves separately, only when the wire contract in
-[docs/API.md](docs/API.md) changes.
+Versions are ordinary semantic versions in the 0.x range, with no
+stability promise yet. `memory_service.__version__` is the one place
+the version lives. The HTTP `contract_version` moves on its own, and
+only when the wire contract in [docs/API.md](docs/API.md) changes.
 
-Before a tag, every box:
+Before you tag, tick every box.
 
-- [ ] Suite green keyless: `env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY .venv/bin/python -m pytest -q`
-- [ ] `pip-audit -r requirements.txt --strict` clean
+- [ ] Suite green keyless:
+      `env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY .venv/bin/python -m pytest -q`
+- [ ] `pip-audit -r requirements.txt --strict` clean.
 - [ ] `bash scripts/secret-scan.sh --tree` green. The bare command scans
-      only staged lines, so at release time it would scan nothing and
-      still report clean; `--tree` is the one that looks.
-- [ ] No real personal data in code, tests, docs or fixtures
-- [ ] Screenshots and any demo database come from synthetic conversations
-      only, including the sidebar: generated titles summarise whatever a
-      chat actually discussed
-- [ ] `python scripts/fold_changelog.py vX.Y.Z` run: `changelog.d/`
-      empty, the new section dated, Unreleased left empty above it
-- [ ] `__version__` bumped
+      staged lines only, so at release time it scans nothing and still
+      reports clean, and `--tree` is the one that looks.
+- [ ] No real personal data in code, tests, docs or fixtures.
+- [ ] Screenshots and any demo database come from made-up conversations
+      only. That includes conversation titles, because a title
+      summarises whatever the chat discussed.
+- [ ] `python scripts/fold_changelog.py vX.Y.Z` run, so `changelog.d/`
+      is empty, the new section is dated, and the Unreleased heading
+      over it stays empty.
+- [ ] `__version__` bumped.
