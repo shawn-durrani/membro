@@ -5,7 +5,330 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
-## v0.2.0 (2026-08-30)
+## v0.2.0 (2026-10-02)
+
+- A history search that matches words in a photo's caption now shows the
+  caption around the match (#160). The search found the right photo, but
+  its hit came back with a blank excerpt, so an AI saw only the file name
+  and not what the photo showed. The excerpt is the same 64 words, marked
+  the same way as a message's, and the hit's speaker reads
+  `file: <name> (image caption)` so the AI knows what it's reading.
+
+- Mining no longer loses facts on a model that thinks before it answers
+  (#167). Claude Sonnet 5.5 and the other newer models think unless a
+  request turns it off, and the thinking shares the answer's room, so
+  the miner's reply could run out partway and the rest of the chat went
+  unmined. The miner still thinks on a model that does by default, as it
+  was benchmarked, and now gets 4,000 tokens for it on top of the room
+  for its facts. Its retries, captions, the sweep and the judge's
+  witness check turn thinking off where the model allows it, and get
+  more room where it can't be turned off. Every model call checks how
+  its reply ended. A miner reply cut short or refused is mined again in
+  smaller pieces, and a retry cut short holds its fact for review. The
+  judge's roleplay check asks each model for the thinking it takes, so
+  `judge_model` can name any model. Claude Haiku 4.5 gets the same
+  requests as before.
+
+- A history search can now say it was run by the chat app on your
+  behalf, the way an automatic recall already does. `POST /search`
+  takes an optional `origin` field, and `auto` marks such a search in
+  the access log. The live view on the Mathematics page shows it as the
+  app preparing context, so it no longer reads as a model choosing to
+  dig into your past chats.
+
+- A profile the model didn't finish is no longer saved (#163). The
+  profile writer thinks before it writes, and on 2 of 20 benchmark builds
+  its thinking used up the 8,000-token cap, so the profile stopped
+  mid-sentence and lost its newest sections. Each build call now gets
+  16,000 tokens, or four per word of the budget if that's more, and the
+  writer checks how every reply ended. A draft cut short keeps the
+  profile you had, and a cut-short expand or squeeze pass keeps the
+  draft it started from. The service log says why, with no profile text
+  in it, and a rebuild started from the admin page reports the reason.
+
+- A one-off repair gives mined facts back the message they came from
+  (#146). From 13 August the miner stored most facts without it, because
+  it couldn't read the model's bracketed tags (#145). Erasing that message
+  then left the fact in recall instead of sending it back to review, and
+  any date the model gave it was lost. `scripts/relink_unbound_facts.py`
+  binds such a fact to one of your own turns. It does that only in a chat
+  with no guests, and only when that turn clearly shares the most
+  distinctive words with the fact. It moves the date only when that turn
+  writes the fact's calendar date. It's a dry run unless you pass
+  `--apply`, which refuses while membro is busy, keeps a copy of the
+  database first, and notes each change without any text in
+  `data/repairs.jsonl`.
+
+- The miner now keeps what you mention in passing about what you own and
+  use, what you've done, your home and your family, even in a chat about
+  something else (#136). It used to drop an aside like the software you
+  edit with or how many sisters you have as part of a one-off task. It
+  still leaves out one-off numbers, like what one purchase cost. Its
+  template now writes values without angle brackets, so the model has
+  none to copy. On the benchmark's 20 preference and multi-session
+  questions, three more came right from facts it now keeps, and each
+  history's ledger nearly doubled, from 38 facts to 74.
+
+- You can now erase a fact the automatic judge has looked at (#158). The
+  judge keeps a record of each look that points at the fact, and the
+  database refused to delete a fact while that record stood, so the
+  eraser failed with a server error. The eraser now removes that record,
+  which holds only an id and a time, along with the fact.
+
+- When search can't use its index, each hit now shows the words around
+  the match instead of the message's first 200 characters (#156). That
+  fallback serves a query the index can't parse, and every search while
+  the index is out of step before a restart repairs it. Its excerpts are
+  now the same 64 words, centred on the match and marked the same way.
+
+- Erasing a photo now takes its caption's words out of the search index
+  too (#154). Membro indexes a photo's auto-generated caption so you can
+  search for what it showed, but the file eraser only removed the photo's
+  empty text, so the caption's words stayed in the index and in later
+  backups. Search never showed the erased photo, and restoring a snapshot
+  had the same gap. Nothing on this install needs repair: no file had been
+  erased yet.
+
+- History search now matches word endings (#152). A search for "sister"
+  finds "sisters", and "packed" finds "packing" and "packs". Both search
+  indexes, for messages and for file text, are rebuilt with the new rule
+  the first time the service starts. On a store the size of a busy one
+  (about 43,000 messages) that takes about a second. Image captions stay
+  searchable through the rebuild, which a plain index repair used to lose.
+
+- A history search now shows up to 64 words of each matching message, up
+  from 24 (#150). The shorter excerpt often stopped just before the detail
+  the search was for, like a number or a price, so an AI found the right
+  message and still couldn't answer. A hit averages about 330 characters
+  now, up from about 140.
+
+- The roleplay check now reads only what people said in a chat (#148). It
+  used to read the AI's replies too, so ordinary advice like "rehearse your
+  set" held every true fact the person had shared in that chat, as if it
+  were roleplay. Framing from the person, a guest or any speaker membro
+  can't place still holds facts, as before.
+
+- The miner now reads its tags when the model copies the template's angle
+  brackets, like `src=<3> importance=<7>` (#145). It couldn't read that
+  form, so it asked the model again for every such fact's importance, and
+  it stored the fact without the message it came from, which also dropped
+  any date the model gave. In one benchmark run that was 459 of 770 fact
+  lines. A placeholder copied whole, like `event=<YYYY-MM-DD>`, still reads
+  as no date.
+
+- The People page is easier to use on a phone. Each person's details use
+  the full width of the card, a line divides one person from the next, and
+  the rename box and merge picker each share a line with their button. A
+  voice clip's player fits beside its delete button instead of running off
+  the card. The desktop layout is unchanged.
+
+- The miner no longer sees other chats' guest facts (#139). When it mines
+  a chat, it's shown your existing facts so it doesn't save one twice, and
+  that list held every chat's facts, guests' facts included. It now holds
+  what a recall from that chat would find: the facts every chat can see,
+  and the ones bound to this chat. So a guest's fact from one chat can't
+  pass for a repeat, or be marked replaced, by something said in another.
+  The list keeps its cache-friendly layout, so a burst of mining calls
+  still shares the prompt cache.
+
+- Tapping a text field on a phone no longer leaves the admin page zoomed
+  in. iOS Safari zooms in on any field under 16px and stays there, so every
+  field you type into is now 16px on a touch screen, including the
+  password box on the locked page and in landscape. A long word in a held
+  fact now wraps instead of being cut off, and the People page's "merge
+  into" picker fits its row. The desktop look is unchanged.
+
+- Mining and the profile now reuse Anthropic's prompt cache when their
+  calls come close together (#137). The miner's instructions and its list
+  of your existing facts are laid out to stay the same from one call to
+  the next, so in a burst (a backlog, an import) every call after the
+  first reads them at a tenth of the price. The same facts, rules and
+  answer format reach the model. A profile build's expansion pass reads
+  the entries its draft just sent. Each model call also writes one line
+  to `data/service.log` with its call site and token counts, never text,
+  so you can see how much of the input came from the cache.
+
+- The LongMemEval benchmark harness is in the repo, under `bench_memory/`.
+  It gives each question a fresh copy of membro and crossband, started
+  from git worktrees with their own data folders and ports. It loads that
+  question's chat history into membro, asks crossband in a new chat, and
+  grades the answer with LongMemEval's own prompts. Your real apps are
+  never touched. A mock run is free and sends nothing off your computer.
+  A paid run meters every model call and stops before the budget you give
+  it. At list prices a question costs about 35 US cents, most of it membro
+  mining the history. A 60-question sample, ten of each type, got 33
+  right, and its table is in `bench_memory/METHODOLOGY.md` (#9).
+
+- Backups are private to your own account on the Mac. The database was
+  already, but each backup, the backups folder and the service log could
+  be read by any other account once it got past the data folder, and a
+  backup copied elsewhere kept that open mode. At startup the service now
+  takes that access away from everything in the data folder, and every
+  file it makes after that is private from the start. The restore and
+  the maintenance scripts do the same (#133).
+
+- A restart or a deploy no longer signs you out of the admin page
+  (#131). Sessions used to live only in the service's memory. They're
+  now kept in the database as a SHA-256 hash with their 24 hour expiry,
+  never the cookie itself, so a copy of the database can't sign anyone
+  in. "Log out" still ends that session. A password reset now ends
+  every other session too, where before only a restart did, and so
+  does removing a passkey, so a lost phone's session goes with its
+  passkey. `scripts/restore_snapshot.py` ends every session as well.
+  The first start on this version signs everyone out once.
+
+- Restoring a snapshot no longer brings back voice clips you deleted or
+  people you forgot (#129). The restore replayed the erasures made since
+  the snapshot but skipped the voice ones, so a deleted clip came back as
+  a row with no audio behind it, and a forgotten person came back
+  unforgotten. It now replays those too: every clip delete, including
+  each one from the "clips crossband no longer uses" button, and every
+  forget, with the person's clips, kept-clip lists and approved facts
+  handled as the forget handled them. It then lists any clip whose audio
+  file is missing, by person and clip id, and keeps it for you to judge.
+  The dry run now counts the erasures it would replay by kind.
+
+- Memory contract 1.8 (#127): the People page shows, for each person, how
+  many stored voice clips crossband no longer uses, with a button to
+  delete them, and a total with one button for everyone. Membro kept every
+  clip crossband ever sent, so one person's voice could fill hundreds of
+  clips where crossband uses 15. Crossband now sends the list of clips it
+  keeps each time it syncs, and the count is the stored clips missing from
+  it. The list alone deletes nothing: a clip goes only when you press, and
+  each one leaves a content-free line in the erasure journal. A clip
+  crossband drops is deleted as an ordinary clip delete, which now says
+  why it went (rotation, settled or set aside) in the journal. A 1.7
+  client keeps working, and without a list nothing is counted.
+
+- Your other apps are one tap away (workbench#100). A row at the top of
+  the admin page links Crossband, Spendglass and Threadfold. Membro asks
+  each one on this machine where a browser can open it, keeps the
+  answers for a minute, and leaves out any app that doesn't answer. On
+  the Mac every running app shows. From your phone only the apps served
+  on your tailnet show, so the row never offers a link that won't open.
+  The owner-only `GET /app-links` builds the row, and a new
+  `sibling_apps` setting names the apps. The wire contract is unchanged,
+  so `contract_version` stays where it is.
+
+- Backups no longer stall while the Mac sleeps. The six hours between
+  automatic snapshots used to count only time the Mac was awake, so a
+  laptop that slept most of the day could go days without a new restore
+  point. The timer now checks every five minutes and goes by the clock,
+  so a snapshot that fell due during sleep is taken within five minutes
+  of the Mac waking. An unchanged database still gets no new copy (#123).
+
+- Memory contract 1.7 (#115): a fact a model saves while a guest is in
+  the room now stays in that chat once you approve it. It was held for
+  review, but after approval it was recalled in every chat, because the
+  save never said which chat it came from. `POST /facts` now takes the
+  same `source_app` and `conversation_id` pair as `/ingest` and
+  `/recall`, and a save carrying `guest_speakers` binds to that chat,
+  like a fact mined from a guest's own words. A save made before the
+  chat's first handoff creates the chat's record, so it binds from the
+  start. Your own saves stay global. A 1.6 client keeps working
+  unchanged, and its guest-present saves stay global as before.
+
+- Membro's two MCP servers now run on version 2 of the MCP SDK, which
+  renamed the server class they use from FastMCP to MCPServer. Their
+  tools, names and answers are unchanged. `start.sh` installs the new
+  SDK the next time the service starts. Until then, an MCP server
+  launched from the old virtualenv fails to import, so restart the
+  service before you open a new session (#109).
+
+- The MCP server's word-for-word chat search now refuses a session that
+  wasn't given the owner's token, even when that token lives only in
+  `.env`. It used to check against its own empty copy and let everyone
+  through, and a token passed at registration was checked against itself.
+  Register the sessions that should search with `-e MEMORY_AUTH_TOKEN`,
+  as the docs say (#117).
+
+- Membro no longer writes your recovery secret into its log. It used to
+  print the secret on every start, and under launchd that output goes to
+  `data/service.log`, so each restart added a plain-text copy. Now a
+  configured `MEMORY_AUTH_TOKEN` is never printed, and a token minted for
+  one start is printed only on a first run, before you've set a password.
+  Copies already in an old log stay there until you clear the log (#113).
+
+- The judge pass no longer locks other writes out while it waits on the
+  model. It used to hold the database's write lock for the whole pass,
+  so a slow network, or the computer sleeping mid-pass, made incoming
+  chats fail with "database is locked" and history searches hang. Each
+  fact's verdict now saves straight after its own model call. A search
+  whose access-log write meets a busy lock also stops waiting twice
+  before it answers (#111).
+
+- Every fact now carries a scope, and a guest's fact stays in its own
+  conversation (#72, contract 1.6). A fact drawn from a guest's turn, or
+  saved while guests were in the room, is recalled only from the
+  conversation it came from and never joins the profile. Your own facts,
+  and everything stored before this, are global, so recall behaves as it
+  did. A client names its conversation on `/recall` to get the facts
+  bound to it. The review queue says which chat a bound fact belongs to,
+  approving keeps the binding, and "Recall everywhere" is the one way to
+  widen it.
+
+- Restoring a snapshot no longer brings erased things back (#101). A
+  snapshot is a point in time, and the erasure journal lives inside the
+  database, so copying an older snapshot into place used to resurrect
+  every fact, message and attachment erased since, tombstones and all.
+  The new `scripts/restore_snapshot.py` keeps a copy of the live database
+  first, copies the chosen snapshot in, then replays every journalled
+  erasure the older copy lacks through the same erasers the danger zone
+  uses, and appends those tombstones under their original times. It
+  refuses while the service is running and prints counts, never content.
+
+- The leak scanner is now a byte-for-byte copy of crossband's canonical
+  (#99), and the suite fails when the copy drifts from it. The copy
+  brings crossband's fixes: placeholder allowlists anchored to the whole
+  token, so a masked tailnet no longer excuses a machine name in front
+  of it; an inline `secret-scan: allow` marker for a deliberate keep; and
+  tree hits that name the file they came from.
+
+- The profile now aims for most of its word budget (#96). The prompt
+  used to give the model a ceiling and a warning against padding, and
+  the profile settled at about half of its 2,000 words while the ledger
+  held far more than that. The prompt now asks for a range, 80% of the
+  budget up to the budget (`memory_summary_fill`; `0` turns the floor
+  off), spent on the specifics the entries carry: dates, names of
+  projects and places, numbers, the current state of each thread. A
+  draft under the floor gets one expansion pass from the same entries,
+  only when they hold at least twice the floor in words; a draft still
+  short after that is kept, and nothing is invented. Each stored version
+  now records which passes shaped it, and the admin page shows the fill
+  as a percentage.
+
+- `GET /v1/busy` (#95): whether a restart right now would interrupt work
+  in flight, for the fleet's deploy watcher, which asks before a restart
+  and waits while the answer is true. Open on loopback like `/v1/health`.
+  `reasons` carries fixed labels only: a running distill, summary,
+  consolidate or embeddings-projection job, a backup mid-copy, a judge
+  pass, or the re-embed refill after an embedding model change. A mark
+  older than an hour stops counting, so a hung thread cannot hold every
+  deploy. The route sits outside the versioned client contract, so
+  `contract_version` stays at 1.5.
+
+- Memory contract 1.5 (#93): a model's direct save now says who was in
+  the room. `POST /facts` may carry `guest_speakers`, the same
+  `guest:<name>` and `guest:unknown` values `/ingest` uses, and a stamped
+  save is held for review under a new group, "Saved while a guest was
+  in the room". The mined path already held a guest's words because
+  each message names its speaker; the save tool named nobody, so a
+  guest's claim relayed by a model reached canon unheld. A save that
+  also read the web keeps its web-derived group with the guest clause
+  appended. A 1.4 client keeps working unchanged.
+
+- Memory contract 1.4 (#84): four additive changes so a client app can
+  close seams the 2026-08-28 fleet audit found. `/search` hits carry
+  `web_sources`, the domains the authoring turn read from, so archived
+  web text can be marked untrusted when read back. `/health` reports
+  `browser_origin`, the address a phone can open this service at, so a
+  client links the eraser somewhere that works. A new
+  `/conversations/{app}/{id}/watermark` route reports the highest
+  message id held (erased ones included), so a client can wind its
+  ingest watermark back after a restore instead of leaving a silent
+  hole. `event_date` is now a calendar day at the owner's local
+  midnight for every writer, with same-day recall ties broken on the
+  save time. A 1.3 client keeps working unchanged.
 
 - Verbatim transcript search now needs the owner token on every path
   (#81). The MCP server's search_history refuses when the server was
