@@ -15,7 +15,7 @@ import random
 import sqlite3
 
 from . import db
-from .weighting import DEFAULT_IMPORTANCE, HALF_LIFE_BASE_DAYS, score
+from .weighting import DECAY_BASE_DAYS, DEFAULT_IMPORTANCE, score
 
 SAMPLE_CAP = 2500  # Gram matrix is O(n²) memory — sample newest beyond this
 
@@ -36,7 +36,10 @@ def decay_data(con):
             "score": round(score({"importance": imp, "event_date": ts}, now), 4),
             "q": 1 if r["quarantined_at"] else 0,
         })
-    return {"half_life_base_days": HALF_LIFE_BASE_DAYS,
+    # The key keeps its old name so the Mathematics page and any other
+    # reader of this route don't break. The value is the decay's base time
+    # constant, not a half-life (#193).
+    return {"half_life_base_days": DECAY_BASE_DAYS,
             "default_importance": DEFAULT_IMPORTANCE, "facts": facts}
 
 
