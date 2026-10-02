@@ -247,13 +247,14 @@ CONVERTED = {
     "docs/REFERENCES.md",
     "bench_memory/README.md",
     "bench_memory/METHODOLOGY.md",
+    "docs/API.md",
 }
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
 # is not one of these reads as shouting. Add one when a converted doc needs it;
 # a name in a code span or a file name like README.md is never read as prose.
 CAPS_ALLOWED = {"AAAI", "API", "CLI", "DNS", "GPT", "HTTP", "HTTPS", "ISO",
-                "JSON", "MCP", "MIT", "PDF", "SDK", "STT", "URL", "WAV", "WMR"}
+                "JSON", "MCP", "MIT", "PDF", "SDK", "STT", "URL", "UTC", "WAV", "WMR"}
 
 # A colon may introduce a list, a command or a quoted value. Approximated as:
 # what follows starts with a backtick or a quote, holds an inline list (two or
