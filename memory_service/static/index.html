@@ -1177,24 +1177,38 @@ function provRows(f) {
   return rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
 }
 
-let ledgerLimit = 200;   // grows via "Load more"; resets on any filter/search change
+const LEDGER_PAGE = 200;
+let ledgerFacts = [];   // the rows on screen, newest first
+let ledgerView = "";    // the filter and search they were loaded for
 
 async function loadLedger(more) {
-  // reset the window whenever the filter/search changes; grow it on Load more
-  ledgerLimit = more ? ledgerLimit + 200 : 200;
+  // Load more asks for the page after the last row on screen (#190): the
+  // server caps a page at 1,000, so a page that grows with each press
+  // stopped working past that. A filter or search change starts over.
   const status = $("ledger-status").value;
   const q = $("ledger-q").value.trim();
-  const params = new URLSearchParams({ status, limit: String(ledgerLimit) });
+  const view = status + "\n" + q;
+  if (!more || view !== ledgerView || !ledgerFacts.length) {
+    more = false;
+    ledgerFacts = [];
+  }
+  const params = new URLSearchParams({ status, limit: String(LEDGER_PAGE) });
   if (q) params.set("q", q);
-  let facts;
-  try { ({ facts } = await api("/facts?" + params)); }
+  if (more) params.set("before", String(ledgerFacts[ledgerFacts.length - 1].id));
+  let page;
+  try { ({ facts: page } = await api("/facts?" + params)); }
   catch (e) { errPanel("ledger-body", "Couldn't load the ledger: " + e.message, "loadLedger"); return; }
-  // honest about the window: if we filled the limit, older facts may exist
-  const capped = facts.length === ledgerLimit;
+  ledgerFacts = ledgerFacts.concat(page);
+  ledgerView = view;
+  const facts = ledgerFacts;
+  // honest about the window: a full page means older facts may exist. An id
+  // lookup (#12,34) returns every id it names in one page, so it never pages.
+  const idLookup = /^#\s*\d[\d,\s]*$/.test(q);   // ledger._ID_QUERY
+  const capped = page.length === LEDGER_PAGE && !idLookup;
   $("ledger-count").textContent = capped ? `${facts.length}+` : facts.length;
   $("ledger-count-line").textContent =
     `${facts.length} fact${facts.length === 1 ? "" : "s"}` +
-    (capped ? ` (first ${ledgerLimit} — more may exist)` : "") +
+    (capped ? ` (newest ${facts.length} — more may exist)` : "") +
     (q ? ` matching “${q}”` : "");
   if (!facts.length) {
     $("ledger-body").innerHTML =
@@ -1249,8 +1263,8 @@ async function loadLedger(more) {
         </div>
       </div>
     </td></tr>`).join("") + "</tbody></table></div>" +
-    (capped ? `<div class="loadmore">Showing the first ${ledgerLimit} facts — older
-       ones may exist. <button onclick="loadLedger(true)">Load 200 more</button>
+    (capped ? `<div class="loadmore">Showing the newest ${facts.length} facts — older
+       ones may exist. <button onclick="loadLedger(true)">Load ${LEDGER_PAGE} more</button>
        <span class="hint">or narrow with search above.</span></div>` : "");
   updateHoldBtn();   // re-render clears the ticks, so reset the button with them
 }
