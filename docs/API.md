@@ -81,8 +81,8 @@ stub.
   `browser_origin`. `GET /conversations/{app}/{id}/watermark` reports
   the highest message id held for one conversation. `event_date` is a
   calendar day at the owner's local midnight, whichever writer set it,
-  with one exception: the MCP `save_memory` tool keeps a full timestamp's
-  time of day. A 1.3 client sees nothing new, and keeps working.
+  the MCP `save_memory` tool included. A 1.3 client sees nothing new,
+  and keeps working.
 - **1.3: a message on `/ingest`, and a save on `POST /facts`, may carry
   `web_sources`.** These are the web domains a tool read in the round
   that produced the message or save, as a list of strings, at most 20.
@@ -1238,8 +1238,8 @@ imports `recall`, `ledger`, `episodic` and `summary` directly, and opens
 - `save_memory` drops a line about the memory system's workings, or
   about building software, which `POST /facts` never does. An
   `event_date` it can't read is ignored where `POST /facts` would refuse
-  it, and a full timestamp keeps its time of day. It has no web, guest or
-  conversation stamps.
+  it. One it can read is kept as a calendar day, the same as
+  `POST /facts`. It has no web, guest or conversation stamps.
 - The adapter needs to read and write `data/`, and `MEMORY_DATA_DIR`
   must point at the same folder the running service uses. Point it
   elsewhere, and saves land in a different ledger that never shows up on
