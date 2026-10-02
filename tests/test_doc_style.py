@@ -246,6 +246,7 @@ CONVERTED = {
     "docs/TESTING.md",
     "docs/REFERENCES.md",
     "bench_memory/README.md",
+    "bench_memory/METHODOLOGY.md",
 }
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
