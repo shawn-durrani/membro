@@ -1,10 +1,11 @@
 # Memory benchmark harness
 
-The harness runs the published LongMemEval benchmark against membro and
-its chat app, crossband. It gives each question a fresh copy of both apps,
-loads that question's chat history into membro, asks crossband the question
-in a new chat, and grades the answer with LongMemEval's own grading
-prompts. Your real membro and crossband are never touched.
+The harness runs the published
+[LongMemEval](https://github.com/xiaowu0162/LongMemEval) benchmark against
+Membro and its chat app, Crossband. It gives each question a fresh copy of
+both apps, loads that question's chat history into Membro, asks Crossband
+the question in a new chat, and grades the answer with LongMemEval's own
+grading prompts. Your real Membro and Crossband are never touched.
 
 [METHODOLOGY.md](METHODOLOGY.md) says what the score means, lists every
 adjustment the harness makes, and holds the results of a 60-question
@@ -12,12 +13,12 @@ sample and what it cost.
 
 ## What you need
 
-You'll need membro and crossband checked out side by side, each with its
-own `.venv` from its `start.sh`. The harness runs from membro's repo root,
-with membro's interpreter.
+You'll need Membro and Crossband checked out side by side, each with its
+own `.venv` from its `start.sh`. The harness runs from Membro's repo root,
+with Membro's interpreter.
 
 A free run needs nothing else. A paid run needs an Anthropic key and an
-OpenAI key, and a budget. Membro's miner, its profile and crossband's
+OpenAI key, and a budget. Membro's miner, its profile and Crossband's
 seats use the Anthropic key. Membro's embeddings and the grading use the
 OpenAI key.
 
@@ -36,7 +37,7 @@ the same 500 questions. Nothing from it goes in the repo.
 
 A mock run answers every model call inside the harness with a short canned
 reply. It exercises everything else for real: both apps start from
-worktrees, membro ingests and mines the chats, crossband runs a full chat
+worktrees, Membro ingests and mines the chats, Crossband runs a full chat
 round with memory, and the grader runs. It costs nothing, needs no keys and
 sends nothing off your computer.
 
@@ -49,9 +50,9 @@ export BENCH_MEMORY_I_UNDERSTAND_THIS_IS_DISPOSABLE=1
 
 `--fixture` uses four made-up questions that ship with the harness, so you
 can run it before the download. Drop it to run real questions through the
-mock. A mock score is always zero, since the canned seat never knows the
-answer. A mock run is for checking that both apps still start, talk to each
-other and produce answers.
+mock. A mock score is always zero, because the mock grader marks every
+answer wrong. A mock run is for checking that both apps still start, talk
+to each other and produce answers.
 
 ## A paid run
 
@@ -63,8 +64,10 @@ other and produce answers.
 ```
 
 `--env-file` reads `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from that file
-and ignores every other line. Without it the keys come from your
-environment. The keys are never printed or written down.
+and ignores every other line. A key the file sets wins over your
+environment, and a key it doesn't set comes from your environment. You can
+give `--env-file` more than once. The keys are never printed or written
+down.
 
 `--budget` is in US dollars and a paid run won't start without one. Every
 model call goes through a meter in the harness, which prices it at list
@@ -73,21 +76,22 @@ checks whether the average question so far would take it past the budget,
 and stops if it would. Past the budget, the meter refuses every call.
 
 `--n` picks that many questions spread across the six question types, the
-same ones for the same `--seed`. `--all` runs all 500. The budget check
-has no average to go on before the first question, so give a budget of at
-least a dollar.
+same ones for the same `--seed`. Without it, a run takes 6 questions.
+`--all` runs all 500. The budget check has no average to go on before the
+first questions. With `--jobs` over 1, that many questions start before
+any cost is known, so give a budget of at least a dollar for each job.
 
 ## What a run costs
 
-A question costs about 40 US cents with crossband's default seat, and
-four fifths of that is membro mining the question's chat history and
+A question costs about 40 US cents with Crossband's default seat, and
+four fifths of that is Membro mining the question's chat history and
 rebuilding its profile. All 500 questions come to about $195.
 [METHODOLOGY.md](METHODOLOGY.md#what-it-costs) has the breakdown by model.
 
 A question takes just under three minutes, almost all of it mining.
 `--jobs 4` runs four questions at once and costs the same.
 
-`--stores DIR` keeps each question's mined membro and reuses it on later
+`--stores DIR` keeps each question's mined Membro and reuses it on later
 runs, which then pay only for the answer and the grading, about 8 cents a
 question. That's how you compare two seat models, or the answer with and
 without the abstention sentence, without paying for mining twice. A kept
@@ -98,13 +102,15 @@ weeks old.
 
 Everything a run makes goes in `--out`. Run the same command again with the
 same `--out` and it picks up where it stopped, skipping every answered
-question.
+question. It refuses to pick up if either app's `origin/main` has moved
+since the run began. A run that crashed can leave its `--root` behind,
+and a rerun needs that folder empty again.
 
 | File | What it holds |
 |---|---|
-| `manifest.json` | What was run: the sample, the seat model, both apps' commits, the pinned upstream versions. |
+| `manifest.json` | What was run: the sample size and seed, any `--model` choice, both apps' commits, Membro's config and the pinned upstream versions. |
 | `predictions.jsonl` | The answers, in the format LongMemEval's own scorer reads. |
-| `results.jsonl` | One row per question: sizes, fact counts, timings, any error. No text. |
+| `results.jsonl` | One row per question: the seat model, sizes, fact counts, timings, any error. No text. |
 | `usage.jsonl` | One row per model call: who made it, the model, tokens and cost. No text. |
 | `judged.jsonl` | The grader's verdict on each answer. No text. |
 | `report.json` | The summary the command prints. |
@@ -119,12 +125,12 @@ Each of these rules is enforced in code, and the tests in
 
 | Risk | What stops it |
 |---|---|
-| Your `.env` or `config.local.json` gets read | Both apps run from throwaway git worktrees, which have neither. |
-| A setting leaks in from your shell | Each app's environment is built from an empty list, with only the two model keys passed by name. |
-| The run writes to your real ledger | The harness writes a random token into each new data folder, and membro must echo it back before any write. |
-| Crossband talks to your real membro | Crossband is pointed at the throwaway membro, and the harness checks that it says so before asking anything. |
+| Your `.env` or `config.local.json` gets read | Both apps run from throwaway git worktrees, which have neither of yours. The throwaway Membro gets a `config.local.json` the harness writes, holding only `trusted_apps`. |
+| A setting leaks in from your shell | Each app's environment starts empty. Only the two model keys, and `PATH`, the locale and the time zone, come from your shell. |
+| The run writes to your real ledger | The harness writes a random token into each new data folder, and Membro must echo it back before any write. |
+| Crossband talks to your real Membro | Crossband is pointed at the throwaway Membro, and the harness checks that it says so before asking anything. |
 | A seat answers from the web | Search, voice and GitHub keys never reach the throwaway apps, and each chat has web research off. |
-| Teardown deletes the wrong folder | A folder is deleted only while it still holds the run's token. |
+| Teardown deletes the wrong folder | A run's folders are deleted only while its root still holds the run's token. A `--stores` folder is overwritten for each question without that check, so give it a folder of its own. |
 | Your fleet's ports get used | Ports 8890 to 8910 are never picked. |
 
 The root folder must be empty and outside both checkouts. Set
