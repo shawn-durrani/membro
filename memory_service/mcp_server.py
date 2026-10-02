@@ -115,10 +115,13 @@ def save_memory(content: str, event_date: str = "") -> str:
         return ("Not saved: reads as engineering-process chatter (PR/issue/CI "
                 "mechanics, implementation minutiae, UI styling tweaks), not a "
                 "durable fact about you.")
+    # A calendar day at local midnight, as POST /v1/facts stores it
+    # (contract 1.4, #192). A date it can't read is ignored, not refused.
     ts = None
     if event_date.strip():
         try:
-            ts = datetime.datetime.fromisoformat(event_date.strip()).timestamp()
+            ts = db.day_start(
+                datetime.datetime.fromisoformat(event_date.strip()).timestamp())
         except ValueError:
             ts = None
     con = _con()
