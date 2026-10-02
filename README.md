@@ -147,21 +147,35 @@ Membro snapshots its database into `data/backups/` on a timer, and
 keeps a set number of the newest. It can copy each snapshot to a second
 folder too, named in `MEMORY_MIRROR_DIR`.
 
-To go back to a snapshot, stop the service and run
-`scripts/restore_snapshot.py` with the snapshot's path. It keeps a copy
-of the live database in `data/backups/` first, and that copy is rotated
-out with the other snapshots. Then it replays every erasure made since
-the snapshot, so a restore never brings back what you erased. That
-covers the voice clips your apps keep here too. A clip you deleted stays
-deleted, and a person you forgot stays forgotten.
+To go back to a snapshot, stop the service first. Under launchd that's
+`launchctl bootout gui/$(id -u)/dev.membro.server`, and the restore
+won't run while Membro still answers on its port. List the snapshots,
+see what a restore would replay, then restore.
+
+```sh
+.venv/bin/python scripts/restore_snapshot.py --list
+.venv/bin/python scripts/restore_snapshot.py data/backups/memory-YYYYMMDD-HHMMSS.db --dry-run
+.venv/bin/python scripts/restore_snapshot.py data/backups/memory-YYYYMMDD-HHMMSS.db
+```
+
+The restore keeps a copy of the live database in `data/backups/` first,
+and that copy is rotated out with the other snapshots. Then it replays
+every erasure made since the snapshot, so a restore never brings back
+what you erased. That covers the voice clips your apps keep here too. A
+clip you deleted stays deleted, and a person you forgot stays forgotten.
 
 At the end the restore lists any clip whose audio file is missing, by
 person and clip id. It keeps those clips, because nothing you erased
 explains them. Put the file back in `data/voice_anchors/`, or delete
 the clip. On the People page, it's the one that won't play. A restore
-also signs every browser out of the admin page. The full procedure is
-in the fleet's restore runbook, `runbooks/membro-restore.md` in the
-workbench repo.
+also signs every browser out of the admin page.
+
+Start the service again when it's done. Under launchd that's
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.membro.server.plist`.
+An app that sends its chats here can then find the messages the
+snapshot lost, with the [ingest watermark](docs/API.md#ingest-watermark),
+and send them again. `scripts/restore_snapshot.py --help` lists every
+option.
 
 ## Run it as a service
 

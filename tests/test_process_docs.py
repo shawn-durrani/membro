@@ -70,3 +70,14 @@ def test_sessions_are_told_to_merge_their_own_prs():
     text = CLAUDE.read_text()
     assert "Merge your own PRs" in text
     assert "don't wait for human approval" in text.lower()
+
+
+def test_the_restore_steps_are_public():
+    """#194: the README and the restore script's --help sent readers to a
+    runbook in a private repo. The steps a public reader needs live here."""
+    readme = (REPO / "README.md").read_text()
+    script = (REPO / "scripts" / "restore_snapshot.py").read_text()
+    for text in (readme, script):
+        assert "runbooks/" not in text
+    for step in ("restore_snapshot.py --list", "--dry-run", "--help"):
+        assert step in readme
