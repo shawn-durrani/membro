@@ -45,16 +45,14 @@ def _con():
 
 
 def _fmt(facts: list[dict]) -> str:
+    # Current facts only: recall_memory never asks for superseded ones, the
+    # same default as HTTP /v1/recall, so there's no history to mark (#191).
     lines = []
     for f in facts:
         day = datetime.date.fromtimestamp(f.get("event_date") or f["created_at"]).isoformat()
         if f.get("confidence") == "low":
             day += "?"
-        flag = ""
-        if f.get("invalidated_at"):
-            until = datetime.date.fromtimestamp(f["invalidated_at"]).isoformat()
-            flag = f" [SUPERSEDED {until} — historical, no longer current]"
-        lines.append(f"[{day} ·{f.get('origin_agent', '')}] {f['content']}{flag}")
+        lines.append(f"[{day} ·{f.get('origin_agent', '')}] {f['content']}")
     return "\n".join(lines)
 
 
