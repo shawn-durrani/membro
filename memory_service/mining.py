@@ -923,7 +923,7 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
             event_date=event_date,
             confidence="low" if flags else "high",
             importance=importance,
-            quarantine_reason=("; ".join(flags) + " — review before trusting")
+            quarantine_reason=("; ".join(flags) + ledger.MINER_HOLD_SUFFIX)
             if flags else None,
             dedupe_in_conversation=True)
         if res.get("duplicate"):

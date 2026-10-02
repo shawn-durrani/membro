@@ -130,7 +130,8 @@ def add_fact(con, content: str, settings, *, source: str = "user",
     origin = origin_agent or "user"
     reason = quarantine_reason
     if reason is None and not is_trusted(origin, source_app, settings):
-        reason = f"external write ({origin}) — held for review before becoming canon"
+        reason = (f"{ORIGIN_HOLD_PREFIX}{origin}) — held for review before "
+                  "becoming canon")
         confidence = "low"
     if dedupe_in_conversation and conversation_id is not None:
         dup = con.execute(
@@ -455,11 +456,44 @@ def quarantine_many(con, fact_ids, reason: str) -> dict:
             "skipped": [i for i in wanted if i not in eligible]}
 
 
+# The two holds that mark a fact low confidence as they hold it (#195): the
+# origin gate in add_fact, and the miner's checks, whose reasons all end with
+# MINER_HOLD_SUFFIX. The em-dash is stored data, not prose. Every other hold
+# (web or guest stamps, the owner's own, a forget, an erased source) keeps
+# the confidence the fact was saved with.
+ORIGIN_HOLD_PREFIX = "external write ("
+MINER_HOLD_SUFFIX = " — review before trusting"
+# What a fact gets when nothing holds it: a clean mined fact, and a direct
+# save's default on POST /v1/facts and over MCP.
+UNHELD_CONFIDENCE = "high"
+
+
+def hold_lowered_confidence(reason: str | None) -> bool:
+    """Whether the hold behind this reason is one that set the fact's
+    confidence to low."""
+    reason = reason or ""
+    return (reason.startswith(ORIGIN_HOLD_PREFIX)
+            or reason.endswith(MINER_HOLD_SUFFIX))
+
+
 def approve(con, fact_id: int) -> bool:
-    """Un-quarantine: the fact rejoins recall + summary. Human-only (API/UI)."""
+    """Un-quarantine: the fact rejoins recall + summary. Human-only (API/UI).
+
+    A hold that marked the fact low confidence is undone with it (#195): the
+    fact comes back at UNHELD_CONFIDENCE, so an approved fact doesn't read
+    as doubtful to every AI that recalls it. A confidence the owner changed
+    while the fact was held is left as they set it."""
+    row = con.execute("SELECT quarantine_reason, confidence FROM facts "
+                      "WHERE id=?", (fact_id,)).fetchone()
+    if row is None:
+        return False
+    confidence = row["confidence"]
+    if confidence == "low" and hold_lowered_confidence(row["quarantine_reason"]):
+        confidence = UNHELD_CONFIDENCE
     cur = con.execute(
         "UPDATE facts SET quarantined_at=NULL, quarantine_reason=NULL, "
-        "review_dismissed_at=NULL WHERE id=?", (fact_id,))
+        "review_dismissed_at=NULL, confidence=? WHERE id=?",
+        (confidence, fact_id))
     con.commit()
     return cur.rowcount > 0
 
