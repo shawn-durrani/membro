@@ -1,137 +1,159 @@
-# Memory Service API: the HTTP contract, v1.8
+# Memory service API: the HTTP contract, v1.8
 
-The contract between Membro and its clients. Owned by this repo.
-Versioned; breaking changes bump the major version. Clients check `contract_version`
-at handshake and refuse a major mismatch. The same contract-test suite runs in this
-repo's CI (against the real service) and in each client's CI (against the stub).
+Membro's HTTP contract is what its client apps build against, and this
+repo owns it. It's versioned, and a breaking change bumps the major
+version. A client checks `contract_version` when it first connects, and
+refuses a different major version. The same contract tests run in this
+repo's CI, against the real service, and in each client's CI, against a
+stub.
 
 ## Contract rules
 
-- Base URL: `http://127.0.0.1:8901/v1`
-- Local-only: the server refuses to bind a non-loopback address unless
-  `MEMORY_AUTH_TOKEN` is set (then: `Authorization: Bearer <token>`).
-- All bodies JSON. Errors the service raises itself use one envelope:
-  `{"error": {"code": "...", "message": "..."}}` with conventional HTTP
-  status. Two classes come straight from the web framework and keep its
-  native `{"detail": ...}` shape instead: request-schema validation (422,
-  a missing or mistyped field; `detail` is then a per-field list) and an
-  unmatched route (404 `{"detail": "Not Found"}`). A client that parses
-  error bodies should read `error` first and fall back to `detail`. One
-  endpoint can return both shapes: `POST /facts` with no `content` key at
-  all is a `detail` 422; `POST /facts` with a 3-character `content` is an
+- The base URL is `http://127.0.0.1:8901/v1`.
+- Membro answers on loopback, the computer's own address. It refuses to
+  bind any other address unless `MEMORY_AUTH_TOKEN` is set, and off
+  loopback a request then needs `Authorization: Bearer <token>`. A host
+  named in `MEMORY_TRUSTED_HOSTS` also lets through the sign-in routes,
+  and any route for a browser with a live session. Anything else off
+  loopback gets a 403.
+- Every body is JSON. An error the service raises itself uses one
+  envelope, `{"error": {"code": "...", "message": "..."}}`, with the
+  usual HTTP status.
+- Three kinds of error come straight from the web framework, and keep
+  its own `{"detail": ...}` shape. A request that fails schema
+  validation is a 422, with `detail` as a list by field. An unknown
+  route is a 404 `{"detail": "Not Found"}`, and the wrong method on a
+  known route is a 405. A client that parses error
+  bodies should read `error` first and fall back to `detail`. One
+  endpoint can return both shapes. `POST /facts` with no `content` key
+  at all is a `detail` 422, and with 3 characters of `content` it's an
   `error` 422.
-- Async operations return `202 {"job_id": "..."}`; poll `GET /jobs/{id}`
-  (which requires the owner credential; see "Maintenance").
+- An async operation returns `202 {"job_id": "..."}`. Poll
+  `GET /jobs/{id}` for the result, which needs the owner credential, as
+  [Maintenance](#maintenance) explains.
 
 ### What each minor version added
 
-- **1.8 (#127): a capture app says which voice clips it keeps.** Person
-  records count the stored clips its manifest leaves out, the owner's
-  press deletes them, and a clip delete may say why. See "Person
-  records". Absent manifest = the 1.7 behaviour, nothing counted.
-- **1.7 (#115): saves on `POST /facts` may name the caller's
-  conversation.** `conversation_id` beside `source_app` is the pair
-  `/ingest` and `/recall` already use. A save that carries
-  `guest_speakers` is bound to that conversation at creation, like a fact
-  the miner ties to a guest's turn, and is still held for review. When
-  the service has not ingested that conversation yet, the save creates
-  its record, and the first ingest fills the same record. The owner's own
-  saves stay global. Absent field = exactly the 1.6 behaviour: a save
-  with guests in the room is held but stays global.
-- **1.6 (#72): every fact carries a `scope`, and `/recall` may name the
-  caller's conversation.** `global` facts are recalled from anywhere;
-  `conversation` facts only from the conversation they came from, and
-  never in the summary. A fact the miner ties to a guest's turn is bound
-  at creation. In 1.6 `POST /facts` names no conversation, so a save made
-  with guests in the room is held for review but stays global. The owner's
-  own facts are global. Facts stored before 1.6 that came from a guest's
-  turn were bound to their conversation once, on upgrade, and the rest
-  stayed global. `POST /recall` accepts
-  `source_app` and `conversation_id` (the pair the caller ingests under)
-  and answers with the bound facts beside the global ones; without the
-  pair, global only. Recall rows carry `scope`. `POST /facts/{id}/scope`
-  (owner credential) widens or rebinds one fact. Absent fields = the
-  1.5 behaviour, less any guest-derived fact recalled elsewhere.
-- **1.5 (#93): saves on `POST /facts` may carry `guest_speakers`**: the
-  guests in the room when a model saved the fact, as the speaker-class
-  values `/ingest` already uses (`guest:<name>`, `guest:unknown`; a list of
-  strings, max 12). A stamped save is quarantined with a `guest-present:`
-  reason naming the guests. The mined path already holds a guest's words
-  because each message names its speaker; this closes the same wall over
-  the direct save. The origin trust gate outranks the stamp, and a save
-  carrying both stamps keeps its `web-derived:` reason with the guest
-  clause appended. Absent field = exactly the 1.4 behaviour.
-- **1.4 (#84): four additive fields for a client that reads memory
-  back.** `/search` hits carry `web_sources`. `/health` carries
-  `browser_origin`. `GET /conversations/{app}/{id}/watermark` reports the
-  highest message id held for one conversation. `event_date` is a
-  calendar day at the owner's local midnight, whichever writer set it.
-  A 1.3 client sees nothing new and keeps working.
-- **1.3 (#55): messages on `/ingest` and saves on `POST /facts` may carry
-  `web_sources`**: the web domains a tool read in the round that produced
-  the message or save (a list of strings, max 20). Stored verbatim beside
-  the message. A fact born from a stamped message, or saved with a stamp,
-  is quarantined with a `web-derived:` reason naming the domains. A public
-  page must not write memory by phrasing a sentence well. The origin trust
-  gate outranks the stamp. Absent field = exactly the 1.2 behaviour.
-- **1.2 (#33): messages on `/ingest` may carry `speaker_identity`**:
-  which person record the sending app believes spoke (`person` slug,
-  `confidence` 0..1, `method`: introduced | voice-match | by-elimination
-  | owner-correction). Stored verbatim beside the message. A fact born
-  from an identified message links to that person when the identity is
-  strong: introduced and owner-correction always, voice-match at 0.8+,
-  weaker never auto-binds. Absent field = exactly the 1.1 behaviour.
+- **1.8: a capture app says which voice clips it keeps.** Person records
+  count the stored clips its manifest leaves out, the owner's press
+  deletes them, and a clip delete may say why. [Person
+  records](#person-records) has the routes. With no manifest, it behaves
+  as 1.7 did and counts nothing.
+- **1.7: a save on `POST /facts` may name the caller's conversation.**
+  `conversation_id` beside `source_app` is the same pair `/ingest` and
+  `/recall` use. A save that carries `guest_speakers` is bound to that
+  conversation when it's created, like a fact the miner ties to a
+  guest's turn, and it's still held for review. When the service hasn't
+  ingested that conversation yet, the save creates its record, and the
+  first ingest fills the same record. The owner's own saves stay global.
+  Without the field it behaves as 1.6 did, and a save made with guests in
+  the room is held but stays global.
+- **1.6: every fact carries a `scope`, and `/recall` may name the
+  caller's conversation.** A `global` fact is recalled from anywhere. A
+  `conversation` fact is recalled only from the conversation it came
+  from, and never goes into the summary. A fact the miner ties to a
+  guest's turn is bound when it's created. In 1.6 `POST /facts` names no
+  conversation, so a save made with guests in the room is held for
+  review and stays global. The owner's own facts are global. Of the
+  facts stored before 1.6, the ones that came from a guest's turn were
+  bound to their conversation once, on upgrade, and the rest stayed
+  global. `POST /recall` accepts `source_app` and `conversation_id`, the
+  pair the caller ingests under, and answers with the bound facts beside
+  the global ones. Without the pair it answers with global facts only.
+  Recall rows carry `scope`. `POST /facts/{id}/scope`, with the owner
+  credential, widens or rebinds one fact. Without the new fields it
+  behaves as 1.5 did, except that a fact from a guest is never recalled
+  outside its conversation.
+### Earlier minor versions
+
+- **1.5: a save on `POST /facts` may carry `guest_speakers`.** These are
+  the guests in the room when a model saved the fact, as the speaker
+  values `/ingest` already uses, `guest:<name>` or `guest:unknown`. The
+  field is a list of strings, at most 12. A save that carries it is
+  quarantined with a `guest-present:` reason naming the guests. The
+  mined path already holds a guest's words, because each message names
+  its speaker, and this closes the same wall over a direct save. The
+  origin gate outranks this stamp. A save that carries both stamps keeps
+  its `web-derived:` reason with the guest clause added after it.
+  Without the field it behaves as 1.4 did.
+- **1.4: four added fields for a client that reads memory back.**
+  `/search` hits carry `web_sources`. `/health` carries
+  `browser_origin`. `GET /conversations/{app}/{id}/watermark` reports
+  the highest message id held for one conversation. `event_date` is a
+  calendar day at the owner's local midnight, whichever writer set it,
+  with one exception: the MCP `save_memory` tool keeps a full timestamp's
+  time of day. A 1.3 client sees nothing new, and keeps working.
+- **1.3: a message on `/ingest`, and a save on `POST /facts`, may carry
+  `web_sources`.** These are the web domains a tool read in the round
+  that produced the message or save, as a list of strings, at most 20.
+  They're stored word for word beside the message. A fact born from a
+  stamped message, or saved with a stamp, is quarantined with a
+  `web-derived:` reason naming the domains. A public page mustn't be
+  able to write memory by phrasing a sentence well. The origin gate
+  outranks the stamp. Without the field it behaves as 1.2 did.
+- **1.2: a message on `/ingest` may carry `speaker_identity`.** It's the
+  person record the sending app believes spoke, with a `person` name, a
+  `confidence` from 0 to 1, and a `method`. The method is one of
+  `introduced`, `voice-match`, `by-elimination` and `owner-correction`.
+  It's stored word for word beside the message. A fact born from an
+  identified message links to that person when the identity is strong.
+  That's always for `introduced` and `owner-correction`, for
+  `voice-match` at 0.8 or more, and never for anything weaker. Without
+  the field it behaves as 1.1 did.
 
 ### Always gated, even on loopback
 
-**1.1: some endpoints require the owner credential ALWAYS, even on
-loopback.** This is a *separate, stricter* check from the loopback-vs-token
-rule above. These routes carry that always-on check, and the list is
-complete:
+Some routes need the owner credential every time, even on loopback,
+and have since 1.1. That's a separate, stricter check from the loopback rule in
+[Contract rules](#contract-rules). These `/v1` routes carry it, and the
+list is complete:
 
-- `GET /facts`, `GET /review`, and every verb on one existing fact by id:
-  `PATCH /facts/{id}`, `/facts/{id}/supersede`, `/facts/{id}/approve`,
-  `/facts/{id}/dismiss`, `/facts/{id}/scope`, `DELETE /facts/{id}`
-- the bulk ledger verbs: `POST /facts/quarantine`,
-  `POST /facts/bulk-approve`, `POST /facts/bulk-dismiss`,
+- `GET /facts`, `GET /review`, and every verb on one existing fact by
+  id, which are `PATCH /facts/{id}`, `/facts/{id}/supersede`,
+  `/facts/{id}/approve`, `/facts/{id}/dismiss`, `/facts/{id}/scope` and
+  `DELETE /facts/{id}`
+- the bulk ledger verbs, `POST /facts/quarantine`,
+  `POST /facts/bulk-approve`, `POST /facts/bulk-dismiss` and
   `POST /review/dismiss-all`
-- `POST /search`, `POST /consolidate`, `GET /jobs/{id}`
-- all four attachment routes: `GET /attachments`,
-  `GET /attachments/{id}/file`, `GET /attachments/{id}/preview`,
+- `POST /search`, `POST /consolidate` and `GET /jobs/{id}`
+- all four attachment routes, `GET /attachments`,
+  `GET /attachments/{id}/file`, `GET /attachments/{id}/preview` and
   `DELETE /attachments/{id}`
-- both message routes: `GET /messages/resolve`, `DELETE /messages/{id}`
-- every person route under `/persons` (see "Person records"), and
-  `DELETE /unused-clips`
+- both message routes, `GET /messages/resolve` and
+  `DELETE /messages/{id}`
+- every person route under `/persons`, and `DELETE /unused-clips`
 
-No other `/v1` route carries it. Two things sit outside that list without
-contradicting it. `GET /` is not on the list yet still varies by credential:
-an unauthenticated caller gets the locked page rather than the admin UI, and
-no 401. And the loopback-vs-token rule above is a separate gate that governs
-the whole surface.
+No other `/v1` route carries it. Outside `/v1`, the passkey enrolment
+and management routes need the same credential, and so does
+`GET /app-links`, the admin page's row of links to your other apps.
+`GET /` isn't on the list, and still varies by credential. A caller with
+no credential gets the locked page in place of the admin page, and no
+401.
 
 ### Open routes
 
-Every other `/v1` route answers an unauthenticated loopback caller, governed
-only by the loopback-vs-token rule:
+Every other `/v1` route answers a caller on loopback with no credential,
+and only the loopback rule governs it:
 
-- `/health`, `/busy`, `/disposable-identity`, `/backup`
+- `/health`, `/busy`, `/disposable-identity` and `/backup`
 - the ingest watermark,
   `GET /conversations/{source_app}/{conversation_id}/watermark`
-- `/ingest`, `/distill`, `POST /facts` to create
-- `/recall`, `GET /summary`
-- **`POST /summary/regenerate`**, which rebuilds the live profile
-- **all three `/summary/versions*` routes**, including the one that returns
+- `/ingest`, `/distill`, and `POST /facts` to create a fact
+- `/recall` and `GET /summary`
+- `POST /summary/regenerate`, which rebuilds the live profile
+- all three `/summary/versions*` routes, including the one that returns
   a stored profile in full and the one that restores it over the live
   profile
 - every `/viz/*` route
 
-The last two bullets are the ones a reader is most likely to expect gated.
-See "Owner admin token" below, and "Open on loopback, and what that means"
-at the end of it.
+The profile routes and `/viz/recalls` are the ones you'd most likely
+expect to be gated. [Open on loopback](#open-on-loopback) says what that
+means.
 
 ## Handshake
 
-`GET /health` →
+`GET /health` returns this.
+
 ```json
 {
   "status": "ok|degraded",
@@ -143,185 +165,198 @@ at the end of it.
   "detail": {"…admin surface, may change without a contract bump…"}
 }
 ```
-The chat client probes this on startup: reachable + compatible → memory features
-light up; otherwise it runs memoryless.
 
-`status` is `"degraded"` rather than `"ok"` whenever SQLite's integrity check
-(`PRAGMA quick_check`) fails, which is the whole point of a health probe: a
-client can decline to write into a damaged file instead of piling on. It is
-also `"degraded"` when `fts_in_sync` is false: the FTS index has fallen out
-of step with the stored messages (a dropped/recreated index is rebuilt empty
-and never refills on its own), which makes every `/search` return zero rows
-without erroring. The service detects and repairs this automatically at
-startup; `scripts/rebuild_fts.py` does the same for a live instance without a
-restart. A client seeing `fts_in_sync: false` should treat search results as
-unreliable until it flips back, not as an empty archive.
-`browser_origin` (1.4) is the address a browser can open this service
-at: the `browser_origin` setting when the operator set one, else
-`https://<first trusted host>:<tailscale_port>` when the browser surface
-is admitted from a tailnet name, else loopback. A client app that links
-a person to the admin surface, such as the message eraser, uses this
-instead of guessing a host and port.
+The chat client calls it when it starts. If Membro answers and the
+versions match, the client turns its memory features on, and otherwise
+it runs without memory.
+
+`status` is `"degraded"` whenever SQLite's integrity check,
+`PRAGMA quick_check`, fails. That's the point of a health check, because
+a client can then decline to write into a damaged file. It's also
+`"degraded"` when `fts_in_sync` is false. That flag goes false when
+either search index, for messages or for files, is out of step with its
+table, or was built with a tokenizer other than the current one. An
+index that was dropped and made again starts empty, and never refills
+on its own. The service finds and repairs this when it starts, and
+`scripts/rebuild_fts.py` does the same for a running instance without a
+restart. While the message index is empty, search falls back to slower
+substring matching. An index that's only partly behind returns too few
+rows, with no error. A client that sees `fts_in_sync: false` should treat
+search results as unreliable until it flips back, and never read them as
+an empty archive.
+
+`browser_origin`, added in 1.4, is the address a browser can open the
+service at. It's the `browser_origin` setting when the operator set one. With that
+unset, it's `https://<first trusted host>:<tailscale_port>` when a
+browser may sign in from a tailnet name, and loopback when not. A
+client that links someone to the admin page, such as the message
+eraser, uses this and never guesses a host and port.
+
 `status`, `contract_version`, `browser_origin`, `db` and `capabilities`
-are contractual.
-`detail` is NOT. It carries the whole internal health dict for the admin
-page's health panel, and may change without a contract bump: sqlite version,
-journal mode, integrity, size, a facts breakdown of
-total/current/superseded/quarantined, message and conversation counts, an
-attachments block, last backup, and backups kept. It also carries
-`dropped_by_reason`, an in-memory count of extraction-wall drops since the
-process started (e.g. `{"system-meta": 3, "builder-process": 11}`). That
-count resets on restart and is never a record of *what* was dropped.
-Clients should read `db`, never `detail`.
+are part of the contract. `detail` isn't. It carries the whole internal
+health record for the admin page's health panel, and may change without
+a contract bump. It holds the SQLite version, the journal mode,
+integrity, size, a count of facts that are current, superseded and
+quarantined, counts of messages and conversations, a block on
+attachments, the last backup, and the backups kept. It also carries
+`dropped_by_reason`, a count kept in memory of facts the walls dropped
+since the process started, like `{"system-meta": 3,
+"builder-process": 11}`. That count resets on restart, and it never
+records what was dropped. Clients should read `db`, never `detail`.
 
-## Owner admin token
+## The owner credential
 
-`GET /facts`, `GET /review`, and every verb that reads or writes ONE existing
-fact by id (`PATCH /facts/{id}`, `POST /facts/{id}/supersede`, `/approve`,
-`/dismiss`, `/scope`, `DELETE /facts/{id}`) require a valid credential
-**unconditionally, including from 127.0.0.1**. So do the bulk ledger verbs
-(`POST /facts/quarantine`, `/facts/bulk-approve`, `/facts/bulk-dismiss`,
-`POST /review/dismiss-all`), all four attachment routes, both message
-routes, every person route, and `POST /search`, `POST /consolidate` and
-`GET /jobs/{id}`. Search returns verbatim transcript snippets, attachments
-return file bytes and document text, the message routes preview and erase
-one archived message, person routes return names and voice clips, and job
-rows carry operation results, so they are gated the same way. That is the
-whole always-on set, and the list at the top of this document names each
-route. Either credential
-satisfies the check: `Authorization: Bearer <token>` (the real admin token,
-used by the MCP admin server and scripts), or the `mm_admin` session cookie a
-browser gets from `POST /login` (an opaque session id, never the token
-itself). The reasoning: a sandboxed coding-agent session sharing the
-machine's loopback interface must not be able to list exact fact
-ids/text/status, read the review queue, or search the raw transcripts with no
-credential at all; that would bypass the point of the opt-in admin MCP
-capability entirely.
+Every route in [Always gated](#always-gated-even-on-loopback) needs a
+valid credential, even from 127.0.0.1. Search returns transcript
+excerpts word for word, and attachments return file bytes and document
+text. The message routes preview and erase one archived message, the
+person routes return names and voice clips, and job rows carry the
+results of operations. They're all gated for the same reason as the
+fact routes.
 
-### Three rules, all test-enforced
+Either credential passes the check. One is `Authorization: Bearer
+<token>`, the real admin token, which the admin MCP server and scripts
+use. The other is the `mm_admin` session cookie a browser gets from
+`POST /login`, which holds an opaque session id and never the token. A
+coding agent running in a sandbox on the same computer shares its
+loopback address. Without this check, it could list exact fact ids,
+text and status, read the review queue, and search the raw transcripts
+with no credential at all. That would defeat the point of making the
+admin MCP server opt-in.
 
-These survive from earlier revisions of this design:
+### The rules the tests hold
 
-- **Unauthenticated pages never contain credentials.** `GET /` serves the
-  real admin UI only to a caller who is ALREADY authenticated (a valid
-  `Authorization` header, or the session cookie). Anyone else gets a minimal
-  "locked" page (a form, and nothing else) with no ledger data and no secret
-  anywhere in the response. The locked page asks for the owner's password,
-  or on first run for a recovery secret plus a new password (see "Owner
-  password login" below); the admin token is never accepted there.
-- **Sessions are opaque server-side ids.** `POST /login` mints a fresh,
-  random, high-entropy session id (`secrets.token_urlsafe(32)`) and records
-  its expiry **server-side**, in the `sessions` table. The id is never
-  derived from or equal to any client-supplied value, so there is no session
-  fixation. The table holds only a SHA-256 hash of the id, so a restart signs
-  nobody out and a copy of the database can't sign anyone in. It sits beside
-  the password verifier as operational auth state, outside the ledger. The
-  cookie carries ONLY that opaque id. A copy of the cookie is therefore a bounded, revocable
-  capability: it expires (`app.state.admin_session_ttl`, 24h by default),
-  and `POST /logout` deletes it from the server-side store, which
-  invalidates **every** copy of that cookie instantly, not just the one
-  presented by the browser that clicked "Log out". The real admin token is
-  used ONLY for the `Authorization: Bearer` path (MCP admin server, scripts)
-  and the enrolment/reset recovery comparison; it is never itself placed in
-  a cookie, so a leaked session id cannot be used to derive or reconstruct
-  it, and revoking a session never touches the token or any other session.
-- **Exact-row endpoints require the owner credential even on loopback** (the
-  list above), as do the bulk ledger verbs, the attachment, message and
-  person routes, `POST /search`, `POST /consolidate` and `GET /jobs/{id}`. The
-  loopback-vs-token rule at the top of this document governs every other
-  route, including the summary-version and `/viz/*` routes described under
-  "Open on loopback, and what that means" at the end of this section.
+- **A page shown before sign-in never holds a credential.** `GET /`
+  serves the real admin page only to a caller already signed in, with a
+  valid `Authorization` header or the session cookie. Anyone else gets a
+  locked page with the sign-in forms, and no ledger data or secret
+  anywhere in the response. When a password exists, the page has the
+  password form and a "Forgot your password?" reset form. When a
+  passkey exists for the address the page is open on, it also leads
+  with a passkey button. On a first run it asks for a recovery secret
+  and a new password, as [Owner password login](#owner-password-login)
+  describes. The admin token is refused as the password. It's taken
+  only as the recovery secret, on the enrol and reset forms.
+- **A session is an opaque id the server keeps.** `POST /login` makes a
+  fresh, random session id with `secrets.token_urlsafe(32)`, and records
+  its expiry on the server, in the `sessions` table. The id is never
+  made from, or equal to, anything the client sent, so nobody can plant
+  one in advance. The table holds only a SHA-256 hash of the id, so a
+  restart signs nobody out, and a copy of the database can't sign
+  anyone in. It sits beside the password verifier, as sign-in state
+  outside the ledger. The cookie carries only that id.
+- **A copy of the cookie is limited, and can be revoked.** It expires
+  after 24 hours. `POST /logout` deletes the session on the server, and
+  that ends every copy of the cookie at once, beyond the one in the
+  browser that clicked "Log out". The real admin token is used only for
+  `Authorization: Bearer`, by the admin MCP server and scripts, and for
+  the recovery check on enrol and reset. It never goes in a cookie. A
+leaked session id can't reveal the token, and revoking a session never
+touches the token or any other session.
 
 ### Getting the token
 
-Always out-of-band, never over HTTP:
-- If `MEMORY_AUTH_TOKEN` is configured (`.env` / `config.local.json` /
-  environment), that's the token: **stable across restarts**, which is what a
-  persistently-registered MCP client needs. The owner already knows it (they
-  set it).
-- Otherwise the server mints a fresh random token for its process lifetime.
-  It **prints it at startup only on a first run**, before a password is
-  enrolled, and never in an HTTP response. Under launchd, stdout is
-  `data/service.log`, so a printed token stays in that file. After
-  enrolment the startup line says the token is not shown: set
-  `MEMORY_AUTH_TOKEN` and restart when you need one for a reset, MCP or
-  curl.
-- A configured token is never printed. It's already in `.env`.
+You always get the token outside HTTP, never over it.
+
+- If you've configured one, that's the token, and it stays the same
+  across restarts, which a registered MCP client needs. Set it as
+  `MEMORY_AUTH_TOKEN` in `.env` or the environment, or as `auth_token`
+  in `config.local.json`. `start.sh` loads `.env` before it starts the
+  service. The owner already knows it, because they set it.
+- With none configured, the server makes a fresh random token for the
+  life of its process. It prints it at startup only on a first run, before a
+  password is enrolled, and never in an HTTP response. Under launchd the
+  output goes to `data/service.log`, so a printed token stays in that
+  file. After enrolment the startup line says the token isn't shown.
+  Set `MEMORY_AUTH_TOKEN` and restart when you need one for a reset, an
+  MCP server or `curl`.
+- A configured token is never printed, because it's already in `.env`.
 
 ### Owner password login
 
-The everyday browser login is a durable
-**password**, not the admin token, so an owner does not have to hunt the
-terminal for a token after every restart. The admin token keeps two roles: it
-is still the `Authorization: Bearer` credential (MCP/curl), and it is the
-out-of-band **recovery secret** that gates enrolment and reset. It is no
-longer accepted as the everyday login.
+The everyday browser sign-in is a lasting password, so an owner never
+has to hunt for a token in the terminal after a restart. The admin token
+keeps two jobs. It's still the `Authorization: Bearer` credential for
+MCP and `curl`, and it's the recovery secret, from outside HTTP, that
+gates enrolment and resets. It isn't accepted as the everyday sign-in.
 
-- The password is stored only as a memory-hard **scrypt verifier** (salt +
-  parameters + derived hash; never the password, nothing reversible) in the
-  durable local `settings` table. It therefore survives restarts. No schema
-  change: an existing database simply has no verifier yet and falls into
-  first-run enrolment.
-- `POST /login` with form field `password=<value>`, checked against the
-  verifier. A correct password mints an opaque session id and sets `mm_admin`
-  (`HttpOnly`, `SameSite=Strict`; opaque server-side id, not the token;
-  expires; kept across restarts), then redirects to `/`. A wrong password (or
-  the admin token submitted here) gets the locked page again, no session
-  created. Before enrolment there is nothing to check against, so login
-  simply fails and the page offers enrolment.
-- `POST /enroll` with `recovery=<admin token>`, `password`, `confirm`: first
-  run only (409 once a password exists). The recovery secret is the gate that
-  stops an unauthenticated caller sharing loopback (a sandboxed coding agent)
-  from self-enrolling: it never sees the terminal/`.env` secret.
-  Wrong/missing recovery → 401, nothing written. Passwords must match and be
-  ≥ 8 chars. On success the verifier is persisted and the browser is logged
-  straight in.
-- `POST /reset` with `recovery=<admin token>`, `password`, `confirm`: the
-  same recovery-gated proof, allowed at any time, replacing the verifier.
-  Every existing session ends, and the browser that reset gets a fresh one.
-- `POST /logout` revokes the session server-side and clears the cookie.
+- The password is stored only as a memory-hard scrypt verifier, with
+  its salt, settings and derived hash. The password itself is never
+  stored, and nothing can be reversed. The verifier lives in the lasting
+  `settings` table, so it survives restarts. An older database with no
+  verifier yet goes into first-run enrolment, and needs no change to its
+  schema.
+- `POST /login` takes the form field `password=<value>` and checks it
+  against the verifier. A correct password makes an opaque session id,
+  sets `mm_admin`, and redirects to `/`. The cookie is `HttpOnly` and
+  `SameSite=Strict`, holds the id and never the token, expires, and
+  lasts across restarts. A wrong password, or the admin token typed
+  here, gets the locked page again, and no session. Before enrolment
+  there's nothing to check against, so sign-in fails, and the page
+  offers enrolment.
+- `POST /enroll` takes `recovery=<admin token>`, `password` and
+  `confirm`, on a first run only. It's a 409 once a password exists.
+  The recovery secret stops a caller with no credential on loopback,
+  like a coding agent in a sandbox, from enrolling itself, because it
+  never sees the secret in the terminal or `.env`. A wrong recovery
+  secret is a 401, and a missing one is a 422, and nothing is written
+  either way. The two passwords must match, and be at least 8
+  characters. On success the verifier is saved, and the browser is
+  signed straight in.
+- `POST /reset` takes `recovery=<admin token>`, `password` and
+  `confirm`. It's the same proof, allowed at any time, and it replaces
+  the verifier. Every existing session ends, and the browser that reset
+  gets a fresh one.
+- `POST /logout` revokes the session on the server, and clears the
+  cookie.
 
 ### Passkey login
 
-With a passkey enrolled, the lock screen offers it
-first and the password moves one click behind it; a successful assertion
-mints exactly the same opaque session as a password login. The password and
-recovery secret are unchanged. A passkey is bound to the web origin it was
-created on, so `localhost` and each trusted host enrol separately, and an IP
-origin (`127.0.0.1`) can never hold one.
+Once a passkey is enrolled, the lock screen offers it first, and the
+password moves one click behind it. A successful passkey sign-in makes
+the same opaque session as a password sign-in. The password and the
+recovery secret don't change. A passkey is tied to the web address it was
+made on. `localhost` and each trusted host enrol separately, and an IP
+address like `127.0.0.1` can never hold one.
 
-- `POST /webauthn/register/options` and `POST /webauthn/register` (both
-  require an unlocked session or the bearer token): start and finish
-  enrolment for the origin the page is open on. Only the credential id and
-  public key are stored, beside the password verifier in the `settings`
-  table; the private key never leaves the authenticator.
-- `POST /webauthn/login/options` and `POST /webauthn/login` (lock-screen
-  surface): challenge out, signed assertion in, verified against the
-  enrolled public key with user verification (Touch ID / Face ID) required.
-  The options response discloses no credential ids. Credentials are
-  enrolled as discoverable, so the browser finds its own.
+- `POST /webauthn/register/options` and `POST /webauthn/register` start
+  and finish enrolment for the address the page is open on. Both need a
+  signed-in session or the bearer token. Only the public half is stored,
+  which is the credential id, public key, address and counters, beside
+  the password verifier in the `settings` table. The private key never
+  leaves the authenticator.
+- `POST /webauthn/login/options` and `POST /webauthn/login` belong to
+  the lock screen. A challenge goes out, a signed assertion comes back,
+  and it's checked against the enrolled public key, with user
+  verification like Touch ID or Face ID required. The options list the
+  ids of this app's passkeys for this address, so the browser offers
+  only Membro's own. Credentials are still enrolled as discoverable.
 - `GET /webauthn/credentials` and `DELETE /webauthn/credentials/{id}`
-  (unlocked session or bearer): list and remove enrolled passkeys. Removal
-  can never lock the owner out; the password always remains. Removal ends
-  every other session, so a lost phone's session goes with its passkey. A
-  browser doing the removal gets a fresh session.
+  list and remove enrolled passkeys, with a signed-in session or the
+  bearer token. Removing one can never lock the owner out, because the
+  password always remains. It ends every other session, so a lost
+  phone's session goes with its passkey. The browser doing the removal
+  gets a fresh session.
 
-These endpoints are the browser admin UI surface (`include_in_schema=False`),
-not part of the versioned `/v1` contract, so `contract_version` is unchanged.
+These routes belong to the admin page in the browser. They're hidden
+from the schema with `include_in_schema=False`, and sit outside the
+versioned `/v1` contract, so `contract_version` doesn't change for them.
 
-### Runtime sequence for the opt-in admin MCP server
+### Setting up the admin MCP server
 
-(`memory_service.mcp_admin_server`):
-1. Configure a stable token: put `MEMORY_AUTH_TOKEN=<random value>` in `.env`
-   (or `config.local.json`).
-2. Restart the service so it picks up that value as `app.state.admin_token`
-   (an already-running process keeps whatever token, configured or ephemeral,
-   it minted at its own startup; the same restart also makes the value usable
-   as the browser UI's enrolment/reset recovery secret).
-3. Register the MCP server with the **same** token and the service's reachable
-   URL. Pass both with `-e`, so they reach the server when it later runs; a
-   shell env prefix in front of `claude mcp add` sets them only for the
-   registration command, and the registered server then starts without them:
+These steps set up `memory_service.mcp_admin_server`.
+
+1. Configure a stable token. Put `MEMORY_AUTH_TOKEN=<random value>` in
+   `.env`, or `"auth_token"` in `config.local.json`.
+2. Restart the service, so it picks up that value as
+   `app.state.admin_token`. A process that's already running keeps the
+   token it had when it started, configured or made up. The same restart
+   makes the value work as the recovery secret on the admin page.
+3. Register the MCP server with the same token and the service's
+   address. Pass both with `-e`, so they reach the server when it runs
+   later. A shell variable in front of `claude mcp add` sets them only
+   for the registration command, and the registered server then starts
+   without them.
 
    ```sh
    claude mcp add -s user membro-admin \
@@ -330,49 +365,31 @@ not part of the versioned `/v1` contract, so `contract_version` is unchanged.
      -e PYTHONPATH=<repo> -- \
      <repo>/.venv/bin/python -m memory_service.mcp_admin_server
    ```
-4. Validate with one harmless read: `search_facts("")` or `review_queue()`
-   should return real rows (or "No matching facts."), not an auth error.
+4. Check it with one harmless read. `search_facts("")` or
+   `review_queue()` should return real rows, or a line starting "No
+   matching", and never an error about credentials.
 
-A user-provided correction always outranks conflicting model-mined history:
-when `search_facts`/`review_queue` surface older mined facts that contradict
-something the owner has since stated directly, the newer explicit correction
-is authoritative. These tools show provenance (`origin_agent`) and status
-precisely so a remediation session can propose a supersession; repeated or
-elaborate mined detail is never, by itself, a reason to prefer it over the
-owner's word.
+A correction from the owner always outranks model-mined history that
+contradicts it. When `search_facts` or `review_queue` turns up older
+mined facts that contradict something the owner has since said
+directly, the newer correction is the authority. These tools show where
+a fact came from, `origin_agent`, and its status, so a session cleaning
+up the ledger can propose a supersession. Repeated or detailed mined
+facts are never, on their own, a reason to prefer them over the owner's
+word.
 
-### Open on loopback, and what that means
+### Open on loopback
 
-Four surfaces outside the gated set are more open than a reader of the
-paragraphs above would guess. They are stated here rather than left to be
-discovered:
-
-- **`GET /v1/summary/versions/{id}` returns a stored profile in full**, text
-  and all, to any unauthenticated loopback caller. `GET /summary` is open by
-  the same rule and returns the *current* profile, so this widens the reach
-  from "the profile now" to "any profile this database has ever generated".
-- **`POST /v1/summary/versions/{id}/restore` is a write**, and it is open on
-  loopback. Any local process can make an older profile the live one. It is
-  append-only, so nothing is destroyed and you can restore back, but the
-  profile every model reads next round can be changed with no credential.
-- **`POST /v1/summary/regenerate` rewrites the live profile**, and it is
-  open on loopback. Any local process can make the service rebuild the
-  profile from the current ledger, which spends LLM calls and replaces the
-  text `GET /summary` serves from then on. The replaced profile is kept as
-  a version row, so it can be restored, but the rebuild itself needs no
-  credential. `POST /v1/distill` runs the same rebuild whenever it mines a
-  new fact (`regenerate_summary` defaults to true) and is equally open.
-- **`GET /v1/viz/recalls` returns your questions verbatim** (`query`, first
-  200 characters, from the append-only access log), open on loopback. Fact
-  content never travels through it, but the queries are your own words, so
-  it is not geometry in the sense the rest of `/viz/*` is.
-
-These are the code's behaviour as it stands, recorded here so the document
-does not promise a gate the service does not implement.
+Some routes outside the gated set reveal more than you might expect.
+[SECURITY.md](../SECURITY.md) says which they are and what that means.
+Each route's own section here says what it does and who may call it.
 
 ## Episodic record
 
-`POST /ingest`: append transcript messages (idempotent on `(source_app, external_id)`).
+`POST /ingest` adds transcript messages. Sending the same message again
+does nothing, because a message is unique by its conversation and its
+`external_id`.
+
 ```json
 {"source_app": "multi-model-chat", "conversation_id": "chat-123",
  "title": "Weekend plans",
@@ -382,127 +399,158 @@ does not promise a gate the service does not implement.
                 "attachments": [{"filename": "notes.txt", "mime": "text/plain",
                                   "data_b64": "..."}]}]}
 ```
-→ `{"ingested": 12, "skipped": 3, "attached": 1}`
 
-`title` is the conversation's human label. Optional, and re-applied on every
-later ingest of the same conversation, so a chat renamed in the client catches
-up here. It is the title `/search` hits carry back and the admin pages show;
-a client that never sends one leaves every conversation blank.
+It returns `{"ingested": 12, "skipped": 3, "attached": 1}`.
+
+`title` is the conversation's name for people, and it's optional. It's
+applied again whenever a later ingest of the same conversation sends
+one, so a chat renamed in the client catches up here. An empty or
+missing title leaves the stored one as it is. It's the title `/search`
+hits carry back, and the admin pages show. A client that never sends
+one leaves every conversation blank.
 
 ### Guest speaker classes
 
-Additive, 2026-08-08. Beside `user` (the owner) and a bare model slug
-(`claude`), a message's `speaker` may carry `guest:<name>`
-for another, named human in the session (a multi-human voice session in
-room mode), or `guest:unknown` for a human turn whose voice diarization
-could not attribute confidently. `source_app` handling and conversation
-identity are untouched. What the classes mean downstream, in the mining
-pass:
+Beside `user`, the owner, and a bare model slug like `claude`, a
+message's `speaker` may be `guest:<name>`, for another named person in
+the session, such as a voice session with several people in it. It may
+also be `guest:unknown`, for a turn from a person whose voice couldn't
+be told apart with confidence. `source_app` and how a conversation is
+identified don't change. The classes matter in the mining pass.
 
-- A fact the miner draws from guest-attributed speech is quarantined by
-  default: written, then held in the review queue with the guest's name in
-  the stated reason, the same posture `mcp:*` writes get from the write
-  gate. `guest:unknown` speech quarantines unconditionally.
-- Pronouns resolve per speaker. A guest's first-person statement is a fact
-  about the guest, phrased into the owner's ledger in third person, never
-  absorbed into the owner's first-person profile. Guests get no profile of
-  their own: this service stays single-owner, and a guest's facts exist
-  only as facts about the owner's world. A fact about the owner asserted
-  by a guest is still guest-provenance and quarantines the same way.
-- Fail safe: any other class-prefixed speaker value (say `agent:scribe`)
-  is unrecognised and treated as untrusted, quarantining exactly like
-  guest speech, so a newer client can never mint trust by inventing a
-  class. Facts drawn from the owner's own `user` turns are unchanged.
-- Provenance is recorded only where it is real (2026-08-12). A mined fact
-  carries `source_message_id` only when it was actually tied to one turn;
-  a fact the miner could not bind is stored unbound (`source_message_id`
-  null) rather than pinned to whichever turn ended the mining window.
-  `scripts/relink_unbound_facts.py` can bind one later, in a chat with no
-  guest speech, to the owner's own turn that clearly shares its wording.
-  In a guest-present window such a fact is still held for review, unchanged.
-  When the miner supplies a missing binding on the corrective retry, that
-  answer is now checked against the turn it names: a turn sharing none of
-  the fact's wording, or one no more plausible than a guest's turn in the
-  same window, is refused and the fact stays held. A retry's guess about
-  who spoke can no longer promote a guest's sentence into owner canon.
+- A fact the miner draws from a guest's speech is quarantined by
+  default. It's written, then held in the review queue with the guest's
+  name in the reason, the same treatment `mcp:*` writes get from the
+  write gate. Speech from `guest:unknown` is always quarantined.
+- Pronouns resolve for each speaker. A guest's "I" makes a fact about
+  the guest, written into the owner's ledger in the third person, and
+  never folded into the owner's own profile. Guests get no profile of
+  their own. This service has one owner, and a guest's facts exist only
+  as facts about the owner's world. A fact about the owner said by a
+  guest still comes from the guest, and it's held the same way.
+- It fails safe. Any other speaker value with a class prefix, say
+  `agent:scribe`, isn't recognised and is treated as untrusted. It's
+  held like guest speech, so a newer client can never make itself
+  trusted by inventing a class. Facts drawn from the owner's own `user`
+  turns don't change.
+- A source turn is recorded only when it's real. A mined fact carries
+  `source_message_id` only when it was tied to one turn. A fact the
+  miner couldn't bind is stored unbound, with `source_message_id` null,
+  and never pinned to whichever turn ended the mining window.
+  `scripts/relink_unbound_facts.py` can bind one later, in a chat with
+  no guest speech, to the owner's own turn that clearly shares its
+  wording. In a window with a guest in it, such a fact is still held for
+  review.
+- When the miner supplies a missing binding on its corrective retry,
+  the answer is checked against the turn it names. A turn that shares
+  none of the fact's wording is refused, and so is one no more likely
+  than a guest's turn in the same window, and the fact stays held. A
+  retry's guess about who spoke can't turn a guest's sentence into the
+  owner's trusted facts.
 
 ### Attachments on ingest
 
-`attachments` (additive, 2026-07-11) is optional, per message. Files are part
-of the episodic record: bytes stored whole (content-addressed under
-`data/attachments/`), text extracted (text/* fully; PDFs via pypdf,
-best-effort) into FTS so `/search` and mining see it; hits from files carry
-`speaker: "file: <name>"`. An image has no text of its own, so once a
-distill captions it, the caption is searched in its place. Attachments
-attach even to already-ingested (skipped) messages, so backfilling old
-conversations is a plain re-ingest.
-Append-only and immutable like messages; the `attached` count is new rows
-(idempotent re-sends count 0).
+`attachments` is optional, on each message. Files are part of the
+episodic record. Their bytes are stored whole, by their content, under
+`data/attachments/`. Their text is pulled out into the full-text index,
+so `/search` and mining see it. That covers `text/*` files and files
+with common text extensions like `.txt`, `.md`, `.csv`, `.json`, `.yaml`,
+`.html`, `.py`, `.js` and `.sql`, in full. A PDF, matched by its type or
+its `.pdf` extension, is read with pypdf, as well as it can be. A hit
+from a file carries `speaker: "file: <name>"`. An image has no text of
+its own, so once a distill captions it, the caption is searched in its
+place. Attachments attach to messages already ingested, the skipped ones,
+too, so filling in old conversations is a plain ingest again. Like
+messages, they're only ever added and never changed. The `attached`
+count is new rows, so a repeat send counts 0.
 
-Limits: ≤5000 messages per call (more is a 413), ≤20 attachments per message
-(422), ≤~25 MB decoded per file (422). These bound one request, not your
-history: storage itself is uncapped by design, so send a long backlog in
-batches rather than one giant POST.
+One request takes at most 5,000 messages, and more is a 413. A message
+takes at most 20 attachments, and more is a 422. A file can be about 25
+MB once decoded, and bigger is a 422. These limit one request, and never
+your history. Storage itself has no limit, so send a long backlog in
+batches, and not as one giant request.
 
 ### Distill
 
-`POST /distill`: run the reflection pass (mining + walls) over un-mined ingested
-content for a conversation. Async.
+`POST /distill` runs the mining pass, with the walls, over a
+conversation's ingested content that hasn't been mined. It's async.
+
 ```json
 {"source_app": "multi-model-chat", "conversation_id": "chat-123"}
 ```
 
+An optional `regenerate_summary`, true by default, rebuilds the live
+profile whenever the pass mines a new fact. A bulk run can turn it off
+and rebuild once at the end. The route is open on loopback.
+
 ### Verbatim search
 
-`POST /search`: verbatim FTS over the episodic record. Words match on their
-stem, so "sister" finds "sisters" and "packed" finds "packing".
-**Requires the owner credential (`Authorization: Bearer` or the admin
-session cookie), even on loopback**: search returns verbatim transcript
-snippets, which are at least as revealing as the exact-row ledger reads
-gated above.
+`POST /search` searches the episodic record word for word. Words match
+on their stem, so "sister" finds "sisters", and "packed" finds
+"packing". It needs the owner credential, as `Authorization: Bearer` or
+the session cookie, even on loopback. Search returns transcript excerpts
+word for word, which reveal at least as much as the exact rows of the
+ledger.
+
 ```json
 {"query": "...", "limit": 20, "origin": "http"}
 ```
-→ `{"hits": [{"conversation_id": "...", "title": "...", "speaker": "...",
-              "content": "...", "created_at": "...",
-              "web_sources": ["example.com"]}]}`
-`limit` defaults to 20, maximum 500 (422 outside 1–500). `title` is the
-conversation's title as last ingested (empty string if the client never sent
-one); `content` is up to 64 words around the match, with `>>match<<`
-markers, not the whole message. A search that falls back to plain substring
-matching, while the index is out of step or for a query FTS can't parse,
-cuts its excerpt the same way. A hit on an image's caption is cut from the
-caption the same way too. Its speaker says what it is:
-`file: <name> (image caption)`. `web_sources` (1.4) is the list stored
-with the message on ingest, empty for a turn that read no web page and for
-hits from files.
-A client that shows a hit to a model should mark a stamped hit as
+
+It returns this.
+
+```json
+{"hits": [{"conversation_id": "...", "title": "...", "speaker": "...",
+           "content": "...", "created_at": 1783123200.0,
+           "web_sources": ["example.com"]}]}
+```
+
+`limit` defaults to 20, with a maximum of 500, and anything outside 1 to
+500 is a 422. Messages come first, and files fill the rest of the limit.
+`title` is the conversation's title as last ingested, or an empty string
+if the client never sent one. `created_at` is in Unix seconds.
+`content` is up to 64 words around the match, with `>>match<<` markers,
+and never the whole message.
+
+Search falls back to plain substring matching when the message index is
+empty while messages exist, or when the index can't run the query. The
+fallback matches the first word only, in messages only, newest first,
+and cuts its excerpt the same way. A hit on an image's caption is cut
+from the caption the same way too, and its speaker says what it is,
+`file: <name> (image caption)`.
+
+`web_sources`, added in 1.4, is the list stored with the message on
+ingest. It's empty for a turn that read no web page, and for hits from
+files. A client that shows a hit to a model should mark a stamped hit as
 untrusted, the same way it marks a live fetch.
-`origin` is an access-log label only, the same as on `/recall`, and it
-changes nothing about what comes back. Send `auto` for a search a client
-ran on the user's behalf, and leave it at `http` for one a model asked
-for. It's an optional field added on 2026-09-30 within 1.8. An older
-service ignores it, so a client can send it without checking the
-version.
+
+`origin` is only a label for the access log, the same as on `/recall`,
+and it changes nothing about what comes back. Send `auto` for a search a
+client ran on the user's behalf, and leave it at `http` for one a model
+asked for. It's optional within 1.8. A 1.8 service that predates it
+ignores it, so a client can send it without checking the version.
 
 ### Ingest watermark
 
-`GET /conversations/{source_app}/{conversation_id}/watermark` (1.4). Open
-on loopback like `/health`; it carries ids and a count, never content.
-→ `{"highest_external_id": "412", "messages": 87}`
+`GET /conversations/{source_app}/{conversation_id}/watermark`, added in
+1.4, is open on loopback like `/health`. It carries ids and a count, and
+never content.
+
+It returns `{"highest_external_id": "412", "messages": 87}`.
+
 `highest_external_id` is the largest message `external_id` this service
-holds for that conversation, compared numerically when every id is an
-integer string and as text otherwise, or `null` when none is held. A
-message the owner erased still counts: its id sits in the erasure
-journal, and a client that wound back past it would re-send the exact
-message just erased. 404 in the standard envelope when the conversation
-is unknown here. A client that keeps its own "ingested up to" mark
-compares the two on each handoff and winds its mark back when this
-service has less, which is what a restore from a snapshot leaves behind.
+holds for that conversation, or `null` when it holds none. Ids compare
+as numbers when every id is a string of digits, and as text otherwise. A
+message the owner erased still counts, because its id sits in the
+erasure journal. A client that wound back past it would send again the
+message that was just erased. An unknown conversation is a 404, in the
+standard envelope. A client that keeps its own "ingested up to" mark
+compares the two on each handoff, and winds its mark back when this
+service has less. That's what a restore from a snapshot leaves behind.
 
 ## Ledger
 
-`POST /facts`: save one fact.
+`POST /facts` saves one fact.
+
 ```json
 {"content": "...", "event_date": "2026-07-04", "confidence": "high|medium|low",
  "origin_agent": "user | <participant-slug> | mcp:<client>",
@@ -511,614 +559,742 @@ service has less, which is what a restore from a snapshot leaves behind.
  "guest_speakers": ["guest:<name>", "guest:unknown"],
  "conversation_id": "<the caller's own conversation id>"}
 ```
-`content` is whitespace-collapsed first, then must be 8–10 000 characters;
-anything shorter or longer is a 422 ("nothing meaningful to save" / "fact too
-long"). `event_date` is a calendar day (1.4): send `YYYY-MM-DD`, or a
-full timestamp and the service keeps only the day it falls on in the
-owner's local time. It is stored as that day's local midnight, so two
-facts about one day compare equal and recall breaks the tie on the save
-time. Omit it and the fact is dated to the day it was saved, which is
-how invariant 5 holds (`event_date` is never null).
-`source_app` is what the gate reads below; `confidence` defaults to `high`
-and `origin_agent` to `user`.
 
-`web_sources` (1.3) and `guest_speakers` (1.5) are optional stamps, both
-defaulting to empty. `web_sources` lists the web domains read in the
-round that produced the save (max 20). `guest_speakers` lists the guests
-in the room when a model made the save, as `/ingest` speaker values (max
-12): `guest:<name>` for one confidently identified human besides the
-owner, or `guest:unknown` for a human who could not be identified. Both
-are normalised the same way: entries are stripped, empties dropped,
-duplicates removed, order kept. A `guest_speakers` entry that is not a
-guest class (a model slug, `user`, an unknown prefix) is dropped, not
-rejected. A save carrying either stamp is held for review: `web-derived:`
-names the domains, `guest-present:` names the guests in plain English
-(`guest:unknown` reads as "an unidentified guest"; at most five are
-named). When both are present the reason keeps the `web-derived:` prefix
-and the guest clause follows after `; `. The origin gate below outranks
-both stamps.
+`content` has its whitespace collapsed first, and must then be 8 to
+10,000 characters. Anything shorter or longer is a 422, with "nothing
+meaningful to save" or "fact too long". `event_date`, since 1.4, is a
+calendar day. Send `YYYY-MM-DD`, or a full timestamp, and the service
+keeps only the day it falls on in the owner's local time. It's stored as
+that day's local midnight, so two facts about one day compare equal, and
+recall breaks the tie on the save time. Leave it out, and the fact is
+dated to the day it was saved, so `event_date` is never null, which is
+invariant 5. `source_app` is what the gate reads. `confidence` defaults
+to `high`, and `origin_agent` to `user`.
 
-`conversation_id` (1.7, max 64 characters) names the conversation the
-save was made in: with `source_app`, the pair the caller ingests under.
-A save with a guest stamp is bound to it, so once approved it is
-recalled only there. A save with no guest stays global, and records the
-conversation when the service holds it. A guest-present save that
-arrives before the conversation's first ingest creates its empty
-record, which that ingest fills. Without the pair, a guest-present save
-is held but stays global. The response's `scope` says which happened.
+### Web and guest stamps
 
-Gate (invariant 4; the gate applies to the write itself, whoever the writer
-is): a write reaches canon only if `origin_agent` is `user` **or** it
-declares a registered `source_app` (the trusted set). Anything else is
-created quarantined (`review: held`). An `mcp:*` origin is **never** trusted:
-even paired with a registered `source_app` it stays held, so an adapter (or
-any caller spoofing that origin over the local API) cannot launder a fact
-into canon by naming a trusted app. A held write also has its `confidence`
-forced to `low`, so a caller that sent `high` reads back `low`: an unreviewed
-claim is never presented as confident. Response includes
-`{"id": 1, "quarantined": bool, "scope": "global" | "conversation"}` (the
-last since 1.6, #72).
+`web_sources`, from 1.3, and `guest_speakers`, from 1.5, are optional
+stamps, and both default to empty. `web_sources` lists the web domains
+read in the round that produced the save, at most 20. They're lowercased,
+and the hold reason names up to five of them, in alphabetical order. They
+aren't stored on the fact. `guest_speakers` lists the guests in the room
+when a model made the save, as `/ingest` speaker values, at most 12.
+That's `guest:<name>` for one person besides the owner who was told
+apart with confidence, or `guest:unknown` for a person who couldn't be.
+Guest entries are stripped, empty ones dropped and repeats removed, in
+their order. An entry that isn't a guest class, like a model slug,
+`user` or an unknown prefix, is dropped, and never refused.
 
-To deliberately **stage a fact for owner review** via the API (e.g. an agent
-proposing a revision), POST it with a non-`user` `origin_agent` (the authoring
-model's slug) and no trusted `source_app`; it lands in `GET /facts?status=quarantined`
-for the owner to `approve` or `dismiss`.
+A save that carries either stamp is held for review. `web-derived:`
+names the domains, and `guest-present:` names the guests in plain
+English. `guest:unknown` reads as "an unidentified guest", and at most
+five guests are named. When both stamps are there, the reason keeps the
+`web-derived:` prefix, and the guest clause follows after `; `. The
+origin gate outranks both stamps.
+
+`conversation_id`, from 1.7, at most 64 characters, names the
+conversation the save was made in. With `source_app`, it's the pair the
+caller ingests under. A save with a guest stamp is bound to it, so once
+it's approved it's recalled only there. A save with no guest stays
+global, and records the conversation when the service holds it. A save
+with guests present that arrives before the conversation's first ingest
+creates the conversation's empty record, and that ingest fills it.
+Without the pair, a save with guests present is held but stays global.
+The response's `scope` says which happened.
+
+### The write gate
+
+The gate is invariant 4, and it applies to the write itself, whoever
+wrote it. A write reaches the trusted facts only if `origin_agent` is
+`user`, or it names a `source_app` in the trusted set. Anything else is
+created quarantined, and the response says `"quarantined": true`. Its
+reason starts "external write", with the origin. An `mcp:*` origin is
+never trusted. Even beside a trusted `source_app` it stays held, so an
+adapter, or any caller faking that origin over the local API, can't pass
+a fact into the trusted set by naming a trusted app.
+
+A write the origin gate holds has its `confidence` forced to `low`, so a
+caller that sent `high` reads back `low`, and an unreviewed claim never
+looks confident. A trusted write held only for a web or guest stamp
+keeps the confidence it was sent with. The response includes
+`{"id": 1, "quarantined": bool, "scope": "global" | "conversation"}`,
+with `scope` since 1.6.
+
+To stage a fact for the owner's review through the API, like an agent
+proposing a change, post it with an `origin_agent` that isn't `user`,
+such as the model's own slug, and no trusted `source_app`. It lands in
+`GET /facts?status=quarantined`, for the owner to `approve` or
+`dismiss`.
 
 ### Reading the ledger
 
-`GET /facts?status=valid|superseded|quarantined|all&q=...&limit=...`: list/filter.
-**Requires the owner admin token, even on loopback** (see "Owner admin token" above).
-`status` defaults to `valid`; `q` is a substring match on content; `limit`
-defaults to 100, maximum 1000.
-Since 2026-07-27, a `q` beginning with `#` followed by ids (one id, or
-several separated by commas or spaces) is an **id lookup** instead of a
-content search; the leading `#` is what distinguishes it, because a bare
-number is a legitimate thing to search the text for (a year, a figure).
-Unknown ids are simply absent from the result, not an error, and an id list
-is never trimmed by `limit` (an explicit list asks for exactly those rows;
-trimming it would read as "those ids don't exist"). `status` still applies,
-so look up a held fact with `status=all`. `status` is not validated server-side: only
-`valid`, `superseded` and `quarantined` filter anything, and ANY other value
-applies no filter and returns every row. That is how `all` works, and it
-means a typo (`quarantied`) silently returns everything rather than a 422, so
-check the spelling before trusting a count.
+`GET /facts?status=valid|superseded|quarantined|all&q=...&limit=...`
+lists and filters facts. It needs the owner credential, even on
+loopback. `status` defaults to `valid`. `q` matches content with `LIKE`,
+so it ignores case for plain letters, and `%` and `_` in it act
+as wildcards. `limit` defaults to 100, with a maximum of 1,000.
 
-`PATCH /facts/{id}`: edit content/event_date/confidence (re-embeds) and, additively
-since 2026-07-11, `importance`; the human outranks the miner on how a fact ages.
-`importance` must be an integer 1-10: anything outside that range is **rejected
-with a `detail` 422, not clamped**, so send a value in range rather than
-relying on the endpoint to fold it back. **Requires the owner admin token,
-even on loopback.**
+A `q` that starts with `#` followed by ids is a lookup by id, and not a
+content search. That's one id, or several separated by commas or spaces.
+The leading `#` is what tells them apart, because a bare number is a
+fair thing to search the text for, like a year or a figure. Unknown ids
+are left out of the result, and they're no error. `limit` never trims a
+list of ids, because an explicit list asks for those rows, and trimming
+it would read as "those ids don't exist". `status` still applies, so
+look up a held fact with `status=all`.
+
+`status` isn't checked on the server. Only `valid`, `superseded` and
+`quarantined` filter anything, and any other value applies no filter
+and returns every row. That's how `all` works. It also means a typo,
+like `quarantied`, returns everything with no 422, so check the
+spelling before you trust a count.
+
+`PATCH /facts/{id}` edits `content`, `event_date` or `confidence`, and
+embeds the fact again. It also edits `importance`, because the person
+outranks the miner on how a fact ages. `importance` must be a whole
+number from 1 to 10. Anything outside that is refused with a `detail`
+422, and never clamped, so send a value in range. It needs the owner
+credential, even on loopback.
 
 ### Changing a fact's state
 
-`POST /facts/{id}/supersede`: `{"successor_id": 2}`; temporal validity, never delete.
-**Requires the owner admin token, even on loopback.**
+Every route here needs the owner credential, even on loopback.
 
-`POST /facts/{id}/approve`: un-quarantine (human only). **Requires the owner
-admin token, even on loopback.**
-`POST /facts/{id}/dismiss`: reviewed-and-kept-out, non-destructive (human only).
-**Requires the owner admin token, even on loopback.**
-`POST /review/dismiss-all`: additive since 2026-07-27, the bulk twin of
-`/facts/{id}/dismiss`. Every fact currently in the review queue is
-dismissed in one call, same non-destructive semantics (stays quarantined and
-in the ledger; any one is reversible with `/approve`). Response is
-`{"dismissed": <count>}`. Meant for clearing a backlog made stale by a
-filtering fix, not routine triage. **Requires the owner admin token, even on
-loopback.**
-`POST /facts/quarantine`: additive since 2026-07-27, quarantines facts
-that were ALREADY accepted as canon. `{"ids": [1, 2], "reason": "..."}`; `reason`
-is required and non-empty (an unexplained row in the review queue can't be
-adjudicated). Response is `{"quarantined": [...], "skipped": [...]}`; unknown
-and already-quarantined ids are skipped, not errors, so a re-run is a no-op.
-The affected facts leave `/recall` and the summary, stay in the ledger, and
-appear in `GET /review`; each is reversible with `/facts/{id}/approve`. This is
-the third treatment between `supersede` (asserts a replacement fact, which a
-malformed row does not have) and `DELETE` (destructive). **Requires the owner
-admin token, even on loopback.**
-`DELETE /facts/{id}`: one of the three human erasers (facts / attachments /
-messages); human-initiated only, never automated. Every erasure appends a
-content-free row (kind, refs, when - never content) to the `erasures` journal
-(#45). **Requires the owner admin token, even on loopback.**
+- `POST /facts/{id}/supersede` takes `{"successor_id": 2}`. It's about
+  when a fact holds, and never deletes it.
+- `POST /facts/{id}/approve` takes a fact out of quarantine, and only a
+  person does it.
+- `POST /facts/{id}/dismiss` marks a fact reviewed and kept out, and
+  destroys nothing. Only a person does it.
+- `POST /review/dismiss-all` is the bulk twin of
+  `/facts/{id}/dismiss`. It dismisses every fact in the review queue in
+  one call, with the same safe effect. Each fact stays quarantined and
+  in the ledger, and `/approve` reverses any one of them. It returns
+  `{"dismissed": <count>}`. It's for clearing a backlog that a fix to a
+  filter made stale, and not for everyday triage.
+- `POST /facts/quarantine` quarantines facts that were already accepted
+  as trusted. It takes `{"ids": [1, 2], "reason": "..."}`, and `reason`
+  is required and can't be empty, because nobody can judge a row in the
+  review queue that has no reason. It returns
+  `{"quarantined": [...], "skipped": [...]}`. Unknown ids and ones
+  already quarantined are skipped, and they're no error, so running it
+  again does nothing. The facts leave recall at once, and the summary at
+  its next rebuild. They stay in the ledger, appear in `GET /review`,
+  and `/facts/{id}/approve` reverses each one. It's the third treatment
+  between `supersede`, which names a replacement a broken row doesn't
+  have, and `DELETE`, which destroys.
+- `DELETE /facts/{id}` is one of the three erasers, for facts,
+  attachments and messages. Only a person starts it, never automation.
+  Every erasure adds a row to the `erasures` journal that holds no
+  content, only the kind, the references and when.
 
 ### The review queue
 
-`GET /review`: held-for-review queue. **Requires the owner admin token, even
-on loopback.**
+`GET /review` returns the queue of facts held for review. It needs the
+owner credential, even on loopback.
 
-Each row is the whole fact row plus `source` (additive, 2026-08-12, contract
-version unchanged): the turn the fact was mined from, so the first question a
-reviewer has, who said this, is answered without leaving the queue.
+Each row is the whole fact row, plus `source`. That's the turn the fact
+was mined from, so a reviewer's first question, who said this, is
+answered without leaving the queue.
+
 ```json
 "source": {"message_id": 812, "speaker": "guest:Sam", "speaker_class": "guest",
            "created_at": 1754616000.0, "excerpt": "I hate coriander…",
            "truncated": false}
 ```
-Each row also carries `reason_class` (additive, 2026-08-14, #34): a stable
-token derived from the hold reason's prefix (`guest-attribution`,
-`guest-present`, `speaker-trust`, `grounding`, `temporal`, `source-trust`,
-`source-trust-judged`, `source-deleted`, `importance`, `web-derived`,
-`external-write`, else `other`; a multi-flag reason classes by its first
-flag). The admin page groups the queue by it, and
-`POST /facts/bulk-approve` / `POST /facts/bulk-dismiss` (owner credential,
-body `{"ids": [...]}`) act on explicit id lists - only ids currently in the
-queue are touched, everything else is skipped, not an error, so one decision
-clears a whole cause without ever sweeping rows the owner has not seen.
 
-Each row also carries `scope` and `conversation` (1.6, #72): for a fact
+`source` is `null` whenever the fact names no source message, or the
+message it names has since been erased. That covers an external
+`mcp:*` write, a fact saved by hand, and a mined fact that couldn't be
+tied to one turn, as [Guest speaker classes](#guest-speaker-classes)
+describes. It's never filled in with a nearby turn. "Sam said this" and
+"nobody knows who said this" are different decisions, and a queue that
+blurs them is worse than one that stays quiet. `excerpt` is the first
+400 characters of the message's own content, without attachment text,
+and `truncated` says whether there's more. `speaker_class` is the class
+mining uses, which is `owner`, `model`, `guest`, `guest-unknown` or
+`unrecognised`.
+
+Each row also carries `reason_class`, a stable token taken from the
+start of the hold reason. The common ones are `guest-attribution`,
+`guest-present`, `speaker-trust`, `grounding`, `temporal`,
+`source-trust`, `source-trust-judged`, `source-deleted`,
+`person-forgotten`, `importance`, `web-derived` and `external-write`.
+Any other lowercase `word:` prefix is returned as a class of its own,
+and a reason with no prefix is `other`. A reason with several flags
+takes the class of its first. The admin page groups the queue by it.
+
+`POST /facts/bulk-approve` and `POST /facts/bulk-dismiss` take
+`{"ids": [...]}`, with the owner credential. They act on that list of
+ids, and touch only the ids in the queue now. Everything else is
+skipped, with no error, so one decision clears a whole cause, and never
+sweeps up rows the owner hasn't seen.
+
+Each row also carries `scope` and `conversation`, since 1.6. For a fact
 bound to one conversation, `conversation` is `{"id", "source_app",
 "external_id", "title"}`, the chat it will be recalled from and nowhere
-else; for a global fact it is `null`.
+else. For a global fact it's `null`.
 
-`source` is `null` whenever the fact names no source message: an external
-(`mcp:*`) write, a fact saved by hand, or a mined fact that could not be tied
-to a single turn (see the guest-speaker notes above). It is never filled in
-with a nearby turn. "Sam said this" and "no one knows who said this" are
-different decisions, and a queue that blurs them is worse than one that stays
-silent. `excerpt` is the first 400 characters of the message's own content
-(attachment text is not included); `truncated` says whether more exists.
-`speaker_class` is the classification mining uses (`owner`, `model`, `guest`,
-`guest-unknown`, `unrecognised`).
+## Recall and summary
 
-## Recall & summary
+`POST /recall` ranks facts by meaning, matching words and a small boost
+for newer facts, and collapses paraphrases. Quarantined facts are always
+left out, and superseded ones too, unless you set
+`include_superseded`. `limit` is capped at 50. Recall is a retrieval
+aid, and an unlimited top N over an empty query would be a whole-ledger
+export. The response carries only the fields shown here. This route
+answers callers on loopback with no credential, so what it returns is a
+security boundary. Adding a field is a change to the contract.
 
-`POST /recall`: hybrid semantic + keyword + bounded recency; paraphrase dedup;
-quarantined always excluded; superseded excluded unless `include_superseded`.
-`limit` is capped at 50: recall is a retrieval aid, and an
-unbounded top-N over an empty query amounted to a whole-ledger export. The
-response carries exactly the fields below and no others: this endpoint
-answers unauthenticated loopback callers by design, so its projection is a
-security boundary. Adding a field here is a contract change.
 ```json
 {"query": "...", "limit": 10, "include_superseded": false, "origin": "http",
  "source_app": "multi-model-chat", "conversation_id": "42"}
 ```
-→ `{"facts": [{"id": 1, "content": "...", "event_date": "...", "confidence": "...",
-               "origin_agent": "...", "score": 0.87, "scope": "global"}]}`
 
-`source_app` and `conversation_id` (1.6, #72) name the caller's own
+It returns this.
+
+```json
+{"facts": [{"id": 1, "content": "...", "event_date": "...", "confidence": "...",
+            "origin_agent": "...", "score": 0.87, "scope": "global"}]}
+```
+
+`source_app` and `conversation_id`, since 1.6, name the caller's own
 conversation, the same pair it ingests under. Every fact carries a
-`scope`: `global` is recalled from anywhere, `conversation` only from the
-conversation it came from. A fact the miner ties to a guest's turn is
-bound to its conversation at creation. So is a save on `POST /facts`
-made while guests were in the room, when it names its conversation
-(1.7). A guest-present save that names none is held for review but stays
-global: once approved, it is recalled in every chat.
-The owner's own facts are global. Of the facts stored before 1.6, those
-that came from a guest's turn were bound to their conversation once, on
-upgrade, and the rest stayed global.
-A recall that names its conversation gets the facts bound to it beside the
-global ones. A recall without the pair, or naming a conversation the
-service has not ingested, gets global facts only. Bound facts never join
-the summary. `POST /facts/{id}/scope` with `{"scope": "global"}` (owner
-credential) is the one way to widen a fact; approving a held fact keeps
-its scope.
+`scope`. A `global` fact is recalled from anywhere, and a `conversation`
+fact only from the conversation it came from. A fact the miner ties to a
+guest's turn is bound to its conversation when it's created. A save on
+`POST /facts` made while guests were in the room is bound the same way,
+when it names its conversation, which 1.7 added. A save with guests present that names none
+is held for review and stays global, and once it's approved it's
+recalled in every chat. The owner's own facts are global. Of the facts
+stored before 1.6, the ones that came from a guest's turn were bound to
+their conversation once, on upgrade, and the rest stayed global.
 
-`limit` defaults to 10, maximum 50 (422 outside 1–50). `origin` is an
-access-log label ONLY; it changes nothing about what comes back: `http` (the
-default), `auto` for an ambient recall a client fired on the user's behalf
-rather than a model deliberately reaching in, or `mcp:<client>`. It is what
-the `/math` live view reads to tell "prepared context" from "went deep"; see
-`GET /v1/viz/recalls` below.
+A recall that names its conversation gets the facts bound to it beside
+the global ones. A recall without the pair, or naming a conversation the
+service hasn't ingested, gets global facts only. Bound facts never go
+into the summary. `POST /facts/{id}/scope` with `{"scope": "global"}`,
+and the owner credential, is the one way to widen a fact. Approving a
+held fact keeps its scope.
 
-An empty `query` skips scoring entirely and returns the most recent
-non-quarantined facts, newest first, which is useful as a cheap "what do you
+`limit` defaults to 10, with a maximum of 50, and anything outside 1 to
+50 is a 422. `origin` is only a label for the access log, and it changes
+nothing about what comes back. It's `http` by default, or `auto` for a
+recall a client fired on the user's behalf without a model asking, or
+`mcp:<client>`. The live view on `/math` reads it to tell "prepared
+context" from "went deep", as [Recall trace and the access
+log](#recall-trace-and-the-access-log) describes.
+
+An empty `query` skips scoring and returns the most recent facts that
+aren't quarantined, newest first. That's a cheap way to ask "what do you
 know about me lately". Those rows carry no `score` field at all.
 
-The response is exactly the projection in the example and nothing more:
-`id`, `content`, `event_date`, `confidence`, `origin_agent`, `score`
-(on scored recalls only; an empty-query recall omits it) and `scope`. That set
-is `RECALL_FIELDS` in `api.py`, and a test fails if a field is added without
-amending this contract. The rest of the fact row does NOT travel over this
-endpoint: no `created_at`, `importance`, `source`, `conversation_id`,
-`source_message_id`, `content_hash`, `invalidated_at`, `superseded_by`,
-`quarantined_at`, `quarantine_reason` or `review_dismissed_at`.
+### The recall projection
 
-One consequence worth planning around: with `include_superseded: true` the
-superseded facts come back, but with **no field that marks them as
-superseded**. `invalidated_at` and `superseded_by` are both outside the
-projection, so an HTTP client cannot tell a retired fact from a current one.
-The MCP adapter can render its `[SUPERSEDED …]` flag because it calls
-`recall.recall()` in-process and sees the whole row; an HTTP caller that
-needs lifecycle state must use the owner-gated `GET /facts` instead.
+The response is the projection shown, and nothing more. That's `id`,
+`content`, `event_date`, `confidence`, `origin_agent`, `score` and
+`scope`, and `score` appears only on a scored recall. The set is
+`RECALL_FIELDS` in `api.py`, and a test fails if a field is added
+without changing the contract. The rest of the fact row doesn't travel
+over this route. That's `created_at`, `importance`, `source`,
+`conversation_id`, `source_message_id`, `content_hash`,
+`invalidated_at`, `superseded_by`, `quarantined_at`,
+`quarantine_reason` and `review_dismissed_at`.
+
+Plan around one result of that. With `include_superseded: true` the
+superseded facts come back, but no field marks them as superseded.
+`invalidated_at` and `superseded_by` are both outside the projection, so
+an HTTP client can't tell a retired fact from a current one. The MCP
+adapter's recall never asks for superseded facts either. A caller that
+needs to know where a fact stands must use the owner-gated
+`GET /facts`.
 
 ### Summary
 
-`GET /summary` → `{"summary": "...", "generated_at": "...", "source_fact_ids": [..],
-"word_count": 1980, "word_budget": 2000, "provenance": [{"id": 12,
-"origin_agent": "user", "source": "user", "tag": "direct"}, ...]}`
-(`word_count`/`word_budget` added 2026-07-09, additive within contract 1.0;
-clients may ignore them. The budget is enforced at generation by a rewrite
-pass, never truncation. The generator aims for `memory_summary_fill` of
-the budget, default 0.8, up to the budget, so `word_count / word_budget`
-reads as the fill.)
+`GET /summary` returns this.
 
-`provenance` (additive) is one entry per fact that fed the current
-summary (same set as `source_fact_ids`), carrying that fact's **raw**
-`origin_agent` and `source` columns plus a mechanically-derived `tag`; this
-is how a client checks per-claim origin *without* trusting unlabelled prose
-for attribution. `tag` is one of:
+```json
+{"summary": "...", "generated_at": 1783123200.0, "source_fact_ids": [12],
+ "word_count": 1980, "word_budget": 2000,
+ "provenance": [{"id": 12, "origin_agent": "user", "source": "user", "tag": "direct"}]}
+```
 
-- `direct` (`origin_agent == "user"`): the owner saved it themselves.
-- `mined` (`source == "chat"`): the miner distilled it from a multi-turn
-  conversation. **No single turn or speaker is recorded**, so the summary
-  prose must never attribute a mined claim to "the user" or any named
-  participant.
-- anything else: the raw `origin_agent` verbatim, such as a participant's
-  own slug or an approved `mcp:<client>` write.
+`generated_at` is in Unix seconds, or `null` before the first build.
+Clients may ignore `word_count` and `word_budget`. The budget is kept by
+rewriting when the profile is built, and never by truncating. A draft
+more than 20% over the budget gets one pass that compresses it. If that
+pass fails, the long draft stays, so `word_count` can be over
+`word_budget`. The builder aims for `memory_summary_fill` of the
+budget, 0.8 by default, up to the budget, so `word_count / word_budget`
+reads as the fill.
 
-That remainder is deliberately not flattened into an invented category like
-"curated", which would claim more certainty about authorship than the record
-supports. The prose itself is instructed
-the same way (mention provenance only when material, never invent a speaker
-for a `mined` or unrecognised-tag entry) but `provenance` is the
-mechanically-checkable source of truth; read it instead of parsing the
-summary text for attribution.
-Empty on a summary generated before this shipped (older `summary_sources` rows
-simply have no `provenance` key; the field defaults to `[]`).
-`POST /summary/regenerate`: async rebuild of the live profile. Not gated,
-so any local process can trigger it (see "Open on loopback, and what that
-means"). A rebuild the model doesn't finish fails the job with the reason,
-and the live profile stays as it was.
+`provenance` has one entry for each fact that fed the current summary,
+the same set as `source_fact_ids`. Each carries that fact's raw
+`origin_agent` and `source` columns, and a `tag` worked out
+mechanically. That's how a client checks where each claim came from,
+without trusting unlabelled prose to name who said it. `tag` is one of
+these.
+
+- `direct`, when `origin_agent` is `user`. The owner saved it.
+- `mined`, when `source` is `chat`. The miner drew it from a
+  conversation. Many mined facts are tied to one turn, which
+  `GET /review` shows, but the tag names no speaker. The summary's prose
+  must never say a mined claim came from "the user" or any named
+  person.
+- anything else, which is the raw `origin_agent` word for word, such as
+  a participant's own slug or an approved `mcp:<client>` write.
+
+That remainder is kept as it is, and never folded into a made-up
+category like "curated", which would claim more about who wrote it than
+the record supports. The prose is told the same thing. It mentions
+where a fact came from only when that matters, and never invents a
+speaker for a `mined` entry or a tag it doesn't recognise. `provenance`
+is the source of truth a machine can check, so read it, and don't parse
+the summary's text for who said what. A summary stored without
+provenance returns `[]`.
+
+`POST /summary/regenerate` rebuilds the live profile, async. It isn't
+gated, so any program on the computer can start it, as [Open on
+loopback](#open-on-loopback) explains. It spends model calls, and the
+profile it replaces is kept as a version. A rebuild the model doesn't
+finish fails the job with the reason, and the live profile stays as it
+was.
 
 ## Maintenance
 
-`POST /consolidate`: advisory sweep, today covering exact-duplicate groups and
-permanence ("pin") nominations. Async. It **writes nothing at all**: the sweep
-reads the ledger and returns proposals, including for exact duplicates, and
-applying any of them is a separate human action from the admin page. **Requires
-the owner credential, even on loopback.**
-`GET /jobs/{id}` → `{"kind": "distill|summary|consolidate|viz-embeddings",
-"status": "running|ok|failed", "error": null, "result": null}`
-**Requires the owner credential, even on loopback**, so a caller without one
-can start an open async operation but cannot poll its result.
-`result` is the only place an async operation's output lands, and it stays
-`null` until `status` is `ok`; its shape depends on `kind`. A distill
-returns mining counts: `{"added", "quarantined"}` always, plus up to four
-only-when-nonzero keys:
+`POST /consolidate` runs the advisory sweep, async. It covers groups of
+exact duplicates and suggestions of facts to pin. It writes nothing at
+all. The sweep reads the ledger and returns proposals, including for
+exact duplicates, and applying any of them is a separate action a person
+takes on the admin page. It needs the owner credential, even on
+loopback.
 
-- `deduped`: a re-mine was collapsed.
-- `refused_supersede`: a proposal was refused because the new fact's event
-  date is more than a day older than its target's. Old claims file as dated
-  history and never retire newer truth.
-- `deferred_supersede`: a held-for-review fact proposed a replacement.
-  Quarantine cannot alter canon, so the proposal waits for human review.
-- `unmined`: messages left unmined because the model refused them, or
-  still couldn't finish its reply with more room. Their words stay in the
-  chat's history, and the service log names each one.
+`GET /jobs/{id}` returns this.
 
-Or, if another
-distill of the same conversation was already in flight, `{"added": 0,
-"quarantined": 0, "skipped_locked": true}` and nothing was mined. Read
-the extra keys with a default rather than indexing them; on the ordinary
-path none are there.
-A consolidate returns `{"proposals", "clusters_scanned"}`, a summary
-regenerate `{"summary_chars": n}`.
-`error` holds the failure message when `status` is `failed` (e.g.
-a missing API key), never a silent failure. Jobs live in the service's memory
-only, so a restart forgets them and a later poll is a 404; read the result
-before restarting, or just re-run the operation.
-`POST /backup` → snapshot now; `GET /health` reports backup state. The service
-also snapshots automatically: at startup, and whenever the newest snapshot is
-`backup_interval_hours` old by the clock (default 6, env
-`MEMORY_BACKUP_INTERVAL_HOURS`, `0` disables the timer) and the DB has changed
-since. Time the computer spends asleep counts, and the timer checks every five
-minutes, so a snapshot that fell due during sleep is taken soon after it wakes.
-`MEMORY_MIRROR_DIR` copies every snapshot to a second folder.
+```json
+{"kind": "distill|summary|consolidate|viz-embeddings",
+ "status": "running|ok|failed", "error": null, "result": null}
+```
+
+It needs the owner credential, even on loopback, so a caller without one
+can start an open async operation and can't read its result. `result` is
+the only place an async operation's output lands, and it stays `null`
+until `status` is `ok`. Its shape depends on `kind`. A distill returns
+mining counts, `{"added", "quarantined"}` always, plus up to four keys
+that appear only when they aren't zero.
+
+- `deduped`, when a repeat mine was collapsed.
+- `refused_supersede`, when a proposal was refused because the new
+  fact's event date is more than a day older than its target's. Old
+  claims file as dated history, and never retire newer truth.
+- `deferred_supersede`, when a held fact proposed a replacement.
+  Quarantine can't change the trusted facts, so the proposal waits for a
+  person to review it.
+- `unmined`, the messages left unmined because the model refused them,
+  or still couldn't finish its reply with more room. Their words stay in
+  the chat's history, and the service log names each one.
+
+If another distill of the same conversation was already running, a
+distill returns `{"added": 0, "quarantined": 0, "skipped_locked": true}`
+and mines nothing. Read the extra keys with a default, and don't index
+them, because on the ordinary path none of them is there. A consolidate
+returns `{"proposals", "clusters_scanned"}`, and a summary rebuild
+returns `{"summary_chars": n}`.
+
+`error` holds the failure message when `status` is `failed`, such as a
+missing API key, and a failure is never silent. Jobs live only in the
+service's memory, so a restart forgets them, and a later poll is a 404.
+Read the result before you restart, or run the operation again.
+
+### Backups
+
+`POST /backup` takes a snapshot now, and `GET /health` reports the
+backup state. The service also takes snapshots by itself, at startup
+and whenever the newest snapshot is `backup_interval_hours` old by the
+clock, as long as the database has changed since. The interval is 6
+hours by default, set by `MEMORY_BACKUP_INTERVAL_HOURS`, and `0` turns
+the timer off. Time the computer spends asleep counts, and the timer
+checks every five minutes, so a snapshot that fell due during sleep is
+taken soon after it wakes. `MEMORY_MIRROR_DIR` copies every snapshot to
+a second folder.
 
 ### Busy probe
 
-`GET /busy` → `{"busy": false, "reasons": []}`. Whether a restart right now
-would interrupt work in flight. The fleet's deploy watcher asks before every
-restart and waits while `busy` is true. Open on loopback like `/health`.
-`reasons` lists fixed labels, sorted, one per kind of work, never an id or
-content. The labels: `distill`, `summary`, `consolidate` and
-`viz-embeddings` for a running job; `backup` for a snapshot mid-copy,
-whatever started it; `judge` for a judge pass; `reembed` for the vector
-refill after an embedding model change. The answer comes from in-process
-marks alone, so it never waits on the database. A mark older than an hour
-stops counting: the marks live in memory, so only a hung thread can leave
-one behind, and the restart this route stops blocking is the cure. The
-route serves the watcher, not the chat client, so it sits outside the
-versioned contract and `contract_version` does not move for it.
+`GET /busy` returns `{"busy": false, "reasons": []}`. It says whether a
+restart right now would cut off work under way. The fleet's deploy
+watcher asks it before every restart, and waits while `busy` is true. It
+answers on loopback with no credential, like `/health`.
 
-## Admin & visualisation surface (NOT part of contract v1)
+`reasons` lists fixed labels, sorted, one for each kind of work, and
+never an id or content. A running job shows as `distill`, `summary`,
+`consolidate` or `viz-embeddings`. `backup` is a snapshot partway
+through a copy, whatever started it. `judge` is a judge pass, and
+`reembed` is refilling vectors after an embedding model change. The answer comes only from marks kept in the process, so it
+never waits on the database. A mark older than an hour stops counting.
+The marks live in memory, so only a hung thread can leave one behind,
+and the restart this route stops blocking is the cure. The route serves
+the watcher and not the chat client, so it sits outside the versioned
+contract, and `contract_version` doesn't move for it.
 
-Serves the human's admin pages; may change without a contract bump. Privacy
-invariant (test-enforced, and scoped to the `/v1/viz/*` endpoints): the
-visualisation endpoints never return **fact content**. What they return is
-geometry (ids, ages, importances, scores, coordinates). That is what makes
-the Mathematics page safe to show.
+## Admin and visualisation routes, outside contract v1
 
-The one thing that is not geometry: `GET /v1/viz/recalls` returns the `query`
-text of past lookups, which is the owner's own words, because the live view
-exists to show what was asked. So "no fact content" holds across `/viz/*`,
-but "nothing readable" does not, and the page is not safe to screenshot
-without first checking what is in that feed.
+These serve the owner's admin pages, and may change without a contract
+bump. The visualisation routes, `/v1/viz/*`, never return what a fact
+says, and a test holds them to it. What they return is geometry: ids,
+ages, importance, scores and coordinates. That's what makes the
+Mathematics page safe to show.
 
-The invariant is a claim about the viz endpoints alone. The attachment and
-summary-version endpoints in this same section deliberately DO return
-content, because showing you your own files and profile text is their whole
-job. Note the difference in who may ask: the attachment routes require the
-owner credential, the summary-version routes do not (see "Open on loopback, and what
-that means").
+`GET /v1/viz/recalls` is the one route that returns something readable.
+It returns the `query` text of past lookups, which is your own words,
+because the live view exists to show what was asked. That includes
+history searches, which are gated themselves. No viz route returns what
+a fact says, but the recalls feed isn't safe to show until you've
+checked what's in it.
 
-`GET /` (admin page) · `GET /math` (the Mathematics page).
-All four attachment routes below require the owner credential, on loopback
-too, like the exact-row fact routes (2026-07-25). They return fact content,
-message bodies and document text, so a loopback-only rule was never enough.
+That rule covers the viz routes alone. The attachment and summary
+version routes in this section do return content, because showing you
+your own files and profile text is their job. Who may ask differs. The
+attachment routes need the owner credential, and the summary version
+routes don't, as [Summary versions](#summary-versions) says.
+
+`GET /` is the admin page, and `GET /math` is the Mathematics page. The
+four attachment routes need the owner credential, on loopback too, like
+the exact-row fact routes. They return fact content, message bodies and
+document text, so a rule for loopback alone isn't enough.
 
 ### Attachments
 
-`GET /v1/attachments`: every stored file with its conversation context
-(`limit` defaults to 200, maximum 1000).
-`GET /v1/attachments/{id}/file`: download the original bytes (`?inline=1`
-renders in-browser for previews).
-`GET /v1/attachments/{id}/preview`: the file in context: text excerpt (or
-image/binary kind), the message it arrived with, and the ledger facts mined
-from that conversation.
-`DELETE /v1/attachments/{id}`: the attachments twin of the facts eraser:
-human-initiated via the danger zone, the only delete path; content-addressed
-bytes are unlinked only when no other row references them. The file leaves
-the search index with its row, and an image takes its caption with it.
-Journals to `erasures` like every eraser.
+- `GET /v1/attachments` lists every stored file with its conversation.
+  `limit` defaults to 200, with a maximum of 1,000.
+- `GET /v1/attachments/{id}/file` downloads the original bytes, and
+  `?inline=1` shows the file in the browser, for previews.
+- `GET /v1/attachments/{id}/preview` shows the file in context. That's
+  a text excerpt of up to 4,000 characters, or the kind of image or
+  binary file, the message it arrived with, and up to 8 of the newest
+  live facts mined from that conversation.
+- `DELETE /v1/attachments/{id}` is the attachments twin of the fact
+  eraser. A person starts it from the danger zone, and it's the only way
+  to delete a file. Bytes stored by content are unlinked only when no
+  other row uses them. The file leaves the search index with its row,
+  and an image takes its caption with it. It journals to `erasures`, like
+  every eraser.
 
 ### Messages
 
-`GET /v1/messages/resolve?source_app=&conversation=&message=`: maps a
-producer's ref (how crossband names a message: source app, conversation
-external id, message external id) to the internal row id, with a verbatim
-preview and the erase's blast radius (live facts that would move to review,
-attached files that would stay). Exists so a producer's erase link can land
-on the admin page prefilled; the admin page reads
-`#erase=<source_app>/<conversation>/<message>` and calls this. **Requires
-the owner admin token, even on loopback.**
+`GET /v1/messages/resolve?source_app=&conversation=&message=` turns an
+app's reference to a message into the internal row id. The reference is
+how Crossband names a message, by its source app, the conversation's
+external id and the message's external id. It returns a word for word
+preview, and what the erase would touch, which is the live facts that
+would move to review and the attached files that would stay. It exists so an app's
+erase link can land on the admin page filled in. The admin page reads
+`#erase=<source_app>/<conversation>/<message>` and calls it. It needs the
+owner credential, even on loopback.
 
-`DELETE /v1/messages/{id}`: the messages twin of the facts eraser (#45),
-closing the crossband#106 loop - a voice turn discarded at its source may
-already be ingested here, and no automated path may touch the copy; this is
-the human hand. One row, no bulk form, never called by any producer's code.
-The row leaves the archive and the search index; live facts mined from it
-quarantine with a `source-deleted:` reason and surface in review (the owner
-decides each - derived knowledge never silently vanishes); attachments that
-rode the message are counted in the response, never cascaded. Journals to
-`erasures`. **Requires the owner admin token, even on loopback.**
+`DELETE /v1/messages/{id}` is the messages twin of the fact eraser. A
+voice turn discarded in the app it came from may already be ingested
+here, and no automatic path may touch the copy, so this is the person's
+hand. It takes one row, has no bulk form, and no app's code ever calls
+it. The row leaves the archive and the search index. Live facts bound to
+it, because their source turn is this message, are quarantined with a
+`source-deleted:` reason and show up in review, where the owner decides
+each one. Unbound facts from the same chat aren't touched. Attachments
+that came with the message are counted in the response, and never
+deleted with it. It journals to `erasures`. It needs the owner
+credential, even on loopback.
 
-### Person records (#33, the fleet's identity home)
+### Person records
 
-Apps that capture voices create person records here and upload their
-accepted clips, so a learned voice survives a lost client data directory.
-Membro never does voice identification itself; it records what apps
-assert. Every route below **requires the owner admin token, even on
-loopback**:
+Membro is the fleet's home for who's who. Apps that capture voices
+create person records here and upload the clips they've accepted, so a
+learnt voice survives an app losing its data folder. Membro never
+identifies voices itself, and only records what apps assert. Every route
+here needs the owner credential, even on loopback.
 
-`GET /v1/persons?since=<time>`: person records changed since then,
-forgotten marks included - a syncing app deletes its local copies of
-anyone marked forgotten. Each record carries slug, display name (and
-whether the owner set it - an owner-set name survives client updates),
-relationship, aliases, clip count, `unused_clips` (1.8, below), and
-timestamps.
+`GET /v1/persons?since=<time>` returns the person records changed since
+then, with the marks for forgotten people. A syncing app deletes its own
+copies of anyone marked forgotten. Each record carries the slug, the
+display name and whether the owner set it, the relationship, aliases,
+the clip count, `unused_clips`, and timestamps. A name the owner set
+survives updates from apps. `unused_clips` came in 1.8, and [Clips an
+app has stopped using](#clips-an-app-has-stopped-using) describes it.
 
-`POST /v1/persons`: create or update by slug. Aliases combine; an alias
-already belonging to a different person is refused (409), never
-reassigned. A name membro has seen as a MODEL speaker label is refused
-outright - the crossband participant boundary (#65), backstopped
-server-side. Existing `guest:<alias>` facts link to the person on upsert
-(the response reports how many).
+`POST /v1/persons` creates or updates a person by slug. Aliases add up.
+An alias that already belongs to a different person is refused with a
+409, and never moved. A name Membro has seen as a model's speaker label
+in the sending app's conversations is refused with a 409. That keeps an
+AI in a conversation from ever becoming a person, enforced on the
+server too. Facts already tied to `guest:<alias>` link to the person on
+upsert, and the response says how many.
 
 #### Clips and corrections
 
-`POST /v1/persons/{slug}/anchors`: upload one clip (base64). Content-
-addressed - the same bytes for the same person is a no-op. Files live
-under `voice_anchors/`, owner-only modes. Membro never prunes clips by
-itself: a clip goes when the uploading app deletes it, or when the owner
-does.
+`POST /v1/persons/{slug}/anchors` uploads one clip, in base64. Clips are
+stored by content, so the same bytes for the same person do nothing.
+Files live under `voice_anchors/`, readable by the owner only. Membro
+never prunes clips by itself. A clip goes when the app that uploaded it
+deletes it, or when the owner does.
 
-`GET /v1/persons/{slug}/anchors` and `.../{id}/file`: list and download,
-for rebuilding a lost client cache.
+`GET /v1/persons/{slug}/anchors` and `.../{id}/file` list and download
+clips, to rebuild an app's lost cache.
 
-`PATCH /v1/persons/{slug}`: the owner's rename (sets the owner flag, so
-no client upsert changes the name again) and relationship. Never creates.
+`PATCH /v1/persons/{slug}` is the owner's rename, and sets the
+relationship. A rename sets the owner flag, so no update from an app
+changes the name again. It never creates a person.
 
-`POST /v1/persons/{slug}/anchors/{id}/move` (body `{"to": slug}`): a human
-correction - this recording belongs to someone else. Bytes stay,
-attribution changes; moving bytes the target already holds collapses to a
-delete of the mis-attributed row. Crossband replays its local moves
-through this, so a rebuild can never resurrect a corrected clip.
+`POST /v1/persons/{slug}/anchors/{id}/move`, with `{"to": slug}`, is a
+person's correction that this recording belongs to someone else. The
+bytes stay, and who they belong to changes. Moving bytes the target
+already holds collapses into a delete of the wrongly placed row.
+Crossband replays its own moves through this route, so a rebuild can
+never bring back a corrected clip.
 
-`DELETE /v1/persons/{slug}/anchors/{id}`: delete one clip - journalled in
-`erasures`, bytes unlinked when no other row shares them. Crossband
-replays its local clip deletes through this, and the clips its banks drop
-too. An optional `?reason=` (1.8) says why the app dropped the clip:
-`rotation`, `settled` or `set-aside`. The journal row ends
-`reason:<value>`. Any other value is ignored.
+`DELETE /v1/persons/{slug}/anchors/{id}` deletes one clip. It's
+journalled in `erasures`, and the bytes are unlinked when no other row
+shares them. Crossband replays its own clip deletes through this route,
+and the clips its voice banks drop too. An optional `?reason=`, from 1.8,
+says why the app dropped the clip, as `rotation`, `settled` or
+`set-aside`. The journal row ends `reason:<value>`, and any other value
+is ignored.
 
-`POST /v1/persons/{slug}/merge` (body `{"into": slug}`): fold one person
-into another - aliases, clips and fact links re-point; the losing row
-stays, marked `merged_into`. Refused (410) when either side is forgotten.
+`POST /v1/persons/{slug}/merge`, with `{"into": slug}`, folds one person
+into another. Aliases, clips and fact links point to the other person.
+The losing row stays, marked `merged_into`. It's refused with a 410 when
+either side is forgotten.
 
-`POST /v1/persons/{slug}/forget`: the one-press forget. Deletes the
-audio from disk (one content-free `erasures` row) and the person's clip
-manifests, marks the person forgotten, and moves their approved facts
-back into review as one person-forgotten group (owner decision: nothing
-silently deleted). Anchor routes answer `410 gone` afterwards; the record
-itself stays listed so syncing apps learn to delete their copies.
+`POST /v1/persons/{slug}/forget` is the one-press forget. It deletes the
+audio from disk, with one `erasures` row that holds no content, and the
+person's clip manifests. It marks the person forgotten, and moves their
+approved facts back into review as one group of forgotten facts. The
+owner decided that nothing is deleted without a word. Afterwards,
+uploading, listing and downloading clips answer `410 gone`. Deleting or
+moving one of their clips answers 404, because none are left, and moving
+a clip to a forgotten person is a 410. The record itself stays listed,
+so syncing apps learn to delete their copies.
 
-#### Clips an app no longer uses (1.8)
+#### Clips an app has stopped using
 
-`PUT /v1/persons/{slug}/manifest` (1.8, body
-`{"client": "<app>", "sha256": ["<hex>", ...]}`): the clips the app's bank
-keeps for this person, as sha256 hex digests, at most 1,000. It replaces
-that app's last manifest and deletes nothing, however little it lists. The
-response is `{"stored": <n>, "unused_clips": <n>}`. A value that isn't a
-sha256 is refused (422).
+`PUT /v1/persons/{slug}/manifest`, from 1.8, takes
+`{"client": "<app>", "sha256": ["<hex>", ...]}`. That's the clips the
+app's voice bank keeps for this person, as sha256 hex digests, at most
+1,000. It replaces that app's last manifest, and deletes nothing,
+however little it lists. It returns `{"stored": <n>, "unused_clips":
+<n>}`. A value that isn't a sha256 is refused with a 422.
 
 A person's `unused_clips` counts the clips that app uploaded, stored
-before its manifest arrived, and missing from it. A clip stored after the
-manifest is never counted by it. A manifest older than the person's last
-change (a clip moved or deleted, a merge, a rename) counts nothing until
-the app sends a fresh one. With no manifest the count is 0.
+before its manifest arrived, and missing from it. A clip stored after
+the manifest never counts. A manifest older than the person's last
+change counts nothing until the app sends a fresh one. A change is a
+clip moved or deleted, a merge, a rename, or any create or update from
+an app, even one that changed nothing. With no manifest the count is 0.
 
-`DELETE /v1/persons/{slug}/unused-clips` and `DELETE /v1/unused-clips`
-(1.8): the owner's press on the People page, for one person or for
-everyone. The set is worked out again at the press, never taken from the
-caller. Each clip is deleted like the one-clip route and journals its own
-`erasures` row ending `reason:unused`. The answer counts what went:
-`{"slug", "deleted", "files_removed"}` for one person, and
+`DELETE /v1/persons/{slug}/unused-clips` and `DELETE /v1/unused-clips`,
+from 1.8, are the owner's press on the People page, for one person or for
+everyone. The set is worked out again at the press, and never taken from
+the caller. Each clip is deleted like the one-clip route, and journals
+its own `erasures` row ending `reason:unused`. The answer counts what
+went, `{"slug", "deleted", "files_removed"}` for one person, and
 `{"deleted", "files_removed", "persons"}` for everyone.
-
-The three summary-version routes below, unlike the attachment routes above,
-are **NOT** gated: they answer an unauthenticated loopback caller.
 
 ### Summary versions
 
-`GET /v1/summary/versions`: every generated profile, newest first (metadata
-only; append-only history, so regeneration never destroys a version).
-Each row carries `word_count`, `word_budget`, `model`, `restored_from`
-and `passes`: the rewrite passes that shaped a fresh generation, in order
-(`expand`, `squeeze`, or an empty list), `null` on a restore row and on
-a version stored before the column existed (additive, 2026-09-06).
-`GET /v1/summary/versions/{id}`: one version with its full text. Open on
-loopback, so any local process can read any stored profile in full.
-`POST /v1/summary/versions/{id}/restore`: make that version current again by
-APPENDING a new version row (`restored_from` set); history is never rewritten.
-Open on loopback, so any local process can change which profile is live.
+These three routes aren't gated, unlike the attachment routes, and
+answer a caller on loopback with no credential.
+
+- `GET /v1/summary/versions` lists every profile ever built, newest
+  first, with metadata only. The history is only added to, so a rebuild
+  never destroys a version. Each row carries `word_count`,
+  `word_budget`, `model`, `restored_from` and `passes`. `passes` lists
+  the rewrite passes that shaped a fresh build, in order, as `expand`,
+  `squeeze`, or an empty list. It's `null` on a restore row, and on a
+  version stored before the column existed.
+- `GET /v1/summary/versions/{id}` returns one version with its full
+  text. It's open on loopback, so any program on the computer can read
+  any stored profile in full. `GET /summary` is open by the same rule,
+  for the current profile, so this widens the reach from "the profile
+  now" to "any profile this database has built".
+- `POST /v1/summary/versions/{id}/restore` makes that version current
+  again by adding a new version row, with `restored_from` set, and
+  history is never rewritten. It's open on loopback, so any program on
+  the computer can change which profile is live. Nothing is destroyed,
+  and you can restore back, but the profile every model reads next round
+  can change with no credential.
 
 ### Visualisation routes
 
-`GET /v1/viz/decay`: every live card's (age, importance, score) + formula constants.
-`GET /v1/viz/embeddings`: cached 3D PCA of up to the newest 2,500 embedded
-cards (`SAMPLE_CAP` in `viz.py`; the projection's Gram matrix costs O(n²)
-memory, so past that point the newest cards win) with lifecycle timestamps
-(superseded included) + current summary membership; `{"status": "computing"}`
-while the background projection job runs. Both this endpoint and
-`/v1/viz/landscape` return `sampled: true` when that cap actually bit, so the
-page can say "showing the newest 2,500" instead of implying it drew
-everything.
-`GET /v1/viz/landscape`: the data for **"The life of your memory"**, one
-always-current 3D scene (added 2026-07-18; 3D biome 2026-07-19; consolidated to a
-single scene 2026-07-20; all additive). **Self-sufficient**: returns
-`{"status": "computing"}` and kicks off the one-time PCA projection build itself
-when cold (no separate `/embeddings` call needed), then serves the scene. Geometry
-only, showing **alive** facts (non-superseded, non-quarantined) as they are now:
+`GET /v1/viz/decay` returns every fact that isn't superseded, with its
+age, importance and score, and the constants of the formula. Held facts
+are included, flagged `q: 1`.
 
-- `nodes`: id, **3D** coords `x,y,z`, importance, freshness score, cluster
-  index.
-- `clouds`: biomes from deterministic **k-means on the 3D coords**, bounded
-  count ~sqrt(n/2) clamped to [6,14]. Each carries a 3D centroid `cx,cy,cz`,
-  the 6 unique covariance entries `cov=[xx,yy,zz,xy,xz,yz]`, a `spread`
-  radius, mean `freshness`, density `size`, and a palette index. The
-  covariance entries let the client render a translucent volumetric
-  ellipsoid via Σ₂=JΣJᵀ rather than a flat hull. The palette index only
-  distinguishes a biome from its neighbours; it is never a fixed
-  topic→colour map.
-`edges` (co-occurrence: facts recalled together in the access log, weighted),
-`sediment` (per current fact, the ids/dates/importances of the facts it
-superseded), `summary_ids` (current summary membership, for the dot ring),
-`sampled` (true when the 2,500-card projection cap bit; see
-`/v1/viz/embeddings` above), and `notes` naming any layer the current ledger
-can't yet fill. The admin UI now drives "The life of your memory" entirely
-from this endpoint; `/v1/viz/embeddings` above is retained but no longer the
-UI's source.
+`GET /v1/viz/embeddings` returns a cached 3D projection, by principal
+components, of up to the newest 2,500 embedded cards. The cap is
+`SAMPLE_CAP` in `viz.py`. The projection's Gram matrix costs memory that
+grows with the square of the count, so past the cap the newest cards
+win. The route returns the cards with their lifecycle timestamps,
+superseded ones included, and which of them are in the current summary.
+It returns `{"status": "computing"}` while the background projection
+job runs. This route and `/v1/viz/landscape` both return `sampled: true`
+when the cap was hit, so the page can say "showing the newest 2,500",
+and never imply it drew everything.
+
+`GET /v1/viz/landscape` returns the data for "The life of your memory",
+one 3D scene that's always current. It needs nothing else first. When
+it's cold, it returns `{"status": "computing"}` and starts the one-time
+projection build itself, then serves the scene. It returns geometry
+only, for the facts that are alive, meaning not superseded and not
+quarantined, as they are now.
+
+- `nodes`, each with an id, 3D coordinates `x,y,z`, importance, a
+  freshness score and a cluster index.
+- `clouds`, the biomes, from k-means on the 3D coordinates, which gives
+  the same result every time. There are about the square root of half
+  the count, kept between 6 and 14, or one per fact when there are 6 or
+  fewer, and empty clusters are dropped. Each cloud carries a 3D centre
+  `cx,cy,cz`, the six distinct covariance entries
+  `cov=[xx,yy,zz,xy,xz,yz]`, a `spread` radius, mean `freshness`, a
+  density `size`, and a palette index. The covariance lets the page draw
+  a see-through ellipsoid, by `Σ₂=JΣJᵀ`, and not a flat hull. The
+  palette index only tells a biome from its neighbours, and never maps a
+  topic to a colour.
+- `edges`, facts recalled together in the access log, weighted.
+- `sediment`, for each current fact, the ids, dates and importance of
+  the facts it superseded.
+- `summary_ids`, the current summary's members, for the ring of dots.
+- `sampled`, true when the 2,500 card cap was hit, as on
+  `/v1/viz/embeddings`.
+- `notes`, naming any layer the current ledger can't fill yet.
+
+The admin page draws "The life of your memory" from this route alone.
+`/v1/viz/embeddings` still answers, and the page doesn't use it.
 
 ### Recall trace and the access log
 
-`POST /v1/viz/recall_trace`: `{"query", "limit"}` → the recall pipeline,
-instrumented. Per-card score components and fate (kept / collapsed / over /
-dim), plus lifecycle and dup edges, so the client can replay the answer as of
-any past time.
-Kept in lockstep with `/v1/recall` by test. `limit` is silently clamped to 20
-because the endpoint exists to draw a diagram rather than to export data.
-`GET /v1/viz/recalls?after=<ts>`: lookup events from the persistent access log:
-recalls, history searches, and per-round summary fetches, feeding the live view.
-**Not gated**, and `query` is the caller's own question verbatim (first 200
-characters), so this is the one `/viz/*` route that hands readable text to an
-unauthenticated loopback caller.
-Each event is `{ts, kind, origin, query}`: `kind` is `recall | search | summary`;
-`origin` is `http`, `auto` (an ambient recall or a history search a client
-fired on the user's behalf), or `mcp:<client-name>`. `POST /recall` has
-taken an additive `origin` field since 2026-07-11, and `POST /search`
-since 2026-09-30. MCP adapter processes write the same log under
-`mcp:<client-name>`, so external tools' lookups appear too. The `access_log` table is
-append-only like the ledger: each row records when, what was asked, and which
-facts came back (ids + scores); the service never updates or deletes a row.
+`POST /v1/viz/recall_trace` takes `{"query", "limit"}` and returns the
+recall pipeline, with each step shown. Every card gets its score parts
+and its fate, which is kept, dup, collapsed, over or dim, plus lifecycle
+and duplicate edges, so the page can replay the answer as of any past
+time. A test keeps its scoring in step with `/v1/recall`. It ranks every
+valid fact, though, including facts bound to one conversation. `limit`
+defaults to 20, and any value up to 500 is cut to 20, because the route
+exists to draw a diagram, and not to export data. A value outside 1 to
+500 is a 422.
 
-## MCP adapter (model-facing subset ONLY)
+`GET /v1/viz/recalls?after=<ts>` returns lookup events from the access
+log, which lasts across restarts. That's recalls, history searches and
+the summary fetched each round, and they feed the live view. It isn't
+gated. `query` is the caller's own question word for word, its first
+200 characters. That makes it the one `/viz/*` route that hands readable
+text to a caller on loopback with no credential.
 
-Tools: `recall_memory`, `save_memory`, `search_history`, `memory_summary`:
-**in-process library calls against the same SQLite file, never HTTP**.
-`memory_service/mcp_server.py` imports `recall`, `ledger`, `episodic` and
-`summary` directly and opens `data/memory.db` itself; the semantics match
-`/recall`, `POST /facts`, `/search` and `/summary` above, but no request is
-ever made to the service. What that means in practice:
-- The adapter needs read/write filesystem access to `data/`, and
-  `MEMORY_DATA_DIR` must resolve to the same directory the running service
-  uses; point it elsewhere and saves land in a different ledger that never
-  appears in the admin UI.
-- It keeps working while the HTTP service is stopped. (The database must
-  already exist: the adapter connects, it does not build or migrate the
-  ledger schema, which is the service's startup job. One deliberate
-  exception: if the `access_log` table is missing, the adapter creates it
-  itself on first write, so lookups against a not-yet-migrated database
-  are still recorded rather than lost.)
-- Its calls never traverse the API's loopback / bearer-token checks;
-  filesystem permissions on `data/` are what governs access. The one
-  exception is `search_history`, which checks `MEMORY_AUTH_TOKEN` itself to
-  match the owner gate on `POST /search`. Register the server with
-  `-e MEMORY_AUTH_TOKEN=<the service's token>` for search; the other three
-  tools need no token.
+Each event is `{ts, kind, origin, query}`. `kind` is `recall`, `search`
+or `summary`. `origin` is `http`, `auto` for a recall or history search
+a client fired on the user's behalf, or `mcp:<client-name>`. `POST
+/recall` and `POST /search` both take an optional `origin`. The MCP
+adapter's processes write to the same log under `mcp:<client-name>`, so
+lookups from outside tools appear too. The `access_log` table is only
+ever added to, like the ledger. Each row records when, what was asked,
+and which facts came back, as ids and scores, and the service never
+updates or deletes a row.
 
-Every save carries `origin_agent = "mcp:<client-name>"` and is therefore
-auto-quarantined: the write gate is unaffected by the missing HTTP hop
-because it lives in `ledger.add_fact` rather than in the API layer. Admin
-operations (approve / dismiss / delete / ingest / consolidate) are
-deliberately NOT exposed over MCP, so external tools can propose facts but
-can never approve, delete or otherwise alter canon.
+## MCP adapter, the tools for models
 
-`memory_summary` prepends a freshness header to the profile prose: a
-`generated_at` stamp (UTC) plus a one-line reminder that time-sensitive or
-active-thread status should be verified with `recall_memory`. This is additive
-text, not a new wire field: a stale summary reads as authoritative, so the
-consuming model must be able to see the age without a second call.
+The tools are `recall_memory`, `save_memory`, `search_history` and
+`memory_summary`. They're library calls inside the same process, against
+the same SQLite file, and never HTTP. `memory_service/mcp_server.py`
+imports `recall`, `ledger`, `episodic` and `summary` directly, and opens
+`data/memory.db` itself. The tools follow `/recall`, `POST /facts`,
+`/search` and `/summary`, and no request is ever made to the service.
 
-## Admin MCP adapter (read-only, opt-in, separate server)
+- `recall_memory` asks for a fixed 20 facts, global ones only, and never
+  superseded ones.
+- `save_memory` drops a line about the memory system's workings, or
+  about building software, which `POST /facts` never does. An
+  `event_date` it can't read is ignored where `POST /facts` would refuse
+  it, and a full timestamp keeps its time of day. It has no web, guest or
+  conversation stamps.
+- The adapter needs to read and write `data/`, and `MEMORY_DATA_DIR`
+  must point at the same folder the running service uses. Point it
+  elsewhere, and saves land in a different ledger that never shows up on
+  the admin page.
+- It keeps working while the HTTP service is stopped. The database must
+  already exist, because the adapter connects, and doesn't build or
+  migrate the ledger's schema, which is the service's job at startup. The
+  one exception is the `access_log` table. If it's missing, the adapter
+  creates it on its first write, so lookups against a database that
+  hasn't been migrated are still recorded, and never lost.
+- Its calls never pass through the API's loopback and token checks, and
+  file permissions on `data/` govern access. The one exception is
+  `search_history`, which checks `MEMORY_AUTH_TOKEN` itself, to match
+  the owner gate on `POST /search`. It compares its own
+  `MEMORY_AUTH_TOKEN` with the token in the service's `config.json`,
+  `config.local.json` or `.env`. Register the server with
+  `-e MEMORY_AUTH_TOKEN=<the service's token>` for search, and the other
+  three tools need no token. With no token in those files, the check is
+  skipped, and `search_history` answers anyone who can run it.
 
-`memory_service/mcp_admin_server.py` is a **second** MCP server, not part of the
-four tools above and not registered by default. It exists for a session doing
-ledger *remediation*, such as confirming a suspected mis-mined fact, which
-needs exact rows rather than semantic recall. Two tools:
-`search_facts(query, status)` and `review_queue(query)`, thin GET-only
-wrappers over `GET /v1/facts` and `GET /v1/review` above. As of 1.1 both are
-genuinely token-gated server-side (see "Owner admin token"), so this
-wrapper's token requirement is enforced by the API rather than being a
-client-side convention. Differences from the four model-facing
-tools:
-- Requires `Authorization: Bearer <MEMORY_AUTH_TOKEN>` matching the running
-  service's own admin token, even against loopback (unlike the base API's
-  loopback-is-trusted default for the open routes), because these two routes
-  return exact ids and moderation state, which is more revealing than
-  recall's paraphrased output.
-- No `save`/write tool exists in this server at all: approve, dismiss, edit, and
-  delete stay exactly where they were (human-only, via the admin UI/HTTP API).
-- Talks HTTP to the running service (`MEMORY_API_URL`, its own process and
-  connection); it never opens the sqlite file directly, so it works the same
-  whether the calling session shares a filesystem with the service or is
-  fully sandboxed from it.
+Every save carries `origin_agent = "mcp:<client-name>"`, so it's
+quarantined automatically. The client name comes from
+`MEMORY_MCP_CLIENT`, and it's `claude-code` by default. Missing the HTTP
+hop doesn't weaken the write gate, because the gate lives in
+`ledger.add_fact`, not in the API layer. The admin operations, approve,
+dismiss, delete, ingest and consolidate, aren't offered over MCP. An
+outside tool can propose facts, and can never approve, delete or
+otherwise change the trusted facts.
 
-## Invariants (behavioural contract, tested)
+`memory_summary` puts a freshness header before the profile's prose.
+That's a `generated_at` stamp in UTC, and a one-line reminder to check
+anything time-sensitive, or the status of an active thread, with
+`recall_memory`. It's added text, and no new wire field. A stale summary
+reads as if it were current, so the model reading it must be able to
+see its age without a second call.
 
-1. Append-only: no automated path deletes a fact; supersede/quarantine/dismiss only.
-2. Episodic record is ground truth: never modified by any maintenance pass.
-3. Quarantined facts never appear in `/recall` or `/summary`.
-4. Untrusted-origin writes are always quarantined at creation.
-5. Every fact carries `event_date` (never null) and `origin_agent`.
-6. `/summary` claims trace to `source_fact_ids`, and each of those facts'
-   raw `origin_agent`/`source` is exposed via `provenance`; the summary
-   prose never asserts a speaker for a fact whose origin does not
-   mechanically support one.
+## Admin MCP adapter, read-only and opt-in
+
+`memory_service/mcp_admin_server.py` is a second MCP server, separate
+from the four tools, and not registered by default. It exists for a
+session cleaning up the ledger, like one confirming a fact it suspects
+was mined wrongly, which needs exact rows and not recall by meaning. It
+has two tools, `search_facts(query, status)` and `review_queue(query)`,
+which are thin wrappers that only read, over `GET /v1/facts` and
+`GET /v1/review`. Both routes are gated by the token on the server, as
+[Always gated](#always-gated-even-on-loopback) lists, so the wrapper's
+need for a token is enforced by the API. It's never only a habit of the
+client. It differs from the four model tools in these ways.
+
+- It needs `Authorization: Bearer <MEMORY_AUTH_TOKEN>` matching the
+  running service's own admin token, even on loopback. The base API
+  trusts loopback for its open routes, but these two routes return exact
+  ids and review state, which reveal more than recall's paraphrased
+  output.
+- It has no save tool, and no write tool of any kind. Approve, dismiss,
+  edit and delete stay with a person, on the admin page or the HTTP API.
+- It talks HTTP to the running service at `MEMORY_API_URL`, as its own
+  process and connection. It never opens the SQLite file, so it works
+  the same whether the calling session shares a filesystem with the
+  service or is fully sandboxed from it.
+
+## Invariants
+
+The tests hold the contract to these.
+
+1. Facts are only added to. No automatic path deletes a fact, which can
+   only be superseded, quarantined or dismissed.
+2. The episodic record is the ground truth, and no maintenance pass ever
+   changes it.
+3. Quarantined facts never appear in `/recall`, and never feed a
+   summary built after they were held. A summary built before a fact was
+   held keeps it until the next rebuild.
+4. A write from an untrusted origin is always quarantined when it's
+   created.
+5. Every fact carries `event_date`, which is never null, and
+   `origin_agent`.
+6. A `/summary` claim traces to `source_fact_ids`, and each of those
+   facts' raw `origin_agent` and `source` is exposed through
+   `provenance`. The summary's prose never names a speaker for a fact
+   whose origin doesn't mechanically support one.
 
 ## Development
 
-`GET /v1/disposable-identity` supports disposable benchmark stores; it
-reports `disposable: false` on a real store and returns no token. The
+`GET /v1/disposable-identity` supports throwaway benchmark stores. It
+reports `disposable: false` on a real store, and returns no token. The
 harness that uses it is [bench_memory](../bench_memory/README.md).
