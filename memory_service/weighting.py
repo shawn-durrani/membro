@@ -3,7 +3,8 @@
 The light implementation of the researched scheme (docs/REFERENCES.md):
 - decay runs on event_date, the date a fact is ABOUT — so bulk-imported or
   backlog-mined old facts sort as old, whatever their insertion order;
-- half-life stretches with importance (FadeMem: important facts decay slower);
+- the decay's time constant stretches with importance (FadeMem: important
+  facts decay slower);
 - a durable pool (age-blind, by importance) is kept structurally separate from
   the active pool (by composite score) so stable history and active threads
   can't starve each other (MemGPT's working-context separation);
@@ -17,7 +18,10 @@ import math
 from . import db, embeddings
 from .recall import PARAPHRASE_CUTOFF
 
-HALF_LIFE_BASE_DAYS = 30.0
+# The decay is exp(-age / τ), so τ is a time constant, not a half-life
+# (#193): a score falls to about 37% over τ days, and to half over about
+# 0.69 τ. τ is this base times (0.5 + importance / 4); see decay_days.
+DECAY_BASE_DAYS = 30.0
 DEFAULT_IMPORTANCE = 5     # unscored facts (e.g. imported ledgers) are neutral
 PINNED = 10                # importance 10 = PERMANENT: never decays, always in
                            # the profile. Owner-only — the miner is capped at 9,
@@ -27,21 +31,23 @@ ACTIVE_N = 300             # composite-scored pool: recent & active threads
 POOL_MARGIN = 1.25         # over-select before collapse so dedup doesn't starve
 
 
-def half_life_days(importance: int) -> float:
-    """22.5d at importance 1 → 52.5d at 5 → 82.5d at 9 (~4× spread; FadeMem's
-    'important memories decay 3–5× slower' — mechanism verified, numbers not).
-    Importance 10 is pinned: infinite half-life, decay never touches it —
-    over a years-long horizon every finite multiplier reaches zero, so
+def decay_days(importance: int) -> float:
+    """The decay's time constant τ for an importance: 22.5d at importance 1
+    → 52.5d at 5 → 82.5d at 9 (a ~3.7× spread; FadeMem's 'important
+    memories decay 3–5× slower' — mechanism verified, numbers not). The
+    matching half-lives are τ·ln 2, about 15.6d → 36.4d → 57.2d.
+    Importance 10 is pinned: an infinite time constant, decay never touches
+    it — over a years-long horizon every finite multiplier reaches zero, so
     permanence has to be a tier, not a stretch."""
     if importance >= PINNED:
         return math.inf
-    return HALF_LIFE_BASE_DAYS * (0.5 + importance / 4.0)
+    return DECAY_BASE_DAYS * (0.5 + importance / 4.0)
 
 
 def score(fact: dict, now: float) -> float:
     imp = fact.get("importance") or DEFAULT_IMPORTANCE
     age_days = max(0.0, now - (fact.get("event_date") or 0)) / 86400.0
-    return (imp / 10.0) * math.exp(-age_days / half_life_days(imp))
+    return (imp / 10.0) * math.exp(-age_days / decay_days(imp))
 
 
 def _collapse(facts: list[dict]) -> list[dict]:

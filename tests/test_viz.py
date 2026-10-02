@@ -297,3 +297,11 @@ def test_recall_trace_evolution_fields(con, settings):
 
 # The live-event feed is the persistent access log now — tests moved to
 # test_access_log.py.
+
+
+def test_decay_payload_keeps_its_key_for_the_time_constant(con):
+    """#193: the value is the decay's base time constant, not a half-life.
+    The key keeps its old name so the Mathematics page and any other reader
+    of the route don't break."""
+    from memory_service import weighting
+    assert viz.decay_data(con)["half_life_base_days"] == weighting.DECAY_BASE_DAYS

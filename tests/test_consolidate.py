@@ -24,7 +24,7 @@ def test_proposals_carry_facts_and_keep_id(con, settings):
 
 
 def test_keep_prefers_highest_importance_over_newest(con, settings):
-    """Importance stretches a card's half-life — retiring an importance-7
+    """Importance slows a card's decay — retiring an importance-7
     original to keep a re-minted 5 would make the fact decay FASTER (the
     real-data case: 'wife's name' scored 7 once, re-mints scored 5)."""
     old = ledger.add_fact(con, "Alex's wife is named Sam.", settings, importance=7)

@@ -176,8 +176,8 @@ def test_distill_chunks_bound_characters_too(con, settings, fake_llm, monkeypatc
 
 
 def test_pinned_facts_never_decay(con, settings):
-    """Importance 10 = permanent: over a years-long horizon every finite
-    half-life reaches zero, so permanence is a tier, not a stretch."""
+    """Importance 10 = permanent: over a years-long horizon any finite time
+    constant decays to nothing, so permanence is a tier, not a stretch."""
     from memory_service import weighting
     decade = 10 * 365 * 86400.0
     now = 1700000000.0 + decade
@@ -250,3 +250,17 @@ def test_miner_cannot_mint_permanence(con, settings, fake_llm, sample_conversati
     mining.distill(con, settings, "multi-model-chat", "chat-1", regenerate=False)
     row = con.execute("SELECT importance FROM facts").fetchone()
     assert row["importance"] == 9  # capped: only the owner grants 10
+
+
+def test_the_decay_constant_is_a_time_constant_not_a_half_life():
+    """#193: a score falls to 1/e over decay_days and to half over about
+    0.69 of it, so calling decay_days a half-life overstated how long a
+    fact holds its place."""
+    import math
+    tau = weighting.decay_days(5)
+    assert tau == 52.5
+    fact = {"importance": 5, "event_date": 1.0}
+    full = weighting.score(fact, 1.0)
+    assert math.isclose(weighting.score(fact, 1.0 + tau * DAY), full / math.e)
+    assert math.isclose(
+        weighting.score(fact, 1.0 + tau * math.log(2) * DAY), full / 2)

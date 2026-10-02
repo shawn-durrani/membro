@@ -86,10 +86,10 @@ def shift_delta(question_date: str, now: dt.datetime) -> dt.timedelta:
     """How far to move a conversation forward so its question is asked now.
 
     LongMemEval's haystacks are dated 2023. Membro ranks facts with a recency
-    decay whose half-life is 22.5 to 82.5 days, so a three-year-old fact sits
-    in the ledger and can never win a ranking. One delta moves the whole
-    conversation, so every gap between sessions is kept and the
-    temporal-reasoning questions stay answerable.
+    decay whose time constant is 22.5 to 82.5 days, a half-life of about 16
+    to 57 days, so a three-year-old fact sits in the ledger and can never win
+    a ranking. One delta moves the whole conversation, so every gap between
+    sessions is kept and the temporal-reasoning questions stay answerable.
     """
     asked = _parse(question_date)
     if asked is None:

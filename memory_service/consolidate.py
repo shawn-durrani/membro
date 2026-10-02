@@ -74,7 +74,7 @@ def run(con, settings) -> dict:
         # one-click apply; nothing here mutates anything.
         #
         # Keep the STRONGEST copy: highest importance first (importance
-        # stretches a card's half-life — retiring a 7 to keep a re-minted 5
+        # slows a card's decay — retiring a 7 to keep a re-minted 5
         # would make the fact decay faster), newest as the tie-breaker
         # (re-mention is a freshness signal; copies usually score the same).
         facts = [dict(f) for f in con.execute(

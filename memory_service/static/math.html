@@ -636,8 +636,10 @@ async function initDecay() {
   const r = await fetch("/v1/viz/decay");
   if (!r.ok) return;
   const data = await r.json();
-  const HL = (imp) => imp >= 10 ? Infinity : data.half_life_base_days * (0.5 + imp / 4.0);  // 10 = pinned: never decays
-  const score = (age, imp) => (imp / 10) * Math.exp(-age / HL(imp));
+  // weighting.decay_days: the time constant τ, not a half-life. The route's
+  // key keeps its old name, half_life_base_days, so nothing reading it breaks.
+  const TAU = (imp) => imp >= 10 ? Infinity : data.half_life_base_days * (0.5 + imp / 4.0);  // 10 = pinned: never decays
+  const score = (age, imp) => (imp / 10) * Math.exp(-age / TAU(imp));
   const AGE_MAX = 365;
   // domain → scene coords
   const px = (age) => (Math.min(age, AGE_MAX) / AGE_MAX) * 2 - 1;

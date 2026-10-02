@@ -392,7 +392,7 @@ def update_fact(con, fact_id: int, *, content: str | None = None,
         params.append(confidence)
     if importance is not None:
         # The human outranks the miner: importance decides how a fact ages
-        # (half-life stretch + durable-pool membership), so its owner must be
+        # (a slower decay + durable-pool membership), so its owner must be
         # able to correct it. Clamped to the 1-10 scale.
         sets.append("importance=?")
         params.append(min(10, max(1, int(importance))))

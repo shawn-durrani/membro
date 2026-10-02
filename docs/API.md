@@ -1152,7 +1152,10 @@ answer a caller on loopback with no credential.
 
 `GET /v1/viz/decay` returns every fact that isn't superseded, with its
 age, importance and score, and the constants of the formula. Held facts
-are included, flagged `q: 1`.
+are included, flagged `q: 1`. `half_life_base_days` is named for a
+half-life, but it's the decay's base time constant. A fact's score
+falls to half over about 0.69 of its own time constant, which is that
+base times 0.5 plus a quarter of its importance.
 
 `GET /v1/viz/embeddings` returns a cached 3D projection, by principal
 components, of up to the newest 2,500 embedded cards. The cap is
