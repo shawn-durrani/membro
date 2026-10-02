@@ -194,6 +194,10 @@ of search vectors after an embedding model change, and a judge pass. The
 judge pass is an optional sweep in which a model takes a second look at
 held facts. The fleet's deploy watcher waits on this route.
 
+Under launchd, everything the service prints goes to `data/service.log`.
+Each start checks its size, and past 10MB the log moves to
+`data/service.log.1` and a fresh one begins, so you keep one older copy.
+
 Everything Membro remembers lives under `data/`. Its settings and
 secrets live in `.env` and `config.local.json` at the top of the repo.
 Back up all three, and treat them as private.

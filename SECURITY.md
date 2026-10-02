@@ -127,7 +127,8 @@ At startup Membro sets its umask to 0o077, so every file it makes after
 that is 0600 and every folder 0700. It also takes group and other access
 off anything already in `data/`, and leaves the owner's own access as it
 was. That covers the `service.log` launchd creates before the service
-starts, and anything you copied in by hand.
+starts, and anything you copied in by hand. When a start rolls that log
+over, the older copy, `service.log.1`, is 0600 too.
 
 SQLite's `memory.db-wal` and `memory.db-shm` files follow `memory.db` at
 0600, because SQLite gives them the database file's own mode. Copies in

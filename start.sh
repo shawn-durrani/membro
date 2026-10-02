@@ -6,6 +6,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# The launchd agent writes here and never trims it (#202). Past 10MB the
+# log becomes data/service.log.1 and a fresh one starts.
+bash ops/rotate-log.sh data/service.log
+
 PORT="${MEMORY_PORT:-8901}"
 
 # ---- load .env if present (keys stay out of the shell profile) ----
