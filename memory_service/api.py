@@ -1289,10 +1289,14 @@ restart the service.</small></p>
 
     @app.get("/v1/facts", dependencies=[Depends(_admin_auth)])
     def list_facts(status: str = "valid", q: str | None = None,
-                   limit: int = Query(100, ge=1, le=1000)):
+                   limit: int = Query(100, ge=1, le=1000),
+                   before: int | None = Query(None, ge=1)):
+        # #190: the admin page pages with `before`, the last id it shows,
+        # instead of asking for an ever bigger `limit`.
         c = con()
         try:
-            return {"facts": ledger.list_facts(c, status=status, query=q, limit=limit)}
+            return {"facts": ledger.list_facts(c, status=status, query=q,
+                                               limit=limit, before=before)}
         finally:
             c.close()
 

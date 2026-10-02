@@ -628,20 +628,27 @@ such as the model's own slug, and no trusted `source_app`. It lands in
 
 ### Reading the ledger
 
-`GET /facts?status=valid|superseded|quarantined|all&q=...&limit=...`
-lists and filters facts. It needs the owner credential, even on
-loopback. `status` defaults to `valid`. `q` matches content with `LIKE`,
-so it ignores case for plain letters, and `%` and `_` in it act
+`GET /facts?status=valid|superseded|quarantined|all&q=...&limit=...&before=...`
+lists and filters facts, newest first. It needs the owner credential,
+even on loopback. `status` defaults to `valid`. `q` matches content with
+`LIKE`, so it ignores case for plain letters, and `%` and `_` in it act
 as wildcards. `limit` defaults to 100, with a maximum of 1,000.
+
+To read further back, pass `before` with the id of the last fact you
+got, and only facts with a smaller id come back. Keep going until a
+page comes back shorter than `limit`. A fact saved between two pages
+doesn't shift the next one, so no row shows twice. `before` must be a
+whole number from 1 up.
 
 A `q` that starts with `#` followed by ids is a lookup by id, and not a
 content search. That's one id, or several separated by commas or spaces.
 The leading `#` is what tells them apart, because a bare number is a
 fair thing to search the text for, like a year or a figure. Unknown ids
-are left out of the result, and they're no error. `limit` never trims a
-list of ids, because an explicit list asks for those rows, and trimming
-it would read as "those ids don't exist". `status` still applies, so
-look up a held fact with `status=all`.
+are left out of the result, and they're no error. `before` doesn't apply
+to a lookup by id. `limit` never trims a list of ids, because an
+explicit list asks for those rows, and trimming it would read as "those
+ids don't exist". `status` still applies, so look up a held fact with
+`status=all`.
 
 `status` isn't checked on the server. Only `valid`, `superseded` and
 `quarantined` filter anything, and any other value applies no filter

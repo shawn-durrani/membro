@@ -315,7 +315,11 @@ def _render_guests(guests: list[str]) -> str:
 
 
 def list_facts(con, status: str = "valid", query: str | None = None,
-               limit: int = 100) -> list[dict]:
+               limit: int = 100, before: int | None = None) -> list[dict]:
+    """Facts newest first. `before` is a fact id, and only older ids come
+    back, so a page after the last one shown is `before=<its id>` (#190).
+    It's a cursor rather than an offset: a fact saved between two pages
+    doesn't shift the next one, so no row shows twice."""
     where, params = [], []
     if status == "valid":
         where.append("invalidated_at IS NULL AND quarantined_at IS NULL")
@@ -334,6 +338,9 @@ def list_facts(con, status: str = "valid", query: str | None = None,
     elif query:
         where.append("content LIKE ?")
         params.append(f"%{query}%")
+    if before is not None and not ids:
+        where.append("id < ?")
+        params.append(before)
     sql = "SELECT * FROM facts"
     if where:
         sql += " WHERE " + " AND ".join(where)
