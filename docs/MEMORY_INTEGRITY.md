@@ -47,7 +47,8 @@ four walls run on every mined fact.
 A mined fact that trips grounding, temporal grounding or source trust is
 written but quarantined. That means it's held out of recall and the
 profile, and marked low confidence, and never quietly trusted. The owner
-clears the review queue. The optional judge pass, off by default, can
+clears the review queue, and a fact they approve comes back at high
+confidence. The optional judge pass, off by default, can
 also release a fact held only by grounding. It does that only when it
 quotes the missing name from the chat word for word.
 

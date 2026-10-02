@@ -615,7 +615,7 @@ a fact into the trusted set by naming a trusted app.
 
 A write the origin gate holds has its `confidence` forced to `low`, so a
 caller that sent `high` reads back `low`, and an unreviewed claim never
-looks confident. A trusted write held only for a web or guest stamp
+looks confident. Approving it sets `high`. A trusted write held only for a web or guest stamp
 keeps the confidence it was sent with. The response includes
 `{"id": 1, "quarantined": bool, "scope": "global" | "conversation"}`,
 with `scope` since 1.6.
@@ -670,7 +670,12 @@ Every route here needs the owner credential, even on loopback.
 - `POST /facts/{id}/supersede` takes `{"successor_id": 2}`. It's about
   when a fact holds, and never deletes it.
 - `POST /facts/{id}/approve` takes a fact out of quarantine, and only a
-  person does it.
+  person does it. Two holds mark a fact `low` as they hold it, the write
+  gate and the miner's walls. Approving a fact either one held sets it
+  to `high`, which is what it gets when nothing holds it. Any other hold
+  leaves the confidence as it was, and so does a change the owner made
+  while the fact was held. `POST /facts/bulk-approve` does the same for
+  each fact.
 - `POST /facts/{id}/dismiss` marks a fact reviewed and kept out, and
   destroys nothing. Only a person does it.
 - `POST /review/dismiss-all` is the bulk twin of
