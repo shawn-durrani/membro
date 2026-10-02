@@ -7,15 +7,32 @@ Every generated profile is also appended to summary_versions — regeneration is
 never destructive, and any prior version can be restored (the restore itself
 appends; history is never rewritten). The settings keys hold the CURRENT
 profile, as ever; versions are the memory of the summary itself.
+
+When the owner holds, erases or forgets a fact the live profile was built
+from, ProfileRefresh rebuilds it without that fact (#189): straight away
+for an erase or a forget, once for a run of holds.
 """
 
 import datetime
 import json
 import logging
+import threading
 
-from . import db, embeddings, llm, weighting
+from . import db, embeddings, jobs, llm, weighting
 
 log = logging.getLogger("memory_service.summary")
+
+# A build holds this from choosing its facts to saving the profile (#189).
+# Without it, a build that chose its facts before a hold could finish after
+# one that chose them after, and put the held fact back. Re-entrant, because
+# drop_held checks and builds under it.
+_build_lock = threading.RLock()
+
+# How long the profile waits after the last hold before it rebuilds (#189).
+# Holds come in bursts while the owner works through the ledger, and each
+# rebuild is a paid call, so a burst costs one rebuild five minutes after
+# its last hold. An erase or a forget doesn't wait.
+HOLD_SETTLE_S = 5 * 60
 
 BUDGET_TOLERANCE = 1.2  # accept up to 20% over budget; beyond that, one rewrite
 # A draft under its floor is expanded only when the selected entries carry at
@@ -107,6 +124,14 @@ def get(con) -> dict:
 
 
 def regenerate(con, settings) -> str:
+    """Build the profile from the facts that are valid now, and save it.
+    One build at a time: a second waits for the first, then chooses its
+    facts fresh, so it sees every hold the first one missed."""
+    with _build_lock:
+        return _regenerate(con, settings)
+
+
+def _regenerate(con, settings) -> str:
     try:
         embeddings.ensure_fact_embeddings(con, settings)
     except Exception:
@@ -392,3 +417,134 @@ def restore(con, version_id: int, settings) -> dict | None:
                     restored_from=version_id, model=v["model"])
     con.commit()
     return get(con)
+
+
+# ---- keeping the profile clear of pulled facts (#189) ----
+
+def held_in_profile(con) -> list[int]:
+    """The ids the live profile was built from that it may no longer show,
+    because each has since been held for review or erased. Empty when there's
+    no profile or nothing it cites has been pulled."""
+    raw = db.get_setting(con, "summary_sources")
+    ids = (json.loads(raw) if raw else {}).get("fact_ids") or []
+    if not ids:
+        return []
+    live = {r[0] for r in con.execute(
+        "SELECT id FROM facts WHERE quarantined_at IS NULL "
+        "AND id IN (SELECT value FROM json_each(?))", (json.dumps(ids),))}
+    return [i for i in ids if i not in live]
+
+
+def drop_held(con, settings) -> dict:
+    """Rebuild the profile when it cites a fact that's been held or erased,
+    and spend nothing when it doesn't. The check runs under the build lock,
+    so a build that's already running finishes first, and its profile is the
+    one checked."""
+    with _build_lock:
+        held = held_in_profile(con)
+        if not held:
+            return {"rebuilt": False, "held_in_profile": 0}
+        text = regenerate(con, settings)
+    return {"rebuilt": True, "held_in_profile": len(held),
+            "summary_chars": len(text)}
+
+
+class ProfileRefresh:
+    """Rebuilds the profile when the owner pulls a fact out of it.
+
+    `now()` follows an erase or a forget, which are rare and the owner's own
+    hand. `soon()` follows a hold, and waits until `settle_s` after the last
+    one, so a burst of holds costs one rebuild. Either way the work is a
+    "summary" job running `drop_held`. One refresh job runs at a time: a
+    request that arrives while it runs sends it round once more when it's
+    done, never a second job beside it. `connect` opens a database
+    connection, and the job closes it."""
+
+    def __init__(self, connect, settings, settle_s: float = HOLD_SETTLE_S):
+        self._connect = connect
+        self._settings = settings
+        self.settle_s = settle_s
+        self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+        self._running = False
+        self._again = False
+        self._job_id: str | None = None
+        self._closed = False
+        self._idle = threading.Event()
+        self._idle.set()
+
+    def now(self) -> str | None:
+        """Refresh straight away, or fold into the refresh that's running.
+        A waiting hold rebuild is folded in too. Returns the job id, or None
+        once closed."""
+        with self._lock:
+            if self._closed:
+                return None
+            self._cancel_timer()
+            if self._running:
+                self._again = True
+                return self._job_id
+            self._running = True
+            self._idle.clear()
+            try:
+                self._job_id = jobs.run("summary", self._work)
+            except BaseException:
+                self._running = False
+                self._idle.set()
+                raise
+            return self._job_id
+
+    def soon(self) -> None:
+        """Refresh `settle_s` after this call, unless another moves it on."""
+        with self._lock:
+            if self._closed:
+                return
+            self._cancel_timer()
+            self._timer = threading.Timer(self.settle_s, self.now)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def waiting(self) -> bool:
+        """Whether a hold rebuild is waiting for its five minutes."""
+        with self._lock:
+            return self._timer is not None
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Block until no refresh job is running. False on timeout."""
+        return self._idle.wait(timeout)
+
+    def close(self) -> None:
+        """Drop a waiting rebuild and take no more. A refresh that's running
+        finishes its pass."""
+        with self._lock:
+            self._closed = True
+            self._cancel_timer()
+
+    def _cancel_timer(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+    def _work(self) -> dict:
+        while True:
+            error = result = None
+            try:
+                c = self._connect()
+                try:
+                    result = drop_held(c, self._settings)
+                finally:
+                    c.close()
+            except Exception as e:
+                error = e
+                log.warning("summary: the rebuild after a hold, erase or "
+                            "forget failed (%s); the profile stays as it was",
+                            e)
+            with self._lock:
+                if self._again and not self._closed:
+                    self._again = False
+                    continue
+                self._running = False
+                self._idle.set()
+            if error is not None:
+                raise error
+            return result

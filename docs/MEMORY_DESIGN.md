@@ -88,7 +88,10 @@ deletes or ages out a card. A card only ever becomes superseded or
 quarantined, which means held for review, and both kinds are kept. A
 quarantined card can be approved again. A growing database is fine. A
 card that isn't valid costs nothing, because recall stops returning it
-at once, and the profile leaves it out from its next rebuild.
+at once, and the profile leaves it out from its next rebuild. When you
+hold, erase or forget a card the profile was built from, that rebuild
+runs by itself. An erase or a forget starts it straight away, and a
+hold starts it five minutes after your last one.
 
 ### The miner reads part of each message
 

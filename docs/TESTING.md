@@ -127,6 +127,13 @@ failure keeps the complete draft. A short draft is expanded once from
 its entries, only when they hold the material, and nothing is made up.
 The provenance tags are worked out mechanically.
 
+A profile built from a fact that's since been held or erased is rebuilt
+without it (`test_summary_refresh.py`). An erase or a forget rebuilds it
+straight away, and a run of holds costs one rebuild after the last. A
+profile that never used the fact costs no model call. Two builds never
+interleave, so a slow build can't put a held fact back, and a restart
+doesn't lose a rebuild that was waiting.
+
 ## Operations
 
 Snapshots are rotated, and taken only when the database has changed.

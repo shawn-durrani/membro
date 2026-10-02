@@ -52,7 +52,10 @@ the owner's token.
 Membro never changes a message it has stored. The profile is rebuilt
 from the facts that are valid now. It records the ids of the facts that
 produced it, and each rebuild is added to a version history you can
-restore from.
+restore from. When you hold, erase or forget a fact the profile was
+built from, the profile is rebuilt without it. An erase or a forget
+does that straight away, and holds do it once, five minutes after the
+last one.
 
 ## A write is trusted for where it comes from
 

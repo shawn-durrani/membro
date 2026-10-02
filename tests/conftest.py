@@ -19,6 +19,27 @@ def _umask_restored():
     os.umask(old)
 
 
+@pytest.fixture(autouse=True)
+def _profile_refreshes_closed(monkeypatch):
+    """Every app a test builds gets a ProfileRefresh (#189), and a hold arms
+    a five-minute timer on its own thread. Close each one as its test ends
+    and let a running refresh finish, so nothing outlives the test and
+    rebuilds after its fake model has gone."""
+    from memory_service import summary
+    made = []
+    real = summary.ProfileRefresh.__init__
+
+    def tracked(self, *args, **kwargs):
+        real(self, *args, **kwargs)
+        made.append(self)
+
+    monkeypatch.setattr(summary.ProfileRefresh, "__init__", tracked)
+    yield
+    for refresh in made:
+        refresh.close()
+        refresh.wait(10)
+
+
 @pytest.fixture
 def settings(tmp_path):
     return Settings(data_dir=tmp_path / "data", user_name="Alex",
