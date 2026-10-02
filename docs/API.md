@@ -678,15 +678,16 @@ Every route here needs the owner credential, even on loopback.
   review queue that has no reason. It returns
   `{"quarantined": [...], "skipped": [...]}`. Unknown ids and ones
   already quarantined are skipped, and they're no error, so running it
-  again does nothing. The facts leave recall at once, and the summary at
-  its next rebuild. They stay in the ledger, appear in `GET /review`,
-  and `/facts/{id}/approve` reverses each one. It's the third treatment
-  between `supersede`, which names a replacement a broken row doesn't
-  have, and `DELETE`, which destroys.
+  again does nothing. The facts leave recall at once, and the summary
+  five minutes after the last hold. They stay in the ledger, appear in
+  `GET /review`, and `/facts/{id}/approve` reverses each one. It's the
+  third treatment between `supersede`, which names a replacement a
+  broken row doesn't have, and `DELETE`, which destroys.
 - `DELETE /facts/{id}` is one of the three erasers, for facts,
   attachments and messages. Only a person starts it, never automation.
   Every erasure adds a row to the `erasures` journal that holds no
-  content, only the kind, the references and when.
+  content, only the kind, the references and when. When the live
+  summary was built from the erased fact, it's rebuilt straight away.
 
 ### The review queue
 
@@ -860,6 +861,24 @@ profile it replaces is kept as a version. A rebuild the model doesn't
 finish fails the job with the reason, and the live profile stays as it
 was.
 
+Membro also rebuilds the profile by itself when it was built from a
+fact that's since been held or erased. An erase of a fact or a message,
+or a forget, starts that rebuild straight away. After a hold from
+`POST /facts/quarantine`, it waits until five minutes after the last
+hold, so a run of holds costs one rebuild. Before it calls a model, the
+rebuild checks `source_fact_ids` against the ledger. It stops there
+when none of them is held or gone, and spends nothing. A rebuild that
+fails keeps the old profile, which still shows the fact until a later
+rebuild succeeds. A restart drops a rebuild that was waiting, so the
+service makes the same check when it starts, and rebuilds five minutes
+later if it finds one.
+
+Two builds never run at the same time. A second build waits for the
+first to save, then chooses its facts again, so it sees every hold the
+first one missed. A request for the automatic rebuild that arrives
+while one runs doesn't start another. The running one goes round once
+more when it's done.
+
 ## Maintenance
 
 `POST /consolidate` runs the advisory sweep, async. It covers groups of
@@ -998,9 +1017,10 @@ hand. It takes one row, has no bulk form, and no app's code ever calls
 it. The row leaves the archive and the search index. Live facts bound to
 it, because their source turn is this message, are quarantined with a
 `source-deleted:` reason and show up in review, where the owner decides
-each one. Unbound facts from the same chat aren't touched. Attachments
-that came with the message are counted in the response, and never
-deleted with it. It journals to `erasures`. It needs the owner
+each one. When the live summary was built from one of them, it's
+rebuilt straight away. Unbound facts from the same chat aren't touched.
+Attachments that came with the message are counted in the response, and
+never deleted with it. It journals to `erasures`. It needs the owner
 credential, even on loopback.
 
 ### Person records
@@ -1066,11 +1086,12 @@ either side is forgotten.
 audio from disk, with one `erasures` row that holds no content, and the
 person's clip manifests. It marks the person forgotten, and moves their
 approved facts back into review as one group of forgotten facts. The
-owner decided that nothing is deleted without a word. Afterwards,
-uploading, listing and downloading clips answer `410 gone`. Deleting or
-moving one of their clips answers 404, because none are left, and moving
-a clip to a forgotten person is a 410. The record itself stays listed,
-so syncing apps learn to delete their copies.
+owner decided that nothing is deleted without a word. When the live
+summary was built from one of those facts, it's rebuilt straight away.
+Afterwards, uploading, listing and downloading clips answer `410 gone`.
+Deleting or moving one of their clips answers 404, because none are
+left, and moving a clip to a forgotten person is a 410. The record
+itself stays listed, so syncing apps learn to delete their copies.
 
 #### Clips an app has stopped using
 
@@ -1282,8 +1303,10 @@ The tests hold the contract to these.
 2. The episodic record is the ground truth, and no maintenance pass ever
    changes it.
 3. Quarantined facts never appear in `/recall`, and never feed a
-   summary built after they were held. A summary built before a fact was
-   held keeps it until the next rebuild.
+   summary built after they were held. A summary built from a fact
+   that's since been held or erased is rebuilt without it, as
+   [Summary](#summary) describes. Until that rebuild saves, the live
+   summary still shows the fact.
 4. A write from an untrusted origin is always quarantined when it's
    created.
 5. Every fact carries `event_date`, which is never null, and

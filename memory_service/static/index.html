@@ -589,8 +589,9 @@
           now, what it used to believe, and where each belief came from.</p>
           <p><b>Hold selected</b> is for a card that turned out to be broken — a half-sentence,
           or a scrap that isn't really a fact about you. Tick it, say why, and it stops being
-          used: it leaves recall and your profile and moves to <b>Review</b>, where you can put
-          it back later with <b>Approve</b>. Nothing is deleted. Use <b>Supersede</b> instead
+          used: it leaves recall at once, leaves your profile five minutes after your last hold,
+          and moves to <b>Review</b>, where you can put it back later with <b>Approve</b>.
+          Nothing is deleted. Use <b>Supersede</b> instead
           when a card is simply out of date and a newer card replaces it.</p>
           <p><b>Finding specific cards.</b> The search box normally looks inside the card
           <i>text</i>. To look up cards by their <b>id</b> number instead, start with
@@ -1309,8 +1310,9 @@ async function holdSelected() {
   const ids = heldPicks();
   if (!ids.length) return;
   const reason = prompt(`Hold ${ids.length} card(s) for review — why? `
-    + `(e.g. "half-sentence, not a real fact"). They leave recall and your `
-    + `profile but stay in the ledger, and you can Approve them back later.`);
+    + `(e.g. "half-sentence, not a real fact"). They leave recall now and your `
+    + `profile five minutes after your last hold. They stay in the ledger, and `
+    + `you can Approve them back later.`);
   if (reason == null) return;
   if (!reason.trim()) { toast("A reason is required — Review needs to show why."); return; }
   try {

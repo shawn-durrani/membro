@@ -424,6 +424,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The judge pass (#58): startup + hourly while enabled; off by default.
     app.state.judge_scheduler_stop = judge.start_scheduler(settings)
     app.router.on_shutdown.append(app.state.judge_scheduler_stop.set)
+    # The profile catches up when the owner pulls a fact out of it (#189):
+    # straight away after an erase or a forget, and five minutes after the
+    # last hold. A restart drops a rebuild that was waiting, so startup
+    # looks for a profile that still cites a held or erased fact.
+    refresh = summary.ProfileRefresh(
+        lambda: db.connect(settings.db_path), settings)
+    app.state.profile_refresh = refresh
+    app.router.on_shutdown.append(refresh.close)
+    _c = db.connect(settings.db_path)
+    try:
+        if summary.held_in_profile(_c):
+            refresh.soon()
+    finally:
+        _c.close()
     # Embedding-space guard (#60): a changed embedding model drops every
     # stored vector and refills in the background; never mixes spaces.
     embeddings.start_reembed_if_needed(settings)
@@ -1319,9 +1333,12 @@ restart the service.</small></p>
         # ids are skipped, not errors, so re-running is a no-op.
         c = con()
         try:
-            return ledger.quarantine_many(c, body.ids, body.reason)
+            res = ledger.quarantine_many(c, body.ids, body.reason)
         finally:
             c.close()
+        if res["quarantined"]:
+            refresh.soon()
+        return res
 
     @app.post("/v1/facts/{fact_id}/approve", dependencies=[Depends(_admin_auth)])
     def approve(fact_id: int):
@@ -1429,6 +1446,7 @@ restart the service.</small></p>
             c.close()
         if res is None:
             raise HTTPException(404, "no such fact")
+        refresh.now()
         return res
 
     # ---- attachments (admin surface): browse, download, and the one eraser ----
@@ -1573,6 +1591,8 @@ restart the service.</small></p>
             c.close()
         if res is None:
             raise HTTPException(404, "no such message")
+        if res["facts_held"]:
+            refresh.now()   # #189: the held facts leave the profile now
         return res
 
     # ---- persons (#33): the fleet's identity home. Capture apps create
@@ -1807,9 +1827,12 @@ restart the service.</small></p>
         c = con()
         try:
             person = _person_or_404(c, slug)
-            return persons.forget(c, settings, person)
+            res = persons.forget(c, settings, person)
         finally:
             c.close()
+        if res["facts_held"]:
+            refresh.now()
+        return res
 
     @app.get("/v1/review", dependencies=[Depends(_admin_auth)])
     def review():
