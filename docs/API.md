@@ -394,7 +394,7 @@ does nothing, because a message is unique by its conversation and its
 {"source_app": "multi-model-chat", "conversation_id": "chat-123",
  "title": "Weekend plans",
  "messages": [{"external_id": "m-1",
-                "speaker": "user|<slug>|guest:<name>|guest:unknown",
+                "speaker": "user|<slug>|guest:<name>|guest:unknown|record:<app>",
                 "content": "...", "created_at": "2026-07-04T10:00:00+10:00",
                 "attachments": [{"filename": "notes.txt", "mime": "text/plain",
                                   "data_b64": "..."}]}]}
@@ -447,6 +447,18 @@ identified don't change. The classes matter in the mining pass.
   than a guest's turn in the same window, and the fact stays held. A
   retry's guess about who spoke can't turn a guest's sentence into the
   owner's trusted facts.
+
+### Records
+
+A message's `speaker` may also be `record:<app>`. It isn't anyone's
+speech. It's a written account of what the owner did, made by that app,
+like the note Membro keeps of a Claude Code session. The miner reads a
+record as coming from the owner, and the builder rule still applies, so
+one note gives at most one outcome fact per project. A fact from a
+record is trusted only as far as its conversation's `source_app` is, so
+an app outside `trusted_apps` gets every one held for review. A bare
+`record:` with no app named isn't recognised, and is treated as
+untrusted.
 
 ### Attachments on ingest
 
@@ -960,7 +972,8 @@ answers on loopback with no credential, like `/health`.
 never an id or content. A running job shows as `distill`, `summary`,
 `consolidate` or `viz-embeddings`. `backup` is a snapshot partway
 through a copy, whatever started it. `judge` is a judge pass, and
-`reembed` is refilling vectors after an embedding model change. The answer comes only from marks kept in the process, so it
+`reembed` is refilling vectors after an embedding model change, and
+`claude-code` is a pass over Claude Code sessions. The answer comes only from marks kept in the process, so it
 never waits on the database. A mark older than an hour stops counting.
 The marks live in memory, so only a hung thread can leave one behind,
 and the restart this route stops blocking is the cure. The route serves

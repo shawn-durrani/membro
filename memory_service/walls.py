@@ -316,9 +316,12 @@ def source_trusted(source_text: str) -> bool:
 # Ingest speaker values, classified once, here, for every consumer. The wire
 # grammar is additive to contract 1.1: `user` and bare model slugs are the
 # classes that always existed; `guest:<name>` and `guest:unknown` arrived with
-# multi-human voice sessions (crossband room mode). Anything else that carries
-# a class prefix is a class this build does not know, and fail-safe means it
-# behaves as untrusted rather than silently gaining the owner's trust.
+# multi-human voice sessions (crossband room mode). `record:<app>` (#206) is
+# no one's speech: it's an account of the owner's own activity that an app
+# wrote down, such as membro's summary of a Claude Code session. Anything else
+# that carries a class prefix is a class this build does not know, and
+# fail-safe means it behaves as untrusted rather than silently gaining the
+# owner's trust.
 
 def speaker_class(speaker: str) -> str:
     """Classify one ingest `speaker` value.
@@ -328,6 +331,9 @@ def speaker_class(speaker: str) -> str:
     'guest'         - "guest:<name>": another, named human in the session.
     'guest-unknown' - "guest:unknown" (or a nameless "guest:"): a human turn
                       diarization could not attribute confidently.
+    'record'        - "record:<app>": an account of the owner's own activity,
+                      written down by that app. Mined like the owner's turns,
+                      so its facts are trusted only as far as the app is.
     'unrecognised'  - any other class-prefixed or empty value: a speaker class
                       this build does not know. Treated as untrusted.
     """
@@ -337,6 +343,8 @@ def speaker_class(speaker: str) -> str:
     if ":" not in s:
         return "model" if s else "unrecognised"
     prefix, name = s.split(":", 1)
+    if prefix.strip().lower() == "record" and name.strip():
+        return "record"
     if prefix.strip().lower() == "guest":
         name = name.strip()
         if not name or name.lower() == "unknown":
@@ -356,12 +364,13 @@ def guest_name(speaker: str) -> str | None:
 def speaker_trust_flag(speaker: str) -> str | None:
     """The source-trust wall applied to WHO SPOKE (#31). None for the two
     classes mining has always consumed (the owner's `user` turns and the model
-    seats); otherwise a quarantine flag naming the speaker, so a fact drawn
+    seats), and for an app's record of the owner's activity (#206), which the
+    app's own trust governs; otherwise a quarantine flag naming the speaker, so a fact drawn
     from that turn is written but held for review — the same posture `mcp:*`
     writes get from the ledger gate. `guest:unknown` and unrecognised classes
     quarantine unconditionally: no name means no one to ever earn trust."""
     cls = speaker_class(speaker)
-    if cls in ("owner", "model"):
+    if cls in ("owner", "model", "record"):
         return None
     if cls == "guest":
         return (f"guest-attribution: stated by guest {guest_name(speaker)}, "

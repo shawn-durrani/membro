@@ -4,7 +4,7 @@ The fleet's deploy watcher asks `GET /v1/busy` before it restarts this
 service and waits while the answer is true (workbench#69). Each piece of
 slow work marks itself for as long as it runs: a job from the registry
 (distill, summary, consolidate, viz-embeddings), a backup mid-copy, a
-judge pass, the re-embed refill. The route reads these marks and nothing
+judge pass, the re-embed refill, a sweep of Claude Code sessions. The route reads these marks and nothing
 else, so it never waits on the database and answers in microseconds
 whatever the ledger is doing.
 
@@ -19,11 +19,11 @@ import time
 from contextlib import contextmanager
 
 # Every label the route can ever answer with. A job's `kind` doubles as
-# its label, so the four registry kinds sit here beside the three marks
+# its label, so the four registry kinds sit here beside the four marks
 # placed by hand.
 LABELS = frozenset({
     "distill", "summary", "consolidate", "viz-embeddings",
-    "backup", "judge", "reembed",
+    "backup", "judge", "reembed", "claude-code",
 })
 
 # A mark can outlive its work only when a thread hangs: a provider call
