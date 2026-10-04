@@ -237,6 +237,18 @@ CREATE TABLE IF NOT EXISTS sessions(
   expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+-- Claude Code sessions summarised into memory (#206): how far each one has
+-- been read, by the time of the last turn summarised, and the file's
+-- modified time when it was last read. Its own table, not worked out from
+-- the messages, so an erased summary stays erased. Additive, created on init.
+CREATE TABLE IF NOT EXISTS claude_code_sessions(
+  session_id TEXT PRIMARY KEY,
+  covered_through REAL NOT NULL,
+  seen_mtime REAL NOT NULL,
+  summaries INTEGER NOT NULL DEFAULT 0,
+  updated_at REAL NOT NULL
+);
 """
 
 

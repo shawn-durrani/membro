@@ -328,6 +328,8 @@ def _speaker(m: dict, user_name: str) -> str:
         return f"{walls.guest_name(s)} (guest)"
     if cls == "guest-unknown":
         return "Unidentified speaker (guest)"
+    if cls == "record":
+        return f"Record of {user_name}'s activity"
     return s
 
 
@@ -658,7 +660,9 @@ def _miner_instructions(user_name: str) -> str:
 # speaker classes skips the LLM exactly as model-only windows always have: an
 # unrecognised class is not known to be a human voice at all (it could be a
 # tool or a transcript artefact), so mining it as biography would guess.
-_HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown")
+# An app's record of the owner's own activity (#206) is mined too: it's no
+# one's speech, but what it says the owner did is about the owner.
+_HUMAN_SPEAKERS = ("owner", "guest", "guest-unknown", "record")
 
 
 def _distill_chunk(con, settings, source_app: str, conv: dict,
@@ -726,10 +730,21 @@ def _distill_chunk(con, settings, source_app: str, conv: dict,
         "may still be extracted, attributed to 'an unidentified guest'. Every "
         "fact drawn from a guest's turn must carry src= with the number of "
         "that guest's own turn.\n")
+    # Record guidance rides the same way (#206), only in a window that holds
+    # an app's record of the owner's activity.
+    record_rules = "" if not any(
+        walls.speaker_class(m["speaker"]) == "record" for m in new_msgs) else (
+        f"RECORDS: a turn labelled \"Record of {settings.user_name}'s "
+        "activity\" is not speech. It's an app's written account of what "
+        f"{settings.user_name} did, such as a summary of a working session. "
+        f"Read what it says {settings.user_name} did, decided or is working on "
+        f"as coming from {settings.user_name}. The builder rule still applies: "
+        "at most one outcome fact per project, never the technical detail.\n")
     ttl = MINER_CACHE_TTL if _in_burst(more_to_come) else None
     parts = _entry_parts(sealed, open_facts,
                          [extras[i] for i in sorted(extras)], ttl)
     parts[-1]["text"] += ("\n" + (guest_rules + "\n" if guest_rules else "")
+                          + (record_rules + "\n" if record_rules else "")
                           + f"## Conversation excerpt\n{source_text}")
     system = {"text": _miner_instructions(settings.user_name)}
     if ttl:

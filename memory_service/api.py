@@ -72,7 +72,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
-from . import access, app_links, auth, busy, db, embeddings, episodic, erasers, jobs, judge, ledger, llm, mining, passkeys, persons, recall, sessions, summary, viz, walls
+from . import access, app_links, auth, busy, claude_code_feed, db, embeddings, episodic, erasers, jobs, judge, ledger, llm, mining, passkeys, persons, recall, sessions, summary, viz, walls
 from .config import Settings, load_settings
 
 
@@ -424,6 +424,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # The judge pass (#58): startup + hourly while enabled; off by default.
     app.state.judge_scheduler_stop = judge.start_scheduler(settings)
     app.router.on_shutdown.append(app.state.judge_scheduler_stop.set)
+    # Claude Code sessions (#206): startup + every five minutes while on.
+    app.state.claude_code_feed_stop = claude_code_feed.start_scheduler(settings)
+    app.router.on_shutdown.append(app.state.claude_code_feed_stop.set)
     # The profile catches up when the owner pulls a fact out of it (#189):
     # straight away after an erase or a forget, and five minutes after the
     # last hold. A restart drops a rebuild that was waiting, so startup

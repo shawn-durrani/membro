@@ -2,7 +2,8 @@
 
 Membro is a memory for AI assistants that runs on your own computer.
 Your chat apps send it each conversation, and it keeps every message
-word for word. It can load your old chats from a claude.ai export too.
+word for word. It can load your old chats from a claude.ai export too,
+and keep a short note of each Claude Code session you run.
 After each chat a cheap model, the miner, reads it and writes down the
 lasting facts about you. Then fixed rules in the code check each fact
 before it's trusted, and a fact that fails a check waits for you to
@@ -110,6 +111,28 @@ writes wherever you point it, whether the service is running or not.
 The importer refuses to load the same account's export twice. An
 import that stopped partway can be run again, and it never duplicates a
 message.
+
+## Keep a note of your Claude Code sessions
+
+Membro can keep a short note of the work you do in Claude Code on this
+computer. Turn it on in `config.local.json`, then restart Membro.
+
+```json
+{"claude_code_feed": true, "trusted_apps": ["claude-code"]}
+```
+
+Once a session has been quiet for half an hour, Membro reads it and the
+miner model writes a few sentences about it. The note says what you set
+out to do, what got done and what's left open. It's kept as a chat from
+the `claude-code` app, and it's mined like any other. Pick the session
+up again later and the new part gets a note of its own.
+
+The model reads only what you typed and what Claude wrote back.
+Commands, files and their output never reach it, and anything shaped
+like a key is masked first. Sessions started from a script through the
+SDK are skipped. Leave `claude-code` out of `trusted_apps` if you'd
+like to review every fact a note gives. The other settings are in
+[docs/TUNING.md](docs/TUNING.md#claude-code-sessions).
 
 ## Connect a model through MCP
 

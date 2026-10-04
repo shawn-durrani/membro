@@ -62,6 +62,16 @@ class Settings(BaseModel):
     # judge failure leaves a row exactly as it was.
     judge_pass: bool = False
     judge_model: str = ""  # empty = miner_model; routed by name like any other
+    # Claude Code sessions (#206): once a session file under
+    # `claude_code_dir` has been quiet for `claude_code_quiet_minutes`, a
+    # model writes a short record of it and it's kept as a `claude-code`
+    # conversation, then mined. Off by default. Empty dir = Claude Code's
+    # own (~/.claude/projects, or under CLAUDE_CONFIG_DIR); empty model =
+    # miner_model.
+    claude_code_feed: bool = False
+    claude_code_dir: str = ""
+    claude_code_quiet_minutes: int = 30
+    claude_code_model: str = ""
     embedding_model: str = "text-embedding-3-small"
     # OpenAI-compatible endpoint for embeddings (#60), independent of
     # `llm_base_url` because chat serving and embedding serving are often

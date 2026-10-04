@@ -24,6 +24,7 @@ recall.py       ranks facts for a question
 weighting.py    picks which facts the profile is built from
 summary.py      builds the profile and keeps every version
 judge.py        the optional second look at held facts
+claude_code_feed.py  keeps a note of each Claude Code session, when on
 persons.py      the people your apps recognise, and their voice clips
 erasers.py      the owner's erasers for a fact, a file or a message
 restore.py      puts a snapshot back and replays the erasures since

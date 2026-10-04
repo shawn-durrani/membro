@@ -215,6 +215,41 @@ text. It ends with that site's number of calls, and its share of input
 read from the cache, since the service started. Embedding calls write no
 line.
 
+## Claude Code sessions
+
+| Setting | Default | What it does |
+|---|---|---|
+| `claude_code_feed` | `false` | Keeps a short note of each Claude Code session |
+| `claude_code_dir` | empty, meaning Claude Code's own folder | Where the session files are |
+| `claude_code_quiet_minutes` | `30` | How long a session sits untouched before it's read |
+| `claude_code_model` | empty, meaning the miner model | The model that writes each note |
+
+`claude_code_feed` turns the feed on. Every five minutes Membro looks
+through Claude Code's session files for one that's changed and gone
+quiet. A model writes a few sentences about the new part, saying what
+you set out to do, what got done and what's left open. The note is kept as a
+chat from the `claude-code` app, under the session's own id, and dated
+to the last turn it covers. It's mined straight away, and the profile is
+rebuilt once a pass when a note gave a new fact. A pass writes at most
+ten notes, so the first one over a long history spreads across a few
+passes. A note costs about what mining a chat of that length costs.
+
+The model sees the prompts you typed and the replies Claude wrote, each
+trimmed. Tool calls and their output aren't sent. Before anything goes,
+Membro masks whatever looks like a key, a token or a password, and the
+note goes through the same mask on its way back. A session started
+through the SDK, like an app's scripted run, is skipped. Subagents
+keep their own files, and those aren't read either.
+
+`claude_code_dir` defaults to `~/.claude/projects`, or the `projects`
+folder under `CLAUDE_CONFIG_DIR` if you've set that.
+`claude_code_quiet_minutes` is how long a session sits untouched before
+it's read. A shorter wait gets notes in sooner, but a session you come
+back to gets one note per stretch of work. Facts from a note are trusted
+only as far as `claude-code` is, so add it to `trusted_apps` to have
+them judged by the walls alone. Membro tracks how far it's read each
+session in a table of its own, so a note you erase stays erased.
+
 ## Recall and embeddings
 
 | Setting | Default | What it does |
