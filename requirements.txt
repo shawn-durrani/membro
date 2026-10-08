@@ -7,7 +7,7 @@ openai>=2.54.0,<3
 # FastMCP became MCPServer. Capped at <3 because a major release can remove
 # APIs these servers import, as 2.0 did, so the next major is its own
 # reviewed change (#85).
-mcp>=2.2.0,<3
+mcp>=2.3.0,<3
 pytest>=9.1.1
 httpx>=0.28.1
 pypdf
